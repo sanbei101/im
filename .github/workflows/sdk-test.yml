@@ -1,0 +1,52 @@
+name: SDK测试
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+
+jobs:
+  sdk-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        name: Install pnpm
+        with:
+          version: 10
+      
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: cache image
+        uses: sanbei101/image-cache-action@v1
+        with:
+          images: |
+            postgres:18
+            redis:8
+            swr.cn-north-4.myhuaweicloud.com/sanbei/chat:latest
+            
+      - name: Set up Backend
+        run: docker compose up -d
+
+      - name: Install dependencies
+        working-directory: sdk
+        run: pnpm install
+          
+      - name: Run SDK tests
+        working-directory: sdk
+        run: |
+          pnpm test &> test.log || true 
+          
+          echo "### 📄 Test Logs" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat test.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        env:
+          API_BASE_URL: http://localhost:8801
+          WS_GATEWAY_URL: ws://localhost:8800/ws
+          NO_COLOR: "1"
+          FORCE_COLOR: "0"

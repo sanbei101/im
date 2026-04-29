@@ -1,0 +1,15 @@
+package logger
+
+import (
+	"os"
+
+	"github.com/phuslu/log"
+)
+
+func InitLogger() {
+	log.DefaultLogger = log.Logger{
+		Level:  log.WarnLevel,
+		Caller: 0,
+		Writer: &log.IOWriter{Writer: os.Stdout},
+	}
+}
