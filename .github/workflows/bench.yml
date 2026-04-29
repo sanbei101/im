@@ -1,0 +1,57 @@
+name: 集成测试
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Start services with docker-compose
+        run: |
+          docker compose -f docker-compose.yaml up -d
+          docker compose -f docker-compose.yaml ps
+
+      - name: Check chat logs
+        run: docker logs chat
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Install monitor dependencies
+        run: sudo apt update -y && sudo apt install -y redis-tools postgresql-client
+
+      - name: Run monitor and k6 together
+        run: |
+          chmod +x monitor.sh
+
+
+          ./monitor.sh &> >(tee monitor.log) &
+          MONITOR_PID=$!
+
+          k6 run k6.js &> >(tee k6.log)
+          K6_EXIT=$?
+
+          kill -9 "$MONITOR_PID" || true
+
+          echo "### 📊 压测监控摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📋 完整监控日志" >> $GITHUB_STEP_SUMMARY
+          echo '```log' >> $GITHUB_STEP_SUMMARY
+          cat monitor.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🚀 k6 压测最后 100 行" >> $GITHUB_STEP_SUMMARY
+          echo '```log' >> $GITHUB_STEP_SUMMARY
+          tail -n 100 k6.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          exit "$K6_EXIT"
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.yaml down

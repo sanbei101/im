@@ -1,0 +1,36 @@
+{
+  "name": "go-chat-sdk",
+  "version": "1.0.0",
+  "description": "Type-safe Chat SDK for Go-Chat IM service",
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "chat",
+    "sdk",
+    "websocket",
+    "im",
+    "instant-messaging",
+    "typescript"
+  ],
+  "author": "sanbei101",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/ws": "^8.18.1",
+    "tsdown": "^0.21.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

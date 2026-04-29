@@ -1,0 +1,10 @@
+gateway:
+  max_timeout: 10
+
+postgres:
+  dsn: "host=154.8.213.38 port=5433 user=myuser password=mypassword dbname=database sslmode=disable"
+
+redis:
+  addr: "154.8.213.38:4999"
+  password: "123456"
+  db: 0

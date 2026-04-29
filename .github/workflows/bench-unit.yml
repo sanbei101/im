@@ -1,0 +1,143 @@
+name: 单元测试
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+jobs:
+  bench-gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: boot redis
+        run: docker compose -f docker-compose.yaml up -d redis
+
+      - name: Tune Linux Kernel & Open Files Limit
+        run: |
+          echo "=== 当前系统默认限制 ==="
+          ulimit -a
+          
+          echo "=== 开始注入内核调优参数 ==="
+
+          sudo sysctl -w fs.file-max=2000000
+          
+          sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
+          
+          sudo sysctl -w net.core.somaxconn=65535
+          sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+          sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+          sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+          
+          sudo prlimit --pid $$ --nofile=1000000:1000000
+
+      - name: Run benchmark tests
+        run: |
+          GOEXPERIMENT=jsonv2 go build -o bench cmd/gatewaybench/main.go
+          ./bench > bench.log 2>&1
+          echo "# 📊 Gateway 压测监控摘要" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 100 bench.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Analyze pprof (Flat & Cum)
+        run: |
+          echo "### 🔬 CPU 性能分析 (Top 20 自身耗时 - Flat)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -nodecount=20 ./bench cpu.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🔬 CPU 性能分析 (Top 20 累计耗时 - Cum)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -cum -nodecount=20 ./bench cpu.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # ---------------- 内存分析 ----------------
+          echo "### 🧠 内存分配分析 (Top 20 自身分配 - Flat)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -nodecount=20 ./bench mem.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🧠 内存分配分析 (Top 20 累计分配 - Cum)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -cum -nodecount=20 ./bench mem.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY 
+
+      - name: Upload pprof results
+        uses: actions/upload-artifact@v7
+        with:
+          name: gatewaybench-pprof-results
+          path: |
+            cpu.prof
+            mem.prof
+
+  bench-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - name: boot redis and postgres
+        run: docker compose -f docker-compose.yaml up -d redis postgres
+
+      - name: run benchmark tests
+        run: |
+          GOEXPERIMENT=jsonv2 go build -o bench cmd/workerbench/main.go
+          ./bench 2>&1 | tee bench.log
+          echo "# 📊 Worker 压测监控摘要" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 100 bench.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Analyze pprof
+        run: |
+          echo "### 🔬 CPU 性能分析 (Top 20 自身耗时 - Flat)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -nodecount=20 ./bench cpu.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🔬 CPU 性能分析 (Top 20 累计耗时 - Cum)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -cum -nodecount=20 ./bench cpu.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # ---------------- 内存分析 ----------------
+          echo "### 🧠 内存分配分析 (Top 20 自身分配 - Flat)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -nodecount=20 ./bench mem.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🧠 内存分配分析 (Top 20 累计分配 - Cum)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -top -cum -nodecount=20 ./bench mem.prof >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY 
+      
+      - name: Install monitor dependencies
+        run: sudo apt update -y && sudo apt install -y postgresql-client
+
+      - name: Read Postgresql Table
+        run: |
+          psql -c "SELECT COUNT(*) FROM messages;"
+          psql -c "SELECT * FROM messages LIMIT 5;"
+        env:
+          PGPASSWORD: mypassword
+          PGPORT: 5433
+          PGHOST: localhost
+          PGUSER: myuser
+          PGDATABASE: database
+
+      - name: Upload pprof results
+        uses: actions/upload-artifact@v7
+        with:
+          name: workerbench-pprof-results
+          path: |
+            cpu.prof
+            mem.prof
