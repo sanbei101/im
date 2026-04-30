@@ -15,8 +15,8 @@ jobs:
         with:
           go-version: stable
 
-      - name: boot redis
-        run: docker compose -f docker-compose.yaml up -d redis
+      - name: boot redis and postgres
+        run: docker compose -f docker-compose.yaml up -d redis postgres
 
       - name: Tune Linux Kernel & Open Files Limit
         run: |
