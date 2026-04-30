@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"encoding/json/jsontext"
 	"github.com/google/uuid"
@@ -18,7 +17,6 @@ type BatchCopyMessagesParams struct {
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
 	SenderID     uuid.UUID      `json:"sender_id"`
 	RoomID       uuid.UUID      `json:"room_id"`
-	ChatType     ChatType       `json:"chat_type"`
 	MsgType      MessageType    `json:"msg_type"`
 	ServerTime   int64          `json:"server_time"`
 	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
@@ -32,7 +30,6 @@ INSERT INTO messages (
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
@@ -47,8 +44,7 @@ INSERT INTO messages (
     $6,
     $7,
     $8,
-    $9,
-    $10
+    $9
 )
 `
 
@@ -57,7 +53,6 @@ type CreateMessageParams struct {
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
 	SenderID     uuid.UUID      `json:"sender_id"`
 	RoomID       uuid.UUID      `json:"room_id"`
-	ChatType     ChatType       `json:"chat_type"`
 	MsgType      MessageType    `json:"msg_type"`
 	ServerTime   int64          `json:"server_time"`
 	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
@@ -71,7 +66,6 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) er
 		arg.ClientMsgID,
 		arg.SenderID,
 		arg.RoomID,
-		arg.ChatType,
 		arg.MsgType,
 		arg.ServerTime,
 		arg.ReplyToMsgID,
@@ -87,13 +81,11 @@ SELECT
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
     payload,
-    ext,
-    created_at
+    ext
 FROM messages
 WHERE msg_id = $1
 LIMIT 1
@@ -104,13 +96,11 @@ type GetMessageByIDRow struct {
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
 	SenderID     uuid.UUID      `json:"sender_id"`
 	RoomID       uuid.UUID      `json:"room_id"`
-	ChatType     ChatType       `json:"chat_type"`
 	MsgType      MessageType    `json:"msg_type"`
 	ServerTime   int64          `json:"server_time"`
 	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
 	Payload      jsontext.Value `json:"payload"`
 	Ext          jsontext.Value `json:"ext"`
-	CreatedAt    time.Time      `json:"created_at"`
 }
 
 func (q *Queries) GetMessageByID(ctx context.Context, msgID uuid.UUID) (*GetMessageByIDRow, error) {
@@ -121,13 +111,11 @@ func (q *Queries) GetMessageByID(ctx context.Context, msgID uuid.UUID) (*GetMess
 		&i.ClientMsgID,
 		&i.SenderID,
 		&i.RoomID,
-		&i.ChatType,
 		&i.MsgType,
 		&i.ServerTime,
 		&i.ReplyToMsgID,
 		&i.Payload,
 		&i.Ext,
-		&i.CreatedAt,
 	)
 	return &i, err
 }
@@ -138,13 +126,11 @@ SELECT
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
     payload,
-    ext,
-    created_at
+    ext
 FROM messages
 WHERE room_id = $1
   AND server_time < $2
@@ -163,13 +149,11 @@ type ListMessagesByRoomRow struct {
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
 	SenderID     uuid.UUID      `json:"sender_id"`
 	RoomID       uuid.UUID      `json:"room_id"`
-	ChatType     ChatType       `json:"chat_type"`
 	MsgType      MessageType    `json:"msg_type"`
 	ServerTime   int64          `json:"server_time"`
 	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
 	Payload      jsontext.Value `json:"payload"`
 	Ext          jsontext.Value `json:"ext"`
-	CreatedAt    time.Time      `json:"created_at"`
 }
 
 func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoomParams) ([]*ListMessagesByRoomRow, error) {
@@ -186,13 +170,11 @@ func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoom
 			&i.ClientMsgID,
 			&i.SenderID,
 			&i.RoomID,
-			&i.ChatType,
 			&i.MsgType,
 			&i.ServerTime,
 			&i.ReplyToMsgID,
 			&i.Payload,
 			&i.Ext,
-			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

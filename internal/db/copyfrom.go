@@ -33,7 +33,6 @@ func (r iteratorForBatchCopyMessages) Values() ([]interface{}, error) {
 		r.rows[0].ClientMsgID,
 		r.rows[0].SenderID,
 		r.rows[0].RoomID,
-		r.rows[0].ChatType,
 		r.rows[0].MsgType,
 		r.rows[0].ServerTime,
 		r.rows[0].ReplyToMsgID,
@@ -47,5 +46,5 @@ func (r iteratorForBatchCopyMessages) Err() error {
 }
 
 func (q *Queries) BatchCopyMessages(ctx context.Context, arg []BatchCopyMessagesParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"messages"}, []string{"msg_id", "client_msg_id", "sender_id", "room_id", "chat_type", "msg_type", "server_time", "reply_to_msg_id", "payload", "ext"}, &iteratorForBatchCopyMessages{rows: arg})
+	return q.db.CopyFrom(ctx, []string{"messages"}, []string{"msg_id", "client_msg_id", "sender_id", "room_id", "msg_type", "server_time", "reply_to_msg_id", "payload", "ext"}, &iteratorForBatchCopyMessages{rows: arg})
 }

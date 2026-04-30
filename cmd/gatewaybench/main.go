@@ -172,7 +172,6 @@ func main() {
 				msg := db.Message{
 					ClientMsgID: uuid.New(),
 					RoomID:      users[receiverIdx],
-					ChatType:    db.ChatTypeSingle,
 					Payload:     jsontext.Value(fmt.Sprintf(`{"text": "Hello from user %d to user %d, msg %d"}`, senderIdx, receiverIdx, j)),
 				}
 				bin, _ := json.Marshal(msg)

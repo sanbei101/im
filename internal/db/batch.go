@@ -24,7 +24,6 @@ INSERT INTO messages (
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
@@ -39,8 +38,7 @@ INSERT INTO messages (
     $6,
     $7,
     $8,
-    $9,
-    $10
+    $9
 )
 ON CONFLICT (msg_id) DO NOTHING
 `
@@ -56,7 +54,6 @@ type BatchCreateMessagesParams struct {
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
 	SenderID     uuid.UUID      `json:"sender_id"`
 	RoomID       uuid.UUID      `json:"room_id"`
-	ChatType     ChatType       `json:"chat_type"`
 	MsgType      MessageType    `json:"msg_type"`
 	ServerTime   int64          `json:"server_time"`
 	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
@@ -72,7 +69,6 @@ func (q *Queries) BatchCreateMessages(ctx context.Context, arg []BatchCreateMess
 			a.ClientMsgID,
 			a.SenderID,
 			a.RoomID,
-			a.ChatType,
 			a.MsgType,
 			a.ServerTime,
 			a.ReplyToMsgID,
