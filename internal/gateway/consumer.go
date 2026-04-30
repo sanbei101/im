@@ -54,15 +54,11 @@ func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.Stre
 			continue
 		}
 
-		roomID := msg.Data.RoomID
-		members, err := gateway.queries.GetRoomMembers(ctx, roomID)
-		if err != nil {
-			log.Error().Err(err).Str("room_id", roomID.String()).Msg("gateway get room members failed")
-			continue
-		}
+		roomIDStr := msg.Data.RoomID.String()
 
-		for _, memberID := range members {
-			gateway.deliverToClient(memberID.String(), bin)
+		if roomIface, ok := gateway.roomSessions.Load(roomIDStr); ok {
+			roomSession := roomIface.(*RoomSession)
+			roomSession.Broadcast(bin)
 		}
 	}
 	err := gateway.redis.GatewayAckMessage(ctx, msgIDs...)
@@ -71,11 +67,3 @@ func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.Stre
 	}
 }
 
-func (gateway *Gateway) deliverToClient(userID string, payload []byte) {
-	if sessionIface, ok := gateway.sessions.Load(userID); ok {
-		session := sessionIface.(*UserSession)
-		session.Broadcast(payload)
-	} else {
-		log.Debug().Str("user_id", userID).Msg("user not connected to this gateway instance")
-	}
-}

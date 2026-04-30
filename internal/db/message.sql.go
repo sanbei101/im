@@ -144,6 +144,30 @@ func (q *Queries) GetRoomMembers(ctx context.Context, roomID uuid.UUID) ([]uuid.
 	return items, nil
 }
 
+const getUserRooms = `-- name: GetUserRooms :many
+SELECT room_id FROM room_members WHERE user_id = $1
+`
+
+func (q *Queries) GetUserRooms(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, getUserRooms, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var room_id uuid.UUID
+		if err := rows.Scan(&room_id); err != nil {
+			return nil, err
+		}
+		items = append(items, room_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMessagesByRoom = `-- name: ListMessagesByRoom :many
 SELECT
     msg_id,
