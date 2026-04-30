@@ -53,8 +53,17 @@ func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.Stre
 			log.Error().Err(marshalErr).Msg("gateway marshal message failed")
 			continue
 		}
-		roomID := msg.Data.RoomID.String()
-		gateway.deliverToClient(roomID, bin)
+
+		roomID := msg.Data.RoomID
+		members, err := gateway.queries.GetRoomMembers(ctx, roomID)
+		if err != nil {
+			log.Error().Err(err).Str("room_id", roomID.String()).Msg("gateway get room members failed")
+			continue
+		}
+
+		for _, memberID := range members {
+			gateway.deliverToClient(memberID.String(), bin)
+		}
 	}
 	err := gateway.redis.GatewayAckMessage(ctx, msgIDs...)
 	if err != nil {

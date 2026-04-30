@@ -100,3 +100,6 @@ WHERE room_id = sqlc.arg(room_id)
   AND server_time < sqlc.arg(before_server_time)
 ORDER BY server_time DESC
 LIMIT sqlc.arg(page_size);
+
+-- name: GetRoomMembers :many
+SELECT user_id FROM room_members WHERE room_id = sqlc.arg(room_id);
