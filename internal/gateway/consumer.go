@@ -11,10 +11,6 @@ import (
 )
 
 func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
-	if err := gateway.redis.InitStreamGroups(ctx); err != nil {
-		log.Warn().Err(err).Msg("gateway consumer group mkstream failed")
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -66,4 +62,3 @@ func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.Stre
 		log.Error().Err(err).Msg("gateway ack messages failed")
 	}
 }
-
