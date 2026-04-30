@@ -130,7 +130,6 @@ export class APIClient {
     // 构建查询参数
     const queryParams = new URLSearchParams();
     queryParams.append('room_id', params.room_id);
-    queryParams.append('chat_type', params.chat_type);
 
     if (params.before_server_time !== undefined) {
       queryParams.append('before_server_time', params.before_server_time.toString());

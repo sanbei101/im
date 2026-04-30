@@ -50,7 +50,6 @@ describe('消息发送与接收集成测试', () => {
     const testText = `Hello from user1! ${Date.now()}`;
     sdk1.sendTextMessage({
       room_id: user2Id,
-      chat_type: ChatType.Single,
       text: testText,
     });
 
@@ -80,7 +79,6 @@ describe('消息发送与接收集成测试', () => {
     const replyText = `Reply from user2! ${Date.now()}`;
     sdk2.sendTextMessage({
       room_id: user1Id,
-      chat_type: ChatType.Single,
       text: replyText,
     });
 
@@ -106,7 +104,6 @@ describe('消息发送与接收集成测试', () => {
     // 发送图片消息
     sdk1.sendImageMessage({
       room_id: user2Id,
-      chat_type: ChatType.Single,
       url: 'https://example.com/image.jpg',
       width: 1920,
       height: 1080,
@@ -116,7 +113,6 @@ describe('消息发送与接收集成测试', () => {
     // 发送视频消息
     sdk1.sendVideoMessage({
       room_id: user2Id,
-      chat_type: ChatType.Single,
       url: 'https://example.com/video.mp4',
       duration: 60,
       width: 1920,
@@ -128,7 +124,6 @@ describe('消息发送与接收集成测试', () => {
     // 发送文件消息
     sdk1.sendFileMessage({
       room_id: user2Id,
-      chat_type: ChatType.Single,
       url: 'https://example.com/document.pdf',
       name: 'document.pdf',
       size: 2048000,
@@ -170,7 +165,6 @@ describe('消息发送与接收集成测试', () => {
     sdk1.sendMessage({
       client_msg_id: clientMsgId,
       room_id: user2Id,
-      chat_type: ChatType.Single,
       msg_type: MessageType.Text,
       payload: { text: 'Test client_msg_id' },
     });
@@ -196,7 +190,6 @@ describe('消息发送与接收集成测试', () => {
     expect(() => {
       disconnectedSdk.sendTextMessage({
         room_id: user2Id,
-        chat_type: ChatType.Single,
         text: 'This message should be queued',
       });
     }).not.toThrow();

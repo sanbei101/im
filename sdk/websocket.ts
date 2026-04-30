@@ -158,7 +158,6 @@ export class WebSocketManager {
     return {
       client_msg_id: req.client_msg_id,
       room_id: req.room_id,
-      chat_type: req.chat_type,
       msg_type: req.msg_type,
       payload: req.payload,
       ...(req.reply_to_msg_id && { reply_to_msg_id: req.reply_to_msg_id }),
