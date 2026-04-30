@@ -56,7 +56,6 @@ export { WebSocketManager } from './websocket';
  * // 发送文本消息
  * sdk.sendTextMessage({
  *   room_id: 'xxx',
- *   chat_type: ChatType.Single,
  *   text: 'Hello!',
  * });
  * ```
