@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/phuslu/log"
 	"github.com/redis/go-redis/v9"
@@ -105,20 +105,20 @@ func (r *Redis) pullMessageFromStream(ctx context.Context, stream, group, consum
 	if len(result) == 0 {
 		return nil, nil
 	}
-
-	var messages []*StreamMessage
+	messages := make([]*StreamMessage, 0, len(result[0].Messages))
 	for _, msg := range result[0].Messages {
 		data, ok := msg.Values["data"].(string)
 		if !ok {
 			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
 			continue
 		}
-		var m Message
-		if err := json.Unmarshal([]byte(data), &m); err != nil {
-			log.Error().Str("id", msg.ID).Str("raw", data).Msg("Failed to unmarshal message")
+		m := AcquireMessage()
+		if err := m.Unmarshal(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal message")
+			ReleaseMessage(m)
 			continue
 		}
-		messages = append(messages, &StreamMessage{ID: msg.ID, Data: &m})
+		messages = append(messages, &StreamMessage{ID: msg.ID, Data: m})
 	}
 	return messages, nil
 }
@@ -133,7 +133,7 @@ func (r *Redis) pushMessageToStream(ctx context.Context, stream string, messages
 			log.Error().Msg("Skipping nil message pointer")
 			continue
 		}
-		bin, err := json.Marshal(msg)
+		bin, err := msg.Marshal()
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to marshal message for stream")
 			continue
@@ -142,7 +142,7 @@ func (r *Redis) pushMessageToStream(ctx context.Context, stream string, messages
 			Stream: stream,
 			MaxLen: MessageMaxLen,
 			Approx: true,
-			Values: map[string]any{"data": bin},
+			Values: map[string]any{"data": unsafe.String(unsafe.SliceData(bin), len(bin))},
 		})
 	}
 	_, err := pipe.Exec(ctx)
