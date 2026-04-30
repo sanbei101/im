@@ -29,7 +29,7 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	c, session := gateway.setupClient(userID, conn)
+	c, session := gateway.setupClient(r.Context(), userID, conn)
 	defer gateway.cleanupClient(userID, c, session)
 
 	go c.writePump(context.Background())
@@ -60,7 +60,7 @@ func (gateway *Gateway) authenticate(r *http.Request) (string, error) {
 	return userID, nil
 }
 
-func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*client, *UserSession) {
+func (gateway *Gateway) setupClient(ctx context.Context, userID string, conn *websocket.Conn) (*client, *UserSession) {
 	c := &client{
 		conn: conn,
 		send: make(chan []byte, 100),
@@ -68,12 +68,39 @@ func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*clien
 	sessionIface, _ := gateway.sessions.LoadOrStore(userID, NewUserSession())
 	session := sessionIface.(*UserSession)
 	session.Add(c)
+
+	uUUID, err := uuid.Parse(userID)
+	if err == nil {
+		rooms, err := gateway.queries.GetUserRooms(ctx, uUUID)
+		if err == nil {
+			for _, roomID := range rooms {
+				roomIDStr := roomID.String()
+				c.roomIDs = append(c.roomIDs, roomIDStr)
+				roomIface, _ := gateway.roomSessions.LoadOrStore(roomIDStr, NewRoomSession())
+				roomSession := roomIface.(*RoomSession)
+				roomSession.Add(c)
+			}
+		} else {
+			log.Error().Err(err).Msg("gateway get user rooms failed")
+		}
+	} else {
+		log.Error().Err(err).Msg("gateway parse user id failed in setupClient")
+	}
+
 	return c, session
 }
 
 func (gateway *Gateway) cleanupClient(userID string, c *client, session *UserSession) {
 	if session.Remove(c) {
 		gateway.sessions.Delete(userID)
+	}
+	for _, roomID := range c.roomIDs {
+		if roomIface, ok := gateway.roomSessions.Load(roomID); ok {
+			roomSession := roomIface.(*RoomSession)
+			if roomSession.Remove(c) {
+				gateway.roomSessions.Delete(roomID)
+			}
+		}
 	}
 	close(c.send)
 }

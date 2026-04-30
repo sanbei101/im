@@ -103,3 +103,6 @@ LIMIT sqlc.arg(page_size);
 
 -- name: GetRoomMembers :many
 SELECT user_id FROM room_members WHERE room_id = sqlc.arg(room_id);
+
+-- name: GetUserRooms :many
+SELECT room_id FROM room_members WHERE user_id = sqlc.arg(user_id);

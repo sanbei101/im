@@ -12,7 +12,8 @@ import (
 )
 
 type Gateway struct {
-	sessions sync.Map
+	sessions      sync.Map
+	roomSessions  sync.Map
 	redis    *db.Redis
 	config   *config.Config
 	queries  *db.Queries
