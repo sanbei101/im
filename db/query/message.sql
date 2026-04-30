@@ -4,7 +4,6 @@ INSERT INTO messages (
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
@@ -15,7 +14,6 @@ INSERT INTO messages (
     sqlc.arg(client_msg_id),
     sqlc.arg(sender_id),
     sqlc.arg(room_id),
-    sqlc.arg(chat_type),
     sqlc.arg(msg_type),
     sqlc.arg(server_time),
     sqlc.arg(reply_to_msg_id),
@@ -29,7 +27,6 @@ INSERT INTO messages (
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
@@ -40,7 +37,6 @@ INSERT INTO messages (
     sqlc.arg(client_msg_id),
     sqlc.arg(sender_id),
     sqlc.arg(room_id),
-    sqlc.arg(chat_type),
     sqlc.arg(msg_type),
     sqlc.arg(server_time),
     sqlc.arg(reply_to_msg_id),
@@ -56,7 +52,6 @@ INSERT INTO messages (
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
@@ -67,7 +62,6 @@ INSERT INTO messages (
     sqlc.arg(client_msg_id),
     sqlc.arg(sender_id),
     sqlc.arg(room_id),
-    sqlc.arg(chat_type),
     sqlc.arg(msg_type),
     sqlc.arg(server_time),
     sqlc.arg(reply_to_msg_id),
@@ -81,13 +75,11 @@ SELECT
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
     payload,
-    ext,
-    created_at
+    ext
 FROM messages
 WHERE msg_id = sqlc.arg(msg_id)
 LIMIT 1;
@@ -98,13 +90,11 @@ SELECT
     client_msg_id,
     sender_id,
     room_id,
-    chat_type,
     msg_type,
     server_time,
     reply_to_msg_id,
     payload,
-    ext,
-    created_at
+    ext
 FROM messages
 WHERE room_id = sqlc.arg(room_id)
   AND server_time < sqlc.arg(before_server_time)

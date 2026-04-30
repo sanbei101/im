@@ -59,7 +59,6 @@ func main() {
 			ClientMsgID: clientID,
 			SenderID:    senderID,
 			RoomID:      receiverID,
-			ChatType:    db.ChatTypeSingle,
 			MsgType:     db.MessageTypeText,
 			ServerTime:  time.Now().UnixNano(),
 			Payload:     jsontext.Value(fmt.Sprintf(`{"text": "bench message %d"}`, i)),
