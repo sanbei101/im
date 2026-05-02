@@ -35,9 +35,7 @@ func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gat
 		userID := strconv.Itoa(i)
 		session := sm.LoadOrCreate(userID, gateway.NewUserSession)
 		wsURL := "ws" + srv.URL[4:]
-		dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		clientConn, resp, err := websocket.Dial(dialCtx, wsURL, nil)
-		cancel()
+		clientConn, resp, err := websocket.Dial(ctx, wsURL, nil)
 		if err != nil {
 			log.Panic().Err(err).Msg("failed to connect to websocket server")
 		}
