@@ -13,6 +13,43 @@ type client struct {
 	send chan []byte
 }
 
+func (c *client) writePump(ctx context.Context) {
+	for msg := range c.send {
+		if err := c.conn.Write(ctx, websocket.MessageText, msg); err != nil {
+			return
+		}
+	}
+}
+
+type SessionManager[T any] struct {
+	sessions sync.Map
+}
+
+func NewSessionManager[T any]() *SessionManager[T] {
+	return &SessionManager[T]{}
+}
+
+func (sm *SessionManager[T]) LoadOrCreate(key string, createFn func() T) T {
+	if v, ok := sm.sessions.Load(key); ok {
+		return v.(T)
+	}
+	session := createFn()
+	actual, _ := sm.sessions.LoadOrStore(key, session)
+	return actual.(T)
+}
+
+func (sm *SessionManager[T]) Delete(key string) {
+	sm.sessions.Delete(key)
+}
+
+func (sm *SessionManager[T]) Load(key string) (T, bool) {
+	if v, ok := sm.sessions.Load(key); ok {
+		return v.(T), true
+	}
+	var zero T
+	return zero, false
+}
+
 type UserSession struct {
 	mu      sync.RWMutex
 	clients map[*client]struct{}
@@ -45,14 +82,6 @@ func (s *UserSession) Broadcast(payload []byte) {
 		case c.send <- payload:
 		default:
 			log.Warn().Msg("gateway client buffer full, dropping message")
-		}
-	}
-}
-
-func (c *client) writePump(ctx context.Context) {
-	for msg := range c.send {
-		if err := c.conn.Write(ctx, websocket.MessageText, msg); err != nil {
-			return
 		}
 	}
 }

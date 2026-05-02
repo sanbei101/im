@@ -50,8 +50,7 @@ func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.Stre
 
 		userIDStr := msg.Data.SenderID.String()
 
-		if sessionIface, ok := gateway.sessions.Load(userIDStr); ok {
-			userSession := sessionIface.(*UserSession)
+		if userSession, ok := gateway.sessions.Load(userIDStr); ok {
 			userSession.Broadcast(bin)
 		}
 	}

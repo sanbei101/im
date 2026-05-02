@@ -65,8 +65,7 @@ func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*clien
 		conn: conn,
 		send: make(chan []byte, 100),
 	}
-	sessionIface, _ := gateway.sessions.LoadOrStore(userID, NewUserSession())
-	session := sessionIface.(*UserSession)
+	session := gateway.sessions.LoadOrCreate(userID, NewUserSession)
 	session.Add(c)
 
 	return c, session
