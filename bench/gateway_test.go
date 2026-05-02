@@ -15,10 +15,10 @@ import (
 	"github.com/sanbei101/im/internal/gateway"
 )
 
-func setupFakeUsers(n int) (*gateway.SessionManager, []*gateway.Client, *httptest.Server) {
+func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gateway.Client, *httptest.Server) {
 	sm := gateway.NewSessionManager()
 	var clients []*gateway.Client
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
@@ -48,7 +48,7 @@ func setupFakeUsers(n int) (*gateway.SessionManager, []*gateway.Client, *httptes
 		}
 		c := &gateway.Client{
 			Conn: clientConn,
-			Send: make(chan []byte, 100),
+			Send: make(chan []byte, 1000),
 		}
 		session.Add(c)
 		clients = append(clients, c)
@@ -66,8 +66,52 @@ func BenchmarkSession(b *testing.B) {
 	payload := []byte("hello private message")
 
 	for _, n := range levels {
+		var totalCount atomic.Uint64
+		var dropCount atomic.Uint64
+		done := make(chan struct{})
+
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+
+			var lastCount uint64
+			start := time.Now()
+
+			for {
+				select {
+				case <-ticker.C:
+					current := totalCount.Load()
+					elapsed := time.Since(start)
+					rate := float64(current-lastCount) / 1.0
+					avgRate := float64(current) / elapsed.Seconds()
+
+					fmt.Printf("[%s] Users:%d | Current: %d/s | Avg: %.0f/s | Total: %d | Dropped: %d | Elapsed: %.1fs\n",
+						time.Now().Format("15:04:05"),
+						n,
+						int(rate),
+						avgRate,
+						current,
+						dropCount.Load(),
+						elapsed.Seconds(),
+					)
+					lastCount = current
+
+				case <-done:
+					current := totalCount.Load()
+					elapsed := time.Since(start)
+					fmt.Printf("\n📊 Final Stats [Users:%d]:\n", n)
+					fmt.Printf("  Total Messages: %d\n", current)
+					fmt.Printf("  Dropped: %d (%.2f%%)\n",
+						dropCount.Load(),
+						float64(dropCount.Load())/float64(current)*100)
+					fmt.Printf("  Duration: %.2fs\n", elapsed.Seconds())
+					fmt.Printf("  Avg Rate: %.0f msg/s\n", float64(current)/elapsed.Seconds())
+					return
+				}
+			}
+		}()
 		b.Run(fmt.Sprintf("Users_%d", n), func(b *testing.B) {
-			sm, clients, srv := setupFakeUsers(n)
+			sm, clients, srv := setupFakeUsers(b.Context(), n)
 
 			b.Cleanup(func() {
 				for _, c := range clients {
@@ -82,15 +126,14 @@ func BenchmarkSession(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 
-			var counter uint64
-
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					idx := atomic.AddUint64(&counter, 1) % uint64(n)
-					userID := strconv.FormatUint(idx, 10)
+					idx := totalCount.Load()
+					userID := strconv.FormatUint(idx%uint64(n), 10)
 					if session, ok := sm.Load(userID); ok {
 						session.Broadcast(payload)
 					}
+					totalCount.Add(1)
 				}
 			})
 		})
