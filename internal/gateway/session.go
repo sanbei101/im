@@ -9,9 +9,8 @@ import (
 )
 
 type client struct {
-	conn    *websocket.Conn
-	send    chan []byte
-	roomIDs []string
+	conn *websocket.Conn
+	send chan []byte
 }
 
 type UserSession struct {
@@ -56,9 +55,4 @@ func (c *client) writePump(ctx context.Context) {
 			return
 		}
 	}
-}
-type RoomSession = UserSession
-
-func NewRoomSession() *RoomSession {
-        return NewUserSession()
 }

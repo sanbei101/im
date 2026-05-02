@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"encoding/json/v2"
-	"time"
 
 	"github.com/phuslu/log"
 
@@ -28,7 +27,6 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 			return
 		}
 		log.Error().Err(err).Msg("gateway pull message failed")
-		time.Sleep(time.Second)
 		return
 	}
 
@@ -50,13 +48,14 @@ func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.Stre
 			continue
 		}
 
-		roomIDStr := msg.Data.RoomID.String()
+		userIDStr := msg.Data.SenderID.String()
 
-		if roomIface, ok := gateway.roomSessions.Load(roomIDStr); ok {
-			roomSession := roomIface.(*RoomSession)
-			roomSession.Broadcast(bin)
+		if sessionIface, ok := gateway.sessions.Load(userIDStr); ok {
+			userSession := sessionIface.(*UserSession)
+			userSession.Broadcast(bin)
 		}
 	}
+
 	err := gateway.redis.GatewayAckMessage(ctx, msgIDs...)
 	if err != nil {
 		log.Error().Err(err).Msg("gateway ack messages failed")
