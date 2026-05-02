@@ -61,29 +61,28 @@ func BenchmarkSession(b *testing.B) {
 	for _, n := range levels {
 		var totalCount atomic.Uint64
 		var dropCount atomic.Uint64
-
-		go func() {
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
-			var lastCount uint64
-			for {
-				select {
-				case <-b.Context().Done():
-					return
-				case <-ticker.C:
-					current := totalCount.Load()
-					rate := current - lastCount
-					lastCount = current
-					log.Info().
-						Int("users", n).
-						Uint64("current", current).
-						Uint64("dropped", dropCount.Load()).
-						Uint64("rate", rate).
-						Msg("benchmark progress")
-				}
-			}
-		}()
 		b.Run(fmt.Sprintf("Users_%d", n), func(b *testing.B) {
+			go func() {
+				ticker := time.NewTicker(1 * time.Second)
+				defer ticker.Stop()
+				var lastCount uint64
+				for {
+					select {
+					case <-b.Context().Done():
+						return
+					case <-ticker.C:
+						current := totalCount.Load()
+						rate := current - lastCount
+						lastCount = current
+						log.Info().
+							Int("users", n).
+							Uint64("current", current).
+							Uint64("dropped", dropCount.Load()).
+							Uint64("rate", rate).
+							Msg("benchmark progress")
+					}
+				}
+			}()
 			var wg sync.WaitGroup
 			sm, clients, srv := setupFakeUsers(b.Context(), n)
 			for _, c := range clients {
