@@ -54,7 +54,10 @@ func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gat
 		clients = append(clients, c)
 		go func(cli *gateway.Client) {
 			for msg := range cli.Send {
-				cli.Conn.Write(ctx, websocket.MessageText, msg)
+				err := cli.Conn.Write(ctx, websocket.MessageText, msg)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to write message")
+				}
 			}
 		}(c)
 	}
