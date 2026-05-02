@@ -18,8 +18,6 @@ import (
 func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gateway.Client, *httptest.Server) {
 	sm := gateway.NewSessionManager()
 	var clients []*gateway.Client
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -71,7 +69,6 @@ func BenchmarkSession(b *testing.B) {
 	for _, n := range levels {
 		var totalCount atomic.Uint64
 		var dropCount atomic.Uint64
-		done := make(chan struct{})
 
 		go func() {
 			ticker := time.NewTicker(1 * time.Second)
@@ -81,33 +78,20 @@ func BenchmarkSession(b *testing.B) {
 			start := time.Now()
 
 			for {
-				select {
-				case <-ticker.C:
-					current := totalCount.Load()
-					elapsed := time.Since(start)
-					rate := float64(current-lastCount) / 1.0
-					avgRate := float64(current) / elapsed.Seconds()
-					lastCount = current
-					log.Info().
-						Int("users", n).
-						Uint64("current", current).
-						Uint64("dropped", dropCount.Load()).
-						Float64("rate", rate).
-						Float64("avg_rate", avgRate).
-						Float64("elapsed", elapsed.Seconds()).
-						Msg("benchmark progress")
-				case <-done:
-					current := totalCount.Load()
-					elapsed := time.Since(start)
-					fmt.Printf("\n📊 Final Stats [Users:%d]:\n", n)
-					fmt.Printf("  Total Messages: %d\n", current)
-					fmt.Printf("  Dropped: %d (%.2f%%)\n",
-						dropCount.Load(),
-						float64(dropCount.Load())/float64(current)*100)
-					fmt.Printf("  Duration: %.2fs\n", elapsed.Seconds())
-					fmt.Printf("  Avg Rate: %.0f msg/s\n", float64(current)/elapsed.Seconds())
-					return
-				}
+				<-ticker.C
+				current := totalCount.Load()
+				elapsed := time.Since(start)
+				rate := float64(current-lastCount) / 1.0
+				avgRate := float64(current) / elapsed.Seconds()
+				lastCount = current
+				log.Info().
+					Int("users", n).
+					Uint64("current", current).
+					Uint64("dropped", dropCount.Load()).
+					Float64("rate", rate).
+					Float64("avg_rate", avgRate).
+					Float64("elapsed", elapsed.Seconds()).
+					Msg("benchmark progress")
 			}
 		}()
 		b.Run(fmt.Sprintf("Users_%d", n), func(b *testing.B) {
