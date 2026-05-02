@@ -41,17 +41,18 @@ func (m *Message) Reset() {
 	}
 }
 
-func (m *Message) Marshal() ([]byte, error) {
+func (m *Message) Size() int {
 	size := 16*4 + 8 + 1
-
 	if m.ReplyToMsgID != nil {
 		size += 16
 	}
 	size += 2 + len(m.MsgType)
 	size += 4 + len(m.Payload)
 	size += 4 + len(m.Ext)
+	return size
+}
 
-	buf := make([]byte, size)
+func (m *Message) MarshalTo(buf []byte) int {
 	offset := 0
 	copy(buf[offset:], m.MsgID[:])
 	offset += 16
@@ -74,6 +75,7 @@ func (m *Message) Marshal() ([]byte, error) {
 		buf[offset] = 0
 		offset += 1
 	}
+
 	binary.BigEndian.PutUint16(buf[offset:], uint16(len(m.MsgType)))
 	offset += 2
 	copy(buf[offset:], m.MsgType)
@@ -89,6 +91,12 @@ func (m *Message) Marshal() ([]byte, error) {
 	copy(buf[offset:], m.Ext)
 	offset += len(m.Ext)
 
+	return offset
+}
+
+func (m *Message) Marshal() ([]byte, error) {
+	buf := make([]byte, m.Size())
+	m.MarshalTo(buf)
 	return buf, nil
 }
 
