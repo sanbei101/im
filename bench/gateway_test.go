@@ -107,16 +107,14 @@ func BenchmarkSession(b *testing.B) {
 
 			b.ResetTimer()
 			b.ReportAllocs()
-			b.Run("Broadcast", func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
-					idx := totalCount.Load()
-					userID := strconv.FormatUint(idx%uint64(n), 10)
-					if session, ok := sm.Load(userID); ok {
-						session.Broadcast(payload)
-					}
-					totalCount.Add(1)
+			for b.Loop() {
+				idx := totalCount.Load()
+				userID := strconv.FormatUint(idx%uint64(n), 10)
+				if session, ok := sm.Load(userID); ok {
+					session.Broadcast(payload)
 				}
-			})
+				totalCount.Add(1)
+			}
 		})
 	}
 }
