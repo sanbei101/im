@@ -55,6 +55,7 @@ func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gat
 }
 
 func BenchmarkSession(b *testing.B) {
+	log.DefaultLogger.Level = log.ErrorLevel
 	levels := []int{10, 100, 1000, 10000}
 	payload := []byte("hello private message")
 
@@ -120,7 +121,6 @@ func BenchmarkSession(b *testing.B) {
 					session.Broadcast(payload)
 				}
 				totalCount.Add(1)
-				time.Sleep(time.Second)
 			}
 			b.Cleanup(func() {
 				for _, c := range clients {
