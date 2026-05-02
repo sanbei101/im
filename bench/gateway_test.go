@@ -119,12 +119,14 @@ func BenchmarkSession(b *testing.B) {
 				totalCount.Add(1)
 			}
 			b.Cleanup(func() {
+				for _, c := range clients {
+					close(c.Send)
+				}
 				wg.Wait()
 				for _, c := range clients {
 					if c.Conn != nil {
 						c.Conn.CloseNow()
 					}
-					close(c.Send)
 				}
 				srv.Close()
 			})
