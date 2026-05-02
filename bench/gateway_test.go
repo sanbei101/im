@@ -18,18 +18,21 @@ import (
 func setupFakeUsers(n int) (*gateway.SessionManager, []*gateway.Client, *httptest.Server) {
 	sm := gateway.NewSessionManager()
 	var clients []*gateway.Client
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer c.CloseNow()
-		ctx := context.Background()
 		for {
-			c.Read(ctx)
+			_, _, err := c.Read(ctx)
+			if err != nil {
+				return
+			}
 		}
 	}))
-	ctx := context.Background()
 	for i := range n {
 		userID := strconv.Itoa(i)
 		session := sm.LoadOrCreate(userID, gateway.NewUserSession)
