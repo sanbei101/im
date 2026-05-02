@@ -77,25 +77,28 @@ func BenchmarkSession(b *testing.B) {
 			start := time.Now()
 
 			for {
-				<-ticker.C
-				current := totalCount.Load()
-				elapsed := time.Since(start)
-				rate := float64(current-lastCount) / 1.0
-				avgRate := float64(current) / elapsed.Seconds()
-				lastCount = current
-				log.Info().
-					Int("users", n).
-					Uint64("current", current).
-					Uint64("dropped", dropCount.Load()).
-					Float64("rate", rate).
-					Float64("avg_rate", avgRate).
-					Float64("elapsed", elapsed.Seconds()).
-					Msg("benchmark progress")
+				select {
+				case <-b.Context().Done():
+					return
+				case <-ticker.C:
+					current := totalCount.Load()
+					elapsed := time.Since(start)
+					rate := float64(current-lastCount) / 1.0
+					avgRate := float64(current) / elapsed.Seconds()
+					lastCount = current
+					log.Info().
+						Int("users", n).
+						Uint64("current", current).
+						Uint64("dropped", dropCount.Load()).
+						Float64("rate", rate).
+						Float64("avg_rate", avgRate).
+						Float64("elapsed", elapsed.Seconds()).
+						Msg("benchmark progress")
+				}
 			}
 		}()
 		b.Run(fmt.Sprintf("Users_%d", n), func(b *testing.B) {
 			sm, clients, srv := setupFakeUsers(b.Context(), n)
-
 			b.Cleanup(func() {
 				for _, c := range clients {
 					if c.Conn != nil {
