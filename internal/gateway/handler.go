@@ -78,7 +78,13 @@ func (gateway *Gateway) cleanupClient(userID string, c *Client, session *UserSes
 	close(c.Send)
 }
 
-func (gateway *Gateway) readPump(ctx context.Context, conn *websocket.Conn, c *Client, userID string, senderUUID uuid.UUID) {
+func (gateway *Gateway) readPump(
+	ctx context.Context,
+	conn *websocket.Conn,
+	c *Client,
+	userID string,
+	senderUUID uuid.UUID,
+) {
 	for {
 		_, payload, err := conn.Read(ctx)
 		if err != nil {
@@ -91,7 +97,12 @@ func (gateway *Gateway) readPump(ctx context.Context, conn *websocket.Conn, c *C
 	}
 }
 
-func (gateway *Gateway) handleIncomingMessage(ctx context.Context, payload []byte, c *Client, userID string, senderUUID uuid.UUID) {
+func (gateway *Gateway) handleIncomingMessage(
+	ctx context.Context,
+	payload []byte, c *Client,
+	userID string,
+	senderUUID uuid.UUID,
+) {
 	var message db.Message
 	if err := json.Unmarshal(payload, &message); err != nil {
 		log.Error().Err(err).Str("user_id", userID).Msg("gateway unmarshal message failed")
