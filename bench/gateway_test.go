@@ -55,10 +55,9 @@ func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gat
 }
 
 func BenchmarkSession(b *testing.B) {
-	log.DefaultLogger.Level = log.ErrorLevel
 	levels := []int{10, 100, 1000, 10000}
 	payload := []byte("hello private message")
-
+	cxt := b.Context()
 	for _, n := range levels {
 		var totalCount atomic.Uint64
 		var dropCount atomic.Uint64
@@ -69,7 +68,7 @@ func BenchmarkSession(b *testing.B) {
 				var lastCount uint64
 				for {
 					select {
-					case <-b.Context().Done():
+					case <-cxt.Done():
 						return
 					case <-ticker.C:
 						current := totalCount.Load()
@@ -85,20 +84,20 @@ func BenchmarkSession(b *testing.B) {
 				}
 			}()
 			var wg sync.WaitGroup
-			sm, clients, srv := setupFakeUsers(b.Context(), n)
+			sm, clients, srv := setupFakeUsers(cxt, n)
 			for _, c := range clients {
 				wg.Add(1)
 				go func(cli *gateway.Client) {
 					defer wg.Done()
 					for {
 						select {
-						case <-b.Context().Done():
+						case <-cxt.Done():
 							return
 						case msg, ok := <-cli.Send:
 							if !ok {
 								return
 							}
-							err := cli.Conn.Write(b.Context(), websocket.MessageText, msg)
+							err := cli.Conn.Write(cxt, websocket.MessageText, msg)
 							if err != nil {
 								if errors.Is(err, context.Canceled) {
 									return
@@ -123,11 +122,9 @@ func BenchmarkSession(b *testing.B) {
 				totalCount.Add(1)
 			}
 			b.Cleanup(func() {
-				for _, c := range clients {
-					close(c.Send)
-				}
 				wg.Wait()
 				for _, c := range clients {
+					close(c.Send)
 					if c.Conn != nil {
 						c.Conn.CloseNow()
 					}
