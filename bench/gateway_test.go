@@ -84,18 +84,15 @@ func BenchmarkSession(b *testing.B) {
 					elapsed := time.Since(start)
 					rate := float64(current-lastCount) / 1.0
 					avgRate := float64(current) / elapsed.Seconds()
-
-					fmt.Printf("[%s] Users:%d | Current: %d/s | Avg: %.0f/s | Total: %d | Dropped: %d | Elapsed: %.1fs\n",
-						time.Now().Format("15:04:05"),
-						n,
-						int(rate),
-						avgRate,
-						current,
-						dropCount.Load(),
-						elapsed.Seconds(),
-					)
 					lastCount = current
-
+					log.Info().
+						Int("users", n).
+						Uint64("current", current).
+						Uint64("dropped", dropCount.Load()).
+						Float64("rate", rate).
+						Float64("avg_rate", avgRate).
+						Float64("elapsed", elapsed.Seconds()).
+						Msg("benchmark progress")
 				case <-done:
 					current := totalCount.Load()
 					elapsed := time.Since(start)
@@ -125,9 +122,8 @@ func BenchmarkSession(b *testing.B) {
 
 			b.ResetTimer()
 			b.ReportAllocs()
-
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
+			b.Run("Broadcast", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
 					idx := totalCount.Load()
 					userID := strconv.FormatUint(idx%uint64(n), 10)
 					if session, ok := sm.Load(userID); ok {
