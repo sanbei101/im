@@ -14,10 +14,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: stable
-
-      - name: boot redis and postgres
-        run: docker compose -f docker-compose.yaml up -d redis postgres
-
       - name: Tune Linux Kernel & Open Files Limit
         run: |
           echo "=== 当前系统默认限制 ==="
@@ -39,7 +35,7 @@ jobs:
       - name: Run benchmark tests
         run: |
           GOEXPERIMENT=jsonv2 go test -c ./bench -o bench.test
-          ./bench.test -test.bench=BenchmarkGatewayMessageSend -test.benchmem -test.cpuprofile=cpu.prof -test.memprofile=mem.prof -test.v > bench.log 2>&1
+          ./bench.test -test.bench=. -test.benchmem -test.cpuprofile=cpu.prof -test.memprofile=mem.prof -test.v > bench.log 2>&1
           echo "# 📊 Gateway 压测监控摘要" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           tail -n 100 bench.log >> $GITHUB_STEP_SUMMARY
