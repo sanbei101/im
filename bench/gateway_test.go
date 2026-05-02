@@ -110,24 +110,17 @@ func BenchmarkSession(b *testing.B) {
 					}
 				}(c)
 			}
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
 			b.ResetTimer()
 			b.ReportAllocs()
 
 			for b.Loop() {
-				select {
-				case <-b.Context().Done():
-					return
-				case <-ticker.C:
-					for i := range n {
-						userID := strconv.Itoa(i)
-						if session, ok := sm.Load(userID); ok {
-							session.Broadcast(payload)
-							totalCount.Add(1)
-						}
-					}
+				idx := totalCount.Load()
+				userID := strconv.FormatUint(idx%uint64(n), 10)
+				if session, ok := sm.Load(userID); ok {
+					session.Broadcast(payload)
 				}
+				totalCount.Add(1)
+				time.Sleep(time.Second)
 			}
 			b.Cleanup(func() {
 				for _, c := range clients {
