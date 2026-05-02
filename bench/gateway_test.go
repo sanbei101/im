@@ -46,7 +46,7 @@ func setupFakeUsers(ctx context.Context, n int) (*gateway.SessionManager, []*gat
 		}
 		c := &gateway.Client{
 			Conn: clientConn,
-			Send: make(chan []byte, 1000),
+			Send: make(chan []byte, 100000),
 		}
 		session.Add(c)
 		clients = append(clients, c)
