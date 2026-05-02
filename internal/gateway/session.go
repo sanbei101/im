@@ -8,66 +8,65 @@ import (
 	"github.com/phuslu/log"
 )
 
-type client struct {
-	conn *websocket.Conn
-	send chan []byte
+type Client struct {
+	Conn *websocket.Conn
+	Send chan []byte
 }
 
-func (c *client) writePump(ctx context.Context) {
-	for msg := range c.send {
-		if err := c.conn.Write(ctx, websocket.MessageText, msg); err != nil {
+func (c *Client) writePump(ctx context.Context) {
+	for msg := range c.Send {
+		if err := c.Conn.Write(ctx, websocket.MessageText, msg); err != nil {
 			return
 		}
 	}
 }
 
-type SessionManager[T any] struct {
+type SessionManager struct {
 	sessions sync.Map
 }
 
-func NewSessionManager[T any]() *SessionManager[T] {
-	return &SessionManager[T]{}
+func NewSessionManager() *SessionManager {
+	return &SessionManager{}
 }
 
-func (sm *SessionManager[T]) LoadOrCreate(key string, createFn func() T) T {
+func (sm *SessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
 	if v, ok := sm.sessions.Load(key); ok {
-		return v.(T)
+		return v.(*UserSession)
 	}
 	session := createFn()
 	actual, _ := sm.sessions.LoadOrStore(key, session)
-	return actual.(T)
+	return actual.(*UserSession)
 }
 
-func (sm *SessionManager[T]) Delete(key string) {
+func (sm *SessionManager) Delete(key string) {
 	sm.sessions.Delete(key)
 }
 
-func (sm *SessionManager[T]) Load(key string) (T, bool) {
+func (sm *SessionManager) Load(key string) (*UserSession, bool) {
 	if v, ok := sm.sessions.Load(key); ok {
-		return v.(T), true
+		return v.(*UserSession), true
 	}
-	var zero T
-	return zero, false
+	return nil, false
 }
 
 type UserSession struct {
 	mu      sync.RWMutex
-	clients map[*client]struct{}
+	clients map[*Client]struct{}
 }
 
 func NewUserSession() *UserSession {
 	return &UserSession{
-		clients: make(map[*client]struct{}),
+		clients: make(map[*Client]struct{}),
 	}
 }
 
-func (s *UserSession) Add(c *client) {
+func (s *UserSession) Add(c *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clients[c] = struct{}{}
 }
 
-func (s *UserSession) Remove(c *client) bool {
+func (s *UserSession) Remove(c *Client) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.clients, c)
@@ -79,7 +78,7 @@ func (s *UserSession) Broadcast(payload []byte) {
 	defer s.mu.RUnlock()
 	for c := range s.clients {
 		select {
-		case c.send <- payload:
+		case c.Send <- payload:
 		default:
 			log.Warn().Msg("gateway client buffer full, dropping message")
 		}

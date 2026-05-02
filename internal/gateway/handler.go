@@ -60,10 +60,10 @@ func (gateway *Gateway) authenticate(r *http.Request) (string, error) {
 	return userID, nil
 }
 
-func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*client, *UserSession) {
-	c := &client{
-		conn: conn,
-		send: make(chan []byte, 100),
+func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*Client, *UserSession) {
+	c := &Client{
+		Conn: conn,
+		Send: make(chan []byte, 100),
 	}
 	session := gateway.sessions.LoadOrCreate(userID, NewUserSession)
 	session.Add(c)
@@ -71,14 +71,14 @@ func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*clien
 	return c, session
 }
 
-func (gateway *Gateway) cleanupClient(userID string, c *client, session *UserSession) {
+func (gateway *Gateway) cleanupClient(userID string, c *Client, session *UserSession) {
 	if session.Remove(c) {
 		gateway.sessions.Delete(userID)
 	}
-	close(c.send)
+	close(c.Send)
 }
 
-func (gateway *Gateway) readPump(ctx context.Context, conn *websocket.Conn, c *client, userID string, senderUUID uuid.UUID) {
+func (gateway *Gateway) readPump(ctx context.Context, conn *websocket.Conn, c *Client, userID string, senderUUID uuid.UUID) {
 	for {
 		_, payload, err := conn.Read(ctx)
 		if err != nil {
@@ -91,7 +91,7 @@ func (gateway *Gateway) readPump(ctx context.Context, conn *websocket.Conn, c *c
 	}
 }
 
-func (gateway *Gateway) handleIncomingMessage(ctx context.Context, payload []byte, c *client, userID string, senderUUID uuid.UUID) {
+func (gateway *Gateway) handleIncomingMessage(ctx context.Context, payload []byte, c *Client, userID string, senderUUID uuid.UUID) {
 	var message db.Message
 	if err := json.Unmarshal(payload, &message); err != nil {
 		log.Error().Err(err).Str("user_id", userID).Msg("gateway unmarshal message failed")
@@ -120,9 +120,9 @@ func (gateway *Gateway) handleIncomingMessage(ctx context.Context, payload []byt
 	}
 }
 
-func (gateway *Gateway) sendError(c *client, errMsg string) {
+func (gateway *Gateway) sendError(c *Client, errMsg string) {
 	select {
-	case c.send <- []byte(errMsg):
+	case c.Send <- []byte(errMsg):
 	default:
 		log.Warn().
 			Str("error_msg", errMsg).

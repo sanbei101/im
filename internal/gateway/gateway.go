@@ -6,14 +6,14 @@ import (
 )
 
 type Gateway struct {
-	sessions *SessionManager[*UserSession]
+	sessions *SessionManager
 	redis    *db.Redis
 	config   *config.Config
 }
 
 func New(cfg *config.Config) *Gateway {
 	return &Gateway{
-		sessions: NewSessionManager[*UserSession](),
+		sessions: NewSessionManager(),
 		redis:    db.NewRedis(cfg),
 		config:   cfg,
 	}
