@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -99,6 +100,9 @@ func BenchmarkSession(b *testing.B) {
 							}
 							err := cli.Conn.Write(b.Context(), websocket.MessageText, msg)
 							if err != nil {
+								if errors.Is(err, context.Canceled) {
+									return
+								}
 								log.Error().Err(err).Msg("failed to write message")
 								dropCount.Add(1)
 								return
