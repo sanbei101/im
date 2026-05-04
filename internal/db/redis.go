@@ -72,8 +72,65 @@ func (r *Redis) GatewayPullMessage(ctx context.Context, batch int64) ([]*StreamM
 	return r.pullMessageFromStream(ctx, MessageSteamDeliver, MessageGatewayGroup, GatewayName, batch)
 }
 
-func (r *Redis) WorkerPushMessage(ctx context.Context, messages []*Message) error {
-	return r.pushMessageToStream(ctx, MessageSteamDeliver, messages)
+func (r *Redis) WorkerPushGatewayTask(ctx context.Context, tasks []*GatewayPushTask) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	pipe := r.client.Pipeline()
+	for _, task := range tasks {
+		if task == nil {
+			log.Error().Msg("Skipping nil task pointer")
+			continue
+		}
+		bin, err := task.Marshal()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal task for stream")
+			continue
+		}
+		pipe.XAdd(ctx, &redis.XAddArgs{
+			Stream: MessageSteamDeliver,
+			MaxLen: MessageMaxLen,
+			Approx: true,
+			Values: map[string]any{"data": unsafe.String(unsafe.SliceData(bin), len(bin))},
+		})
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (r *Redis) GatewayPullTask(ctx context.Context, batch int64) ([]*GatewayPushTask, error) {
+	result, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    MessageGatewayGroup,
+		Consumer: GatewayName,
+		Streams:  []string{MessageSteamDeliver, ">"},
+		Count:    batch,
+		Block:    5 * time.Second,
+	}).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("xread group failed: %w", err)
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	tasks := make([]*GatewayPushTask, 0, len(result[0].Messages))
+	for _, msg := range result[0].Messages {
+		data, ok := msg.Values["data"].(string)
+		if !ok {
+			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
+			continue
+		}
+		task := AcquireGatewayPushTask()
+		if err := task.Unmarshal(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal task")
+			ReleaseGatewayPushTask(task)
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, nil
 }
 
 func (r *Redis) GatewayPushMessage(ctx context.Context, messages []*Message) error {

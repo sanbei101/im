@@ -21,41 +21,42 @@ func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
 }
 
 func (gateway *Gateway) pollAndProcess(ctx context.Context) {
-	messages, err := gateway.redis.GatewayPullMessage(ctx, 1000)
+	tasks, err := gateway.redis.GatewayPullTask(ctx, 1000)
 	if err != nil {
 		if ctx.Err() != nil {
 			return
 		}
-		log.Error().Err(err).Msg("gateway pull message failed")
+		log.Error().Err(err).Msg("gateway pull task failed")
 		return
 	}
 
-	if len(messages) == 0 {
+	if len(tasks) == 0 {
 		return
 	}
 
-	gateway.processMessages(ctx, messages)
+	gateway.processTasks(ctx, tasks)
 }
 
-func (gateway *Gateway) processMessages(ctx context.Context, messages []*db.StreamMessage) {
-	var msgIDs []string
-	for _, msg := range messages {
-		msgIDs = append(msgIDs, msg.ID)
+func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPushTask) {
+	var streamIDs []string
+	for _, task := range tasks {
+		streamIDs = append(streamIDs, task.StreamID)
 
-		bin, marshalErr := json.Marshal(msg.Data)
+		bin, marshalErr := json.Marshal(task.Message)
 		if marshalErr != nil {
 			log.Error().Err(marshalErr).Msg("gateway marshal message failed")
 			continue
 		}
 
-		userIDStr := msg.Data.SenderID.String()
-
-		if userSession, ok := gateway.sessions.Load(userIDStr); ok {
-			userSession.Broadcast(bin)
+		for _, userID := range task.TargetUserIDs {
+			userIDStr := userID.String()
+			if userSession, ok := gateway.sessions.Load(userIDStr); ok {
+				userSession.Broadcast(bin)
+			}
 		}
 	}
 
-	err := gateway.redis.GatewayAckMessage(ctx, msgIDs...)
+	err := gateway.redis.GatewayAckMessage(ctx, streamIDs...)
 	if err != nil {
 		log.Error().Err(err).Msg("gateway ack messages failed")
 	}

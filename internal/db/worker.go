@@ -10,9 +10,10 @@ import (
 )
 
 type GatewayPushTask struct {
-	RoomID        uuid.UUID
-	TargetUserIDs []uuid.UUID
-	Message       Message
+	StreamID       string
+	RoomID         uuid.UUID
+	TargetUserIDs  []uuid.UUID
+	Message        Message
 }
 
 var GatewayPushTaskPool = sync.Pool{
