@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/phuslu/log"
 
@@ -67,12 +68,12 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 
 	params := make([]db.BatchCopyMessagesParams, 0, batchSize)
 	msgIDs := make([]string, 0, batchSize)
-	msgs := make([]*db.Message, 0, batchSize)
+
+	roomToMsgs := make(map[uuid.UUID][]*db.Message)
 
 	for _, sm := range streamMsgs {
 		msgIDs = append(msgIDs, sm.ID)
 		chatMsg := sm.Data
-		msgs = append(msgs, chatMsg)
 
 		params = append(params, db.BatchCopyMessagesParams{
 			MsgID:        chatMsg.MsgID,
@@ -85,6 +86,8 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 			Payload:      chatMsg.Payload,
 			Ext:          chatMsg.Ext,
 		})
+
+		roomToMsgs[chatMsg.RoomID] = append(roomToMsgs[chatMsg.RoomID], chatMsg)
 	}
 
 	_, err = s.queries.BatchCopyMessages(ctx, params)
@@ -92,7 +95,12 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 		return fmt.Errorf("batch copy messages failed: %w", err)
 	}
 
-	if err := s.redis.WorkerPushMessage(ctx, msgs); err != nil {
+	tasks, err := s.buildGatewayPushTasks(ctx, roomToMsgs)
+	if err != nil {
+		return fmt.Errorf("build gateway push tasks failed: %w", err)
+	}
+
+	if err := s.redis.WorkerPushGatewayTask(ctx, tasks); err != nil {
 		return fmt.Errorf("worker publish deliver batch failed: %w", err)
 	}
 
@@ -100,4 +108,34 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 		return fmt.Errorf("worker ack messages failed: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*db.Message) ([]*db.GatewayPushTask, error) {
+	tasks := make([]*db.GatewayPushTask, 0, len(roomToMsgs))
+
+	for roomID, msgs := range roomToMsgs {
+		if len(msgs) == 0 {
+			continue
+		}
+
+		memberIDs, err := s.queries.GetRoomMembers(ctx, roomID)
+		if err != nil {
+			log.Error().Err(err).Str("room_id", roomID.String()).Msg("get room members failed")
+			continue
+		}
+
+		if len(memberIDs) == 0 {
+			continue
+		}
+
+		for _, msg := range msgs {
+			task := db.AcquireGatewayPushTask()
+			task.RoomID = msg.RoomID
+			task.TargetUserIDs = append(task.TargetUserIDs, memberIDs...)
+			task.Message = *msg
+			tasks = append(tasks, task)
+		}
+	}
+
+	return tasks, nil
 }
