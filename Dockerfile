@@ -20,7 +20,7 @@ RUN apk add --no-cache ca-certificates tzdata bash
 COPY --from=builder /app/gateway /app/gateway
 COPY --from=builder /app/worker /app/worker
 COPY --from=builder /app/api /app/api
-COPY config.test.yaml /app/config.yaml
+COPY config.yaml /app/config.yaml
 
 EXPOSE 8800
 
