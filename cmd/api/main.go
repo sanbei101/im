@@ -39,8 +39,10 @@ func main() {
 	q := db.New(pool)
 	userSvc := service.NewUserService(q)
 	userHandler := handler.NewUserHandler(userSvc)
+	messageSvc := service.NewMessageService(q)
+	messageHandler := handler.NewMessageHandler(messageSvc)
 
-	r := api.SetupRouter(userHandler)
+	r := api.SetupRouter(userHandler, messageHandler)
 
 	srv := &http.Server{
 		Addr:    ":8801",

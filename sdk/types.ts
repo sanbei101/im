@@ -39,7 +39,7 @@ export interface Message {
 // 发送消息的请求结构(客户端需要构造的)
 export interface SendMessageRequest {
   /** 客户端生成的唯一消息ID */
-  client_msg_id?: string;
+  client_msg_id: string;
   /** 房间ID */
   room_id: string;
   /** 消息类型 */
