@@ -38,6 +38,7 @@ jobs:
   bench:
     needs: docker-build
     uses: ./.github/workflows/bench.yml
+    secrets: inherit
 
   sdk-test:
     needs: docker-build
