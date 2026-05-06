@@ -25,7 +25,7 @@ func (h *MessageHandler) GetHistory(c *gin.Context) {
 
 	resp, err := h.svc.GetHistory(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
