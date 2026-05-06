@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	_ "net/http/pprof"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -24,11 +25,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	gatewayMux := http.NewServeMux()
+	gatewayMux.HandleFunc("/ws", g.HandleUserMessage)
+
 	srv := &http.Server{
 		Addr:    ":8800",
-		Handler: nil,
+		Handler: gatewayMux,
 	}
-	http.HandleFunc("/ws", g.HandleUserMessage)
+
+	wg.Go(func() {
+		if err := http.ListenAndServe(":6062", nil); err != nil {
+			log.Error().Err(err).Msg("pprof server stopped")
+		}
+	})
 
 	wg.Go(func() {
 		log.Info().Msg("starting handle worker messages...")
