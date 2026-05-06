@@ -11,73 +11,70 @@ export const options = {
 const API_BASE = 'http://localhost:8801';
 const WS_URL = 'ws://localhost:8800/ws';
 
+const api = {
+  post: (path, payload) => {
+    const url = `${API_BASE}${path}`;
+    const params = { headers: { 'Content-Type': 'application/json' } };
+    return http.post(url, JSON.stringify(payload), params);
+  },
+
+  createUsers: (count) => {
+    const res = api.post('/api/v1/users/batch', { count });
+    const users = res.json('users');
+    if (!users || users.length < count) {
+      throw new Error(`Failed to get ${count} users. Status: ${res.status}`);
+    }
+    return users;
+  },
+
+  createSingleRoom: (userId1, userId2) => {
+    const res = api.post('/api/v1/rooms', { user_id_1: userId1, user_id_2: userId2 });
+    const roomId = res.json('room_id');
+    if (!roomId) console.error(`Single room creation failed: ${res.status} ${res.body}`);
+    return roomId;
+  },
+
+  createGroupRoom: (name, memberIds) => {
+    const res = api.post('/api/v1/rooms/group', { name, member_ids: memberIds });
+    const roomId = res.json('room_id');
+    if (!roomId) console.error(`Group room creation failed: ${res.status} ${res.body}`);
+    return roomId;
+  }
+};
+
 export function setup() {
   const userCount = 500;
-  const payload = JSON.stringify({ count: userCount });
-  const res = http.post(`${API_BASE}/api/v1/users/batch`, payload, {
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  const users = res.json('users');
-  if (!users || users.length < userCount) {
-    throw new Error(`Failed to get ${userCount} users`);
-  }
-
+  const users = api.createUsers(userCount);
   console.log(`Created ${users.length} users`);
 
   const vuData = new Array(userCount);
 
   for (let i = 0; i < 300; i += 2) {
-    const res = http.post(
-      `${API_BASE}/api/v1/rooms`,
-      JSON.stringify({ user_id_1: users[i].user_id, user_id_2: users[i + 1].user_id }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-    const roomId = res.json('room_id');
-    if (!roomId) {
-      console.error(`Single creation failed: ${res.status} ${res.body}`);
-    }
+    const roomId = api.createSingleRoom(users[i].user_id, users[i + 1].user_id);
     vuData[i] = { user: users[i], room_id: roomId, type: 'single' };
     vuData[i + 1] = { user: users[i + 1], room_id: roomId, type: 'single' };
   }
 
   const group1Users = users.slice(300, 400);
-  const resG1 = http.post(
-    `${API_BASE}/api/v1/rooms/group`,
-    JSON.stringify({ name: `Group 1`, member_ids: group1Users.map(u => u.user_id) }),
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  const roomIdG1 = resG1.json('room_id');
-  if (!roomIdG1) console.error(`Group 1 creation failed: ${resG1.status} ${resG1.body}`);
-  
+  const roomIdG1 = api.createGroupRoom('Group 1', group1Users.map(u => u.user_id));
   for (let i = 300; i < 400; i++) {
     vuData[i] = { user: users[i], room_id: roomIdG1, type: 'group' };
   }
 
   const group2Users = users.slice(400, 500);
-  const resG2 = http.post(
-    `${API_BASE}/api/v1/rooms/group`,
-    JSON.stringify({ name: `Group 2`, member_ids: group2Users.map(u => u.user_id) }),
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  const roomIdG2 = resG2.json('room_id');
-  if (!roomIdG2) console.error(`Group 2 creation failed: ${resG2.status} ${resG2.body}`);
-
+  const roomIdG2 = api.createGroupRoom('Group 2', group2Users.map(u => u.user_id));
   for (let i = 400; i < 500; i++) {
     vuData[i] = { user: users[i], room_id: roomIdG2, type: 'group' };
   }
 
   console.log(`Setup complete: 150 single rooms, 2 group rooms.`);
-  
   return { vuData };
 }
 
 export default function (data) {
-  // k6 中的 __VU 是从 1 开始的，而数组是从 0 开始的
   const vuIndex = __VU - 1;
   const myConfig = data.vuData[vuIndex];
 
-  // 安全检查：如果数据未就绪或溢出则直接退出
   if (!myConfig || !myConfig.user) {
     return;
   }
@@ -88,7 +85,6 @@ export default function (data) {
 
   const res = ws.connect(WS_URL, { headers: REQ_HEADERS }, (socket) => {
     socket.on('open', () => {
-      // 频率修改：每隔 0.5s (500ms) 发送一条消息
       socket.setInterval(() => {
         const message = {
           client_msg_id: uuidv7(),
