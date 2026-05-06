@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { ChatSDK, ChatType, MessageType, ChatEventType } from '../index';
+import { ChatSDK, MessageType, ChatEventType } from '../index';
 import { TEST_CONFIG, randomUsername, randomPassword, sleep } from './setup';
 
 describe('消息发送与接收集成测试', () => {
