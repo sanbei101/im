@@ -1,9 +1,10 @@
 name: SDK测试
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - main
+  workflow_call:
+  push:
+    branches:
+      - main
 
 jobs:
   sdk-test:
@@ -27,7 +28,7 @@ jobs:
           images: |
             postgres:18
             redis:8
-            swr.cn-north-4.myhuaweicloud.com/sanbei/chat:latest
+            ghcr.io/${{ github.repository }}:latest
             
       - name: Set up Backend
         run: docker compose up -d
