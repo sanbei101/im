@@ -51,7 +51,7 @@ var (
 	ErrInvalidPassword = errors.New("invalid password")
 	ErrUserNotFound    = errors.New("user not found")
 	ErrInvalidInput    = errors.New("invalid input")
-	ErrCountOutOfRange = errors.New("count must be between 1 and 100")
+	ErrCountOutOfRange = errors.New("count must be between 1 and 1000")
 )
 
 func (s *UserService) Register(ctx context.Context, req RegisterReq) (*UserResp, error) {
@@ -114,7 +114,7 @@ func (s *UserService) Login(ctx context.Context, req RegisterReq) (*UserResp, er
 }
 
 func (s *UserService) BatchGenerate(ctx context.Context, req BatchGenerateReq) (*BatchGenerateResp, error) {
-	if req.Count < 1 || req.Count > 100 {
+	if req.Count < 1 || req.Count > 1000 {
 		return nil, ErrCountOutOfRange
 	}
 
