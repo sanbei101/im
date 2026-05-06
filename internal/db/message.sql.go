@@ -29,6 +29,23 @@ func (q *Queries) AddRoomMember(ctx context.Context, arg AddRoomMemberParams) er
 	return err
 }
 
+const addRoomMembers = `-- name: AddRoomMembers :exec
+INSERT INTO room_members (room_id, user_id, role)
+SELECT $1, u.user_id, 'member'
+FROM UNNEST($2::uuid[]) AS u(user_id)
+ON CONFLICT (room_id, user_id) DO NOTHING
+`
+
+type AddRoomMembersParams struct {
+	RoomID  uuid.UUID   `json:"room_id"`
+	UserIds []uuid.UUID `json:"user_ids"`
+}
+
+func (q *Queries) AddRoomMembers(ctx context.Context, arg AddRoomMembersParams) error {
+	_, err := q.db.Exec(ctx, addRoomMembers, arg.RoomID, arg.UserIds)
+	return err
+}
+
 type BatchCopyMessagesParams struct {
 	MsgID        uuid.UUID      `json:"msg_id"`
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
@@ -39,6 +56,25 @@ type BatchCopyMessagesParams struct {
 	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
 	Payload      jsontext.Value `json:"payload"`
 	Ext          jsontext.Value `json:"ext"`
+}
+
+const createGroupRoom = `-- name: CreateGroupRoom :one
+INSERT INTO rooms (room_id, chat_type, name, avatar_url)
+VALUES ($1, 'group', $2, $3)
+RETURNING room_id
+`
+
+type CreateGroupRoomParams struct {
+	RoomID    uuid.UUID `json:"room_id"`
+	Name      string    `json:"name"`
+	AvatarUrl string    `json:"avatar_url"`
+}
+
+func (q *Queries) CreateGroupRoom(ctx context.Context, arg CreateGroupRoomParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createGroupRoom, arg.RoomID, arg.Name, arg.AvatarUrl)
+	var room_id uuid.UUID
+	err := row.Scan(&room_id)
+	return room_id, err
 }
 
 const createMessage = `-- name: CreateMessage :exec
