@@ -14,7 +14,10 @@ jobs:
       - name: Connect to Tailscale network
         uses: tailscale/github-action@v4
         with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-action
+          args: --hostname=bench-server
 
       - name: Start services with docker-compose
         run: |
@@ -59,7 +62,7 @@ jobs:
 
   bench_client:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 2
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -67,8 +70,11 @@ jobs:
       - name: Connect to Tailscale network
         uses: tailscale/github-action@v4
         with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-action
+          args: --hostname=bench-k6
+          
       - uses: grafana/setup-k6-action@v1
       
       - name: 等待 Server 节点上线
