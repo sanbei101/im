@@ -10,6 +10,6 @@ func InitLogger() {
 	log.DefaultLogger = log.Logger{
 		Level:  log.InfoLevel,
 		Caller: 0,
-		Writer: &log.IOWriter{Writer: os.Stdout},
+		Writer: &log.IOWriter{Writer: os.Stderr},
 	}
 }
