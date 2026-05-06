@@ -125,3 +125,14 @@ RETURNING room_id;
 INSERT INTO room_members (room_id, user_id, role)
 VALUES (sqlc.arg(room_id), sqlc.arg(user_id), sqlc.arg(role))
 ON CONFLICT (room_id, user_id) DO NOTHING;
+
+-- name: AddRoomMembers :exec
+INSERT INTO room_members (room_id, user_id, role)
+SELECT sqlc.arg(room_id), u.user_id, 'member'
+FROM UNNEST(sqlc.arg(user_ids)::uuid[]) AS u(user_id)
+ON CONFLICT (room_id, user_id) DO NOTHING;
+
+-- name: CreateGroupRoom :one
+INSERT INTO rooms (room_id, chat_type, name, avatar_url)
+VALUES (sqlc.arg(room_id), 'group', sqlc.arg(name), sqlc.arg(avatar_url))
+RETURNING room_id;

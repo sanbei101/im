@@ -31,3 +31,19 @@ func (h *RoomHandler) CreateOrGetSingleChatRoom(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
+	var req service.CreateGroupRoomReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	resp, err := h.svc.CreateGroupRoom(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

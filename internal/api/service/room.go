@@ -24,6 +24,11 @@ type CreateRoomReq struct {
 	UserID2 string `json:"user_id_2"`
 }
 
+type CreateGroupRoomReq struct {
+	Name      string   `json:"name"`
+	MemberIDs []string `json:"member_ids"`
+}
+
 type RoomResp struct {
 	RoomID string `json:"room_id"`
 }
@@ -75,6 +80,46 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, req CreateR
 		RoomID: roomUUID,
 		UserID: user2,
 		Role:   db.MemberRoleMember,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &RoomResp{RoomID: roomUUID.String()}, nil
+}
+
+func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomReq) (*RoomResp, error) {
+	if len(req.MemberIDs) < 2 {
+		return nil, fmt.Errorf("group room requires at least 2 members")
+	}
+
+	memberUUIDs := make([]uuid.UUID, 0, len(req.MemberIDs))
+	for _, id := range req.MemberIDs {
+		u, err := uuid.Parse(id)
+		if err != nil {
+			return nil, err
+		}
+		memberUUIDs = append(memberUUIDs, u)
+	}
+
+	roomUUID := uuid.Must(uuid.NewV7())
+	roomName, roomUrl := s.generateRoomInfo(roomUUID)
+	if req.Name != "" {
+		roomName = req.Name
+	}
+
+	_, err := s.q.CreateGroupRoom(ctx, db.CreateGroupRoomParams{
+		RoomID:    roomUUID,
+		Name:      roomName,
+		AvatarUrl: roomUrl,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.q.AddRoomMembers(ctx, db.AddRoomMembersParams{
+		RoomID:  roomUUID,
+		UserIds: memberUUIDs,
 	})
 	if err != nil {
 		return nil, err
