@@ -23,7 +23,7 @@ jobs:
           packages: redis-tools, postgresql-client
           version: 1.0
 
-      - name: Run monitor and k6 together
+      - name: Run monitor and k6
         working-directory: bench
         run: |
           chmod +x monitor.sh
@@ -41,19 +41,23 @@ jobs:
           WORKER_HEAP_PID=$!
           (sleep 22 && curl -s -o gateway_heap.prof "http://localhost:6062/debug/pprof/heap") &
           GATEWAY_HEAP_PID=$!
-          
 
-          k6 run k6.js &> >(tee k6.log)
+          k6 --quiet run k6.js &> >(tee k6.log)
           K6_EXIT=$?
 
           kill -9 "$MONITOR_PID" || true
-          
-          # 确保 pprof 收集完成
+
           wait $WORKER_CPU_PID || true
           wait $GATEWAY_CPU_PID || true
           wait $WORKER_HEAP_PID || true
           wait $GATEWAY_HEAP_PID || true
 
+          echo "$K6_EXIT" > k6_exit_code.txt
+
+      - name: Publish summary
+        working-directory: bench
+        if: always()
+        run: |
           echo "### 🔥 CPU Profile" >> $GITHUB_STEP_SUMMARY
 
           echo "#### Gateway CPU Top 20" >> $GITHUB_STEP_SUMMARY
@@ -87,6 +91,7 @@ jobs:
           tail -n 100 k6.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+          K6_EXIT=$(cat k6_exit_code.txt)
           exit "$K6_EXIT"
 
       - name: Cleanup
