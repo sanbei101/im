@@ -1,9 +1,9 @@
 name: Docker 打包
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch:
 
 jobs:    
