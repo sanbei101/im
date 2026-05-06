@@ -7,6 +7,8 @@ import type {
   HistoryQueryParams,
   HistoryMessagesResponse,
   Message,
+  CreateRoomRequest,
+  CreateRoomResponse,
 } from './types';
 
 /**
@@ -147,6 +149,15 @@ export class APIClient {
       messages: messages || [],
       hasMore: messages.length === (params.page_size || 20),
     };
+  }
+
+  // ==================== 房间相关 API ====================
+
+  /**
+   * 创建或获取单聊房间
+   */
+  async createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse> {
+    return this.request<CreateRoomResponse>('POST', '/api/v1/rooms', req);
   }
 }
 

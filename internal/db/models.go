@@ -11,7 +11,6 @@ import (
 
 	"encoding/json/jsontext"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ChatType string
@@ -157,13 +156,13 @@ type Message struct {
 }
 
 type Room struct {
-	RoomID         uuid.UUID   `json:"room_id"`
-	ChatType       ChatType    `json:"chat_type"`
-	Name           pgtype.Text `json:"name"`
-	AvatarUrl      pgtype.Text `json:"avatar_url"`
-	SingleChatHash pgtype.Text `json:"single_chat_hash"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
+	RoomID         uuid.UUID `json:"room_id"`
+	ChatType       ChatType  `json:"chat_type"`
+	Name           string    `json:"name"`
+	AvatarUrl      string    `json:"avatar_url"`
+	SingleChatHash []byte    `json:"single_chat_hash"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type RoomMember struct {

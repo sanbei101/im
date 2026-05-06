@@ -16,6 +16,8 @@ import {
   ImagePayload,
   VideoPayload,
   FilePayload,
+  CreateRoomRequest,
+  CreateRoomResponse,
 } from './types';
 
 import {
@@ -293,6 +295,15 @@ export class ChatSDK {
     params: HistoryQueryParams
   ): Promise<HistoryMessagesResponse> {
     return this.api.getHistoryMessages(params);
+  }
+
+  // ==================== 房间管理 ====================
+
+  /**
+   * 创建或获取单聊房间
+   */
+  async createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse> {
+    return this.api.createRoom(req);
   }
 
   // ==================== 工具方法 ====================

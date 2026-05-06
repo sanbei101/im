@@ -86,14 +86,37 @@ export class EventEmitter {
 }
 
 /**
- * 生成UUID v4
+ * 生成UUID v7
  */
+const HEX_TABLE: string[] = [];
+for (let i = 0; i < 256; i++) {
+  HEX_TABLE.push((i + 0x100).toString(16).substring(1));
+}
+
+const buffer = new Uint8Array(16);
+
 export function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  crypto.getRandomValues(buffer);
+
+  const timestamp = Date.now();
+
+  buffer[0] = Math.floor(timestamp / 0x10000000000);
+  buffer[1] = Math.floor(timestamp / 0x100000000) & 0xff;
+  buffer[2] = Math.floor(timestamp / 0x1000000) & 0xff;
+  buffer[3] = Math.floor(timestamp / 0x10000) & 0xff;
+  buffer[4] = Math.floor(timestamp / 0x100) & 0xff;
+  buffer[5] = timestamp & 0xff;
+
+  buffer[6] = (buffer[6] & 0x0f) | 0x70;
+  buffer[8] = (buffer[8] & 0x3f) | 0x80;
+
+  return (
+    HEX_TABLE[buffer[0]] + HEX_TABLE[buffer[1]] + HEX_TABLE[buffer[2]] + HEX_TABLE[buffer[3]] + '-' +
+    HEX_TABLE[buffer[4]] + HEX_TABLE[buffer[5]] + '-' +
+    HEX_TABLE[buffer[6]] + HEX_TABLE[buffer[7]] + '-' +
+    HEX_TABLE[buffer[8]] + HEX_TABLE[buffer[9]] + '-' +
+    HEX_TABLE[buffer[10]] + HEX_TABLE[buffer[11]] + HEX_TABLE[buffer[12]] + HEX_TABLE[buffer[13]] + HEX_TABLE[buffer[14]] + HEX_TABLE[buffer[15]]
+  );
 }
 
 /**

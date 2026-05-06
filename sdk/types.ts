@@ -38,8 +38,8 @@ export interface Message {
 
 // 发送消息的请求结构(客户端需要构造的)
 export interface SendMessageRequest {
-  /** 客户端生成的唯一消息ID */
-  client_msg_id: string;
+  /** 客户端生成的唯一消息ID(可选,不提供时自动生成) */
+  client_msg_id?: string;
   /** 房间ID */
   room_id: string;
   /** 消息类型 */
@@ -222,4 +222,15 @@ export interface HistoryQueryParams {
 export interface HistoryMessagesResponse {
   messages: Message[];
   hasMore: boolean;
+}
+
+// 创建房间请求
+export interface CreateRoomRequest {
+  user_id_1: string;
+  user_id_2: string;
+}
+
+// 创建房间响应
+export interface CreateRoomResponse {
+  room_id: string;
 }

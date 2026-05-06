@@ -7,7 +7,7 @@ import (
 	"github.com/sanbei101/im/internal/api/handler"
 )
 
-func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler) *gin.Engine {
+func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(cors.Default())
@@ -23,6 +23,11 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 		messages := v1.Group("/messages")
 		{
 			messages.GET("/history", messageHandler.GetHistory)
+		}
+
+		rooms := v1.Group("/rooms")
+		{
+			rooms.POST("", roomHandler.CreateOrGetSingleChatRoom)
 		}
 	}
 

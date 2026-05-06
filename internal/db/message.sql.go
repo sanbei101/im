@@ -12,6 +12,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const addRoomMember = `-- name: AddRoomMember :exec
+INSERT INTO room_members (room_id, user_id, role)
+VALUES ($1, $2, $3)
+ON CONFLICT (room_id, user_id) DO NOTHING
+`
+
+type AddRoomMemberParams struct {
+	RoomID uuid.UUID  `json:"room_id"`
+	UserID uuid.UUID  `json:"user_id"`
+	Role   MemberRole `json:"role"`
+}
+
+func (q *Queries) AddRoomMember(ctx context.Context, arg AddRoomMemberParams) error {
+	_, err := q.db.Exec(ctx, addRoomMember, arg.RoomID, arg.UserID, arg.Role)
+	return err
+}
+
 type BatchCopyMessagesParams struct {
 	MsgID        uuid.UUID      `json:"msg_id"`
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
@@ -73,6 +90,33 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) er
 		arg.Ext,
 	)
 	return err
+}
+
+const createRoom = `-- name: CreateRoom :one
+INSERT INTO rooms (room_id, chat_type, name, avatar_url, single_chat_hash)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING room_id
+`
+
+type CreateRoomParams struct {
+	RoomID         uuid.UUID `json:"room_id"`
+	ChatType       ChatType  `json:"chat_type"`
+	Name           string    `json:"name"`
+	AvatarUrl      string    `json:"avatar_url"`
+	SingleChatHash []byte    `json:"single_chat_hash"`
+}
+
+func (q *Queries) CreateRoom(ctx context.Context, arg CreateRoomParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createRoom,
+		arg.RoomID,
+		arg.ChatType,
+		arg.Name,
+		arg.AvatarUrl,
+		arg.SingleChatHash,
+	)
+	var room_id uuid.UUID
+	err := row.Scan(&room_id)
+	return room_id, err
 }
 
 const getMembersByRoomIDs = `-- name: GetMembersByRoomIDs :many
@@ -145,6 +189,28 @@ func (q *Queries) GetMessageByID(ctx context.Context, msgID uuid.UUID) (*GetMess
 		&i.ReplyToMsgID,
 		&i.Payload,
 		&i.Ext,
+	)
+	return &i, err
+}
+
+const getRoomByHash = `-- name: GetRoomByHash :one
+SELECT room_id, chat_type, name, avatar_url, single_chat_hash, created_at, updated_at
+FROM rooms
+WHERE single_chat_hash = $1 AND chat_type = 'single'
+LIMIT 1
+`
+
+func (q *Queries) GetRoomByHash(ctx context.Context, hash []byte) (*Room, error) {
+	row := q.db.QueryRow(ctx, getRoomByHash, hash)
+	var i Room
+	err := row.Scan(
+		&i.RoomID,
+		&i.ChatType,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.SingleChatHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return &i, err
 }

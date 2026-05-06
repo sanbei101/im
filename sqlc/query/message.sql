@@ -109,3 +109,19 @@ SELECT room_id, user_id FROM room_members WHERE room_id = ANY(sqlc.arg(room_ids)
 
 -- name: GetUserRooms :many
 SELECT room_id FROM room_members WHERE user_id = sqlc.arg(user_id);
+
+-- name: GetRoomByHash :one
+SELECT room_id, chat_type, name, avatar_url, single_chat_hash, created_at, updated_at
+FROM rooms
+WHERE single_chat_hash = sqlc.arg(hash) AND chat_type = 'single'
+LIMIT 1;
+
+-- name: CreateRoom :one
+INSERT INTO rooms (room_id, chat_type, name, avatar_url, single_chat_hash)
+VALUES (sqlc.arg(room_id), sqlc.arg(chat_type), sqlc.arg(name), sqlc.arg(avatar_url), sqlc.arg(single_chat_hash))
+RETURNING room_id;
+
+-- name: AddRoomMember :exec
+INSERT INTO room_members (room_id, user_id, role)
+VALUES (sqlc.arg(room_id), sqlc.arg(user_id), sqlc.arg(role))
+ON CONFLICT (room_id, user_id) DO NOTHING;
