@@ -41,8 +41,10 @@ func main() {
 	userHandler := handler.NewUserHandler(userSvc)
 	messageSvc := service.NewMessageService(q)
 	messageHandler := handler.NewMessageHandler(messageSvc)
+	roomSvc := service.NewRoomService(q)
+	roomHandler := handler.NewRoomHandler(roomSvc)
 
-	r := api.SetupRouter(userHandler, messageHandler)
+	r := api.SetupRouter(userHandler, messageHandler, roomHandler)
 
 	srv := &http.Server{
 		Addr:    ":8801",
