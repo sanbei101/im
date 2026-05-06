@@ -33,7 +33,7 @@ services:
       retries: 10
 
   chat:
-    image: swr.cn-north-4.myhuaweicloud.com/sanbei/chat:latest
+    image: ghcr.io/sanbei101/chat:latest
     container_name: chat
     ports:
       - "8800:8800"

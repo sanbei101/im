@@ -36,8 +36,6 @@ jobs:
       with:
         push: true
         tags: |
-          swr.cn-north-4.myhuaweicloud.com/sanbei/chat:${{ github.sha }}
-          swr.cn-north-4.myhuaweicloud.com/sanbei/chat:latest
           ghcr.io/${{ github.repository }}:${{ github.sha }}
           ghcr.io/${{ github.repository }}:latest
         cache-from: type=gha
@@ -47,3 +45,7 @@ jobs:
   bench:
     needs: docker-build
     uses: ./.github/workflows/bench.yml
+
+  sdk-test:
+    needs: docker-build
+    uses: ./.github/workflows/sdk-test.yml
