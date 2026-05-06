@@ -35,7 +35,7 @@ jobs:
 
       - name: Start services with docker-compose
         run: |
-          docker compose up -d postgres redis
+          docker compose up -d --wait postgres redis
 
       - name: run server
         run: |
