@@ -7,6 +7,7 @@ describe('消息发送与接收集成测试', () => {
   let sdk2: ChatSDK;
   let user1Id: string;
   let user2Id: string;
+  let roomId: string;
 
   beforeAll(async () => {
     // 创建两个 SDK 实例
@@ -21,6 +22,10 @@ describe('消息发送与接收集成测试', () => {
 
     user1Id = result1.user_id;
     user2Id = result2.user_id;
+
+    // 创建单聊房间
+    const room = await sdk1.createRoom({ user_id_1: user1Id, user_id_2: user2Id });
+    roomId = room.room_id;
 
     // 连接 WebSocket
     await Promise.all([sdk1.connect(), sdk2.connect()]);
@@ -49,7 +54,7 @@ describe('消息发送与接收集成测试', () => {
     // sdk1 发送消息
     const testText = `Hello from user1! ${Date.now()}`;
     sdk1.sendTextMessage({
-      room_id: user2Id,
+      room_id: roomId,
       text: testText,
     });
 
@@ -78,7 +83,7 @@ describe('消息发送与接收集成测试', () => {
     // sdk2 发送消息
     const replyText = `Reply from user2! ${Date.now()}`;
     sdk2.sendTextMessage({
-      room_id: user1Id,
+      room_id: roomId,
       text: replyText,
     });
 
@@ -103,7 +108,7 @@ describe('消息发送与接收集成测试', () => {
 
     // 发送图片消息
     sdk1.sendImageMessage({
-      room_id: user2Id,
+      room_id: roomId,
       url: 'https://example.com/image.jpg',
       width: 1920,
       height: 1080,
@@ -112,7 +117,7 @@ describe('消息发送与接收集成测试', () => {
 
     // 发送视频消息
     sdk1.sendVideoMessage({
-      room_id: user2Id,
+      room_id: roomId,
       url: 'https://example.com/video.mp4',
       duration: 60,
       width: 1920,
@@ -123,7 +128,7 @@ describe('消息发送与接收集成测试', () => {
 
     // 发送文件消息
     sdk1.sendFileMessage({
-      room_id: user2Id,
+      room_id: roomId,
       url: 'https://example.com/document.pdf',
       name: 'document.pdf',
       size: 2048000,
@@ -164,7 +169,7 @@ describe('消息发送与接收集成测试', () => {
 
     sdk1.sendMessage({
       client_msg_id: clientMsgId,
-      room_id: user2Id,
+      room_id: roomId,
       msg_type: MessageType.Text,
       payload: { text: 'Test client_msg_id' },
     });
