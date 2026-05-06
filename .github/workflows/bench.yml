@@ -15,7 +15,6 @@ jobs:
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-          args: --hostname=bench-server
 
       - name: Start services with docker-compose
         run: |
@@ -69,7 +68,6 @@ jobs:
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-          args: --hostname=bench-k6
 
       - uses: grafana/setup-k6-action@v1
       
