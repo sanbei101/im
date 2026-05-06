@@ -2,6 +2,8 @@ services:
   postgres:
     image: postgres:18
     container_name: postgres-chat
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
@@ -17,6 +19,8 @@ services:
   redis:
     image: redis:8
     container_name: redis-chat
+    ports:
+      - "6379:6379"
     ulimits:
       nofile:
         soft: 1000000

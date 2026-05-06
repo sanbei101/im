@@ -21,6 +21,7 @@ jobs:
         run: sudo apt update -y && sudo apt install -y redis-tools postgresql-client
 
       - name: Run monitor and k6 together
+        working-directory: bench
         run: |
           chmod +x monitor.sh
 
