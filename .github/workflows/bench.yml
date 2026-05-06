@@ -18,6 +18,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: stable
+          cache: true
+          cache-dependency-path: 'go.sum'
 
       - name: build server
         run: |
@@ -77,7 +79,7 @@ jobs:
       - name: 触发k6压测
         run: |
           echo "通知 k6 节点开始压测..."
-          echo "ready" | nc bench-k6 9999
+          echo "ready" | nc -N bench-k6 9999
 
       - name: Install dependencies with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -95,8 +97,10 @@ jobs:
           echo "🚀 Server 就绪,正在监听内网请求..."
           echo "等待 k6 节点发送压测结束信号..."
           
-          nc -l -p 9999
-          
+          msg=$(nc -l 9999)
+          echo "收到消息: $msg"
+          test "$msg" = "done"
+                    
           echo "🎉 收到 k6 结束信号,准备生成报告!"
           kill -9 "$MONITOR_PID" || true
 
@@ -130,19 +134,12 @@ jobs:
           ping: bench-server
 
       - uses: grafana/setup-k6-action@v1
-      
-      - name: 等待 Server 节点上线
-        run: |
-          echo "正在寻找 bench-server..."
-          until tailscale ping -c 1 bench-server; do
-            sleep 2
-          done
-          echo "✅ 网络连通成功!"
-
+    
       - name: 等待 Server 就绪
         run: |
-          nc -l -p 9999
-          echo "✅ 收到 Server 就绪信号, 准备启动 k6 压测"
+          msg=$(nc -l 9999)
+          echo "收到消息: $msg"
+          test "$msg" = "ready"
 
       - name: Run k6 and collect pprof
         working-directory: bench
@@ -181,7 +178,7 @@ jobs:
       - name: 通知 Server 压测结束
         run: |
           echo "通知 Server 压测已结束..."
-          echo "done" | nc bench-server 9999
+          echo "done" | nc -N bench-server 9999
 
       - name: Publish K6 and Profiling Summary
         working-directory: bench
