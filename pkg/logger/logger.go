@@ -8,7 +8,7 @@ import (
 
 func InitLogger() {
 	log.DefaultLogger = log.Logger{
-		Level:  log.WarnLevel,
+		Level:  log.InfoLevel,
 		Caller: 0,
 		Writer: &log.IOWriter{Writer: os.Stdout},
 	}
