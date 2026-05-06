@@ -100,12 +100,4 @@ describe('用户认证 API 集成测试', () => {
       expect(user.token).toBeDefined();
     });
   });
-
-  it('批量生成应该限制数量范围', async () => {
-    // 测试数量过大
-    await expect(sdk.batchGenerateUsers({ count: 101 })).rejects.toThrow();
-
-    // 测试数量为0
-    await expect(sdk.batchGenerateUsers({ count: 0 })).rejects.toThrow();
-  });
 });

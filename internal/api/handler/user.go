@@ -32,7 +32,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 		case errors.Is(err, service.ErrInvalidInput):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid username or password"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
@@ -57,7 +57,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 		case errors.Is(err, service.ErrInvalidInput):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid username or password"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
@@ -78,7 +78,7 @@ func (h *UserHandler) BatchGenerate(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "count must be between 1 and 100"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

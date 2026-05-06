@@ -25,7 +25,7 @@ func (h *RoomHandler) CreateOrGetSingleChatRoom(c *gin.Context) {
 
 	resp, err := h.svc.CreateOrGetSingleChatRoom(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -41,7 +41,7 @@ func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
 
 	resp, err := h.svc.CreateGroupRoom(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
