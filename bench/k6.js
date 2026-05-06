@@ -28,7 +28,7 @@ const api = {
   },
 
   createSingleRoom: (userId1, userId2) => {
-    const res = api.post('/api/v1/rooms', { user_id_1: userId1, user_id_2: userId2 });
+    const res = api.post('/api/v1/rooms/single', { user_id_1: userId1, user_id_2: userId2 });
     const roomId = res.json('room_id');
     if (!roomId) console.error(`Single room creation failed: ${res.status} ${res.body}`);
     return roomId;

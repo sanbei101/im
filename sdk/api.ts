@@ -157,7 +157,7 @@ export class APIClient {
    * 创建或获取单聊房间
    */
   async createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse> {
-    return this.request<CreateRoomResponse>('POST', '/api/v1/rooms', req);
+    return this.request<CreateRoomResponse>('POST', '/api/v1/rooms/single', req);
   }
 }
 

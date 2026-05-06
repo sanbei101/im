@@ -23,7 +23,7 @@ CREATE TABLE rooms (
     chat_type chat_type NOT NULL,
     name VARCHAR(255) NOT NULL,
     avatar_url VARCHAR(1024) NOT NULL,
-    single_chat_hash bytea UNIQUE NOT NULL,
+    single_chat_hash bytea,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -57,5 +57,7 @@ CREATE INDEX idx_messages_room_time ON messages (room_id, server_time DESC);
 -- 用于查询"某个人发过的所有消息"
 CREATE INDEX idx_messages_sender_id ON messages (sender_id);
 
--- 单聊房间 hash 计算方式: md5(小user_id + 大user_id)
-CREATE INDEX idx_rooms_single_chat_hash ON rooms (single_chat_hash) WHERE single_chat_hash IS NOT NULL;
+-- 单聊房间 hash(user_id1, user_id2) 唯一
+CREATE UNIQUE INDEX idx_rooms_single_chat_hash 
+ON rooms (single_chat_hash) 
+WHERE single_chat_hash IS NOT NULL;
