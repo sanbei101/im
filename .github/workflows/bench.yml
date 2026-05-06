@@ -76,7 +76,8 @@ jobs:
       
       - name: 触发k6压测
         run: |
-          curl -s http://bench-k6:9999 || true
+          echo "通知 k6 节点开始压测..."
+          echo "ready" | nc bench-k6 9999
 
       - name: Install dependencies with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -90,10 +91,10 @@ jobs:
           chmod +x monitor.sh
           # 后台运行 monitor
           ./monitor.sh &> >(tee monitor.log) &
+          MONITOR_PID=$!
           echo "🚀 Server 就绪,正在监听内网请求..."
           echo "等待 k6 节点发送压测结束信号..."
           
-          # 启动一个临时的 TCP 监听,当 k6 跑完后会请求这个端口,打破阻塞
           nc -l -p 9999
           
           echo "🎉 收到 k6 结束信号,准备生成报告!"
@@ -180,7 +181,7 @@ jobs:
       - name: 通知 Server 压测结束
         run: |
           echo "通知 Server 压测已结束..."
-          curl -s http://bench-server:9999 || true
+          echo "done" | nc bench-server 9999
 
       - name: Publish K6 and Profiling Summary
         working-directory: bench
