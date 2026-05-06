@@ -44,8 +44,8 @@ services:
     ports:
       - "8800:8800"
       - "8801:8801"
-      - "6061:6062"
-      - "6062:6063"
+      - "6062:6062"
+      - "6063:6063"
     depends_on:
       postgres:
         condition: service_healthy
