@@ -12,11 +12,8 @@ jobs:
 
       - name: Start services with docker-compose
         run: |
-          docker compose -f docker-compose.yaml up -d
-          docker compose -f docker-compose.yaml ps
-
-      - name: Check chat logs
-        run: docker logs chat
+          docker compose up -d
+          docker compose logs
 
       - uses: grafana/setup-k6-action@v1
 
