@@ -7,9 +7,9 @@ export const options = {
   vus: 500,
   duration: '30s',
 };
-
-const API_BASE = 'http://localhost:8801';
-const WS_URL = 'ws://localhost:8800/ws';
+const ServerIP = __ENV.TARGET_HOST
+const API_BASE = `http://${ServerIP}:8801`;
+const WS_URL = `ws://${ServerIP}:8800/ws`;
 
 const api = {
   post: (path, payload) => {
