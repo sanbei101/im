@@ -2,9 +2,9 @@ name: SDK测试
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
 
 jobs:
   sdk-test:
