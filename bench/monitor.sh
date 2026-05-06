@@ -1,13 +1,13 @@
 #!/bin/bash
 
-REDIS_CMD="redis-cli -h 127.0.0.1 -p 4999 -a 123456"
-PG_URI="postgresql://myuser:mypassword@127.0.0.1:5433/database"
+REDIS_CMD="redis-cli -h 127.0.0.1 -p 6379 -a 123456"
+PG_URI="postgresql://myuser:mypassword@127.0.0.1:5432/database"
 
 prev_redis=0
 prev_pg=0
 is_first_run=true
 
-echo "开始监控... (按 Ctrl+C 停止)"
+echo "开始监控..."
 echo "========================================================================================="
 printf "%-10s | %-15s | %-15s | %-15s | %-15s\n" "时间" "Redis 总量" "Redis 增量/s" "PG 总量" "PG 增量/s"
 printf "%-10s | %-15s | %-15s | %-15s | %-15s\n" "----------" "---------------" "---------------" "---------------" "---------------"
