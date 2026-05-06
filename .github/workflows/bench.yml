@@ -25,7 +25,7 @@ jobs:
       - name: Start services with docker-compose
         run: |
           docker compose up -d
-          docker compose logs --tail=100
+          docker compose logs im --tail=100
 
       - name: Install dependencies with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
