@@ -10,6 +10,11 @@ import (
 )
 
 func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
+	err := gateway.redis.InitStreamGroups(context.Background())
+	if err != nil {
+		log.Panic().Err(err).Msg("gateway init stream groups failed")
+		return
+	}
 	for {
 		select {
 		case <-ctx.Done():

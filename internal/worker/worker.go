@@ -35,7 +35,7 @@ func New(cfg *config.Config) *Service {
 
 func (s *Service) Run(ctx context.Context) {
 	if err := s.redis.InitStreamGroups(ctx); err != nil {
-		log.Warn().Err(err).Msg("worker consume group init failed")
+		log.Panic().Err(err).Msg("worker consume group init failed")
 	}
 	for {
 		select {
