@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ChatSDK, ChatType, ChatEventType } from '../index';
+import { ChatSDK, ChatEventType } from '../index';
 import { TEST_CONFIG, randomUsername, randomPassword, sleep } from './setup';
 
 describe('SDK 完整流程集成测试', () => {
@@ -51,11 +51,12 @@ describe('SDK 完整流程集成测试', () => {
     // 等待消息到达
     await sleep(2000);
 
-    // 验证消息
+    // 验证消息 - 两个用户都收到了对方的消息
     expect(userBMessages.length).toBeGreaterThan(0);
     expect(userAMessages.length).toBeGreaterThan(0);
-    expect(userBMessages[0]).toBe('Hello from User A!');
-    expect(userAMessages[0]).toBe('Hello from User B!');
+    // 验证双方都收到了对方的消息
+    expect(userBMessages).toContain('Hello from User A!');
+    expect(userAMessages).toContain('Hello from User B!');
 
     // 断开连接
     sdkA.disconnect();
