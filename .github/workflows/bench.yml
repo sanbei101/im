@@ -30,28 +30,33 @@ jobs:
           ./monitor.sh &> >(tee monitor.log) &
           MONITOR_PID=$!
 
-          # ===== CPU Profile =====
-          (sleep 5 && curl -s -o worker_cpu.prof "http://localhost:6063/debug/pprof/profile?seconds=15") &
+          touch k6.log
+          k6 --quiet run k6.js &> >(tee k6.log) &
+          K6_PID=$!
+
+          echo "等待 k6 setup 阶段完成..."
+          grep -q -m 1 "Setup complete" <(tail -f k6.log)
+          echo "🚀 Setup 完成,流量已启动,开始采集 pprof"
+
+          curl -s -o worker_cpu.prof "http://localhost:6063/debug/pprof/profile?seconds=20" &
           WORKER_CPU_PID=$!
-          (sleep 5 && curl -s -o gateway_cpu.prof "http://localhost:6062/debug/pprof/profile?seconds=15") &
+          curl -s -o gateway_cpu.prof "http://localhost:6062/debug/pprof/profile?seconds=20" &
           GATEWAY_CPU_PID=$!
 
-          # ===== Heap Profile =====
-          (sleep 22 && curl -s -o worker_heap.prof "http://localhost:6063/debug/pprof/heap") &
+          (sleep 10 && curl -s -o worker_heap.prof "http://localhost:6063/debug/pprof/heap") &
           WORKER_HEAP_PID=$!
-          (sleep 22 && curl -s -o gateway_heap.prof "http://localhost:6062/debug/pprof/heap") &
+          (sleep 10 && curl -s -o gateway_heap.prof "http://localhost:6062/debug/pprof/heap") &
           GATEWAY_HEAP_PID=$!
-
-          k6 --quiet run k6.js &> >(tee k6.log)
-          K6_EXIT=$?
-
-          kill -9 "$MONITOR_PID" || true
 
           wait $WORKER_CPU_PID || true
           wait $GATEWAY_CPU_PID || true
           wait $WORKER_HEAP_PID || true
           wait $GATEWAY_HEAP_PID || true
+          
+          wait $K6_PID
+          K6_EXIT=$?
 
+          kill -9 "$MONITOR_PID" || true
           echo "$K6_EXIT" > k6_exit_code.txt
 
       - name: Publish summary
