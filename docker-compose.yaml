@@ -28,9 +28,9 @@ services:
       timeout: 3s
       retries: 10
 
-  chat:
-    image: ghcr.io/sanbei101/chat:latest
-    container_name: chat
+  im:
+    image: ghcr.io/sanbei101/im:latest
+    container_name: im
     environment:
       POSTGRES_DSN: "host=postgres port=5432 user=myuser password=mypassword dbname=database sslmode=disable"
       REDIS_ADDR: "redis:6379"
