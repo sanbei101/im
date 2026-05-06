@@ -1,4 +1,4 @@
-name: 集成测试 (Tailscale P2P 分布式压测)
+name: 集成测试
 on:
   workflow_call:
   workflow_dispatch:
@@ -36,7 +36,7 @@ jobs:
           ./monitor.sh &> >(tee monitor.log) &
           MONITOR_PID=$!
 
-          echo "🚀 Server 就绪，正在监听内网请求..."
+          echo "🚀 Server 就绪,正在监听内网请求..."
           echo "等待 k6 节点发送压测结束信号..."
           
           # 启动一个临时的 TCP 监听,当 k6 跑完后会请求这个端口,打破阻塞
@@ -79,7 +79,7 @@ jobs:
           until tailscale ping -c 1 bench-server; do
             sleep 2
           done
-          echo "✅ 网络连通成功！"
+          echo "✅ 网络连通成功!"
 
       - name: Run k6 and collect pprof
         working-directory: bench
