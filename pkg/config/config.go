@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 
 	"github.com/phuslu/log"
 	"gopkg.in/yaml.v3"
@@ -80,6 +81,25 @@ func Load(path string) (*Config, error) {
 func (c *Config) Default() {
 	if c.Gateway.MaxTimeout == 0 {
 		c.Gateway.MaxTimeout = 10
+	}
+	if v := os.Getenv("GATEWAY_MAX_TIMEOUT"); v != "" {
+		if timeout, err := strconv.Atoi(v); err == nil {
+			c.Gateway.MaxTimeout = timeout
+		}
+	}
+	if v := os.Getenv("POSTGRES_DSN"); v != "" {
+		c.Postgres.DSN = v
+	}
+	if v := os.Getenv("REDIS_ADDR"); v != "" {
+		c.Redis.Addr = v
+	}
+	if v := os.Getenv("REDIS_PASSWORD"); v != "" {
+		c.Redis.Password = v
+	}
+	if v := os.Getenv("REDIS_DB"); v != "" {
+		if db, err := strconv.Atoi(v); err == nil {
+			c.Redis.DB = db
+		}
 	}
 }
 

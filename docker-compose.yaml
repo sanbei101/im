@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: database
-    ports:
-      - "5433:5432"
     volumes:
       - ./db/migrations:/docker-entrypoint-initdb.d
     healthcheck:
@@ -24,8 +22,6 @@ services:
         soft: 1000000
         hard: 1000000
     command: redis-server --requirepass 123456 --save "" --appendonly no
-    ports:
-      - "4999:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "123456", "ping"]
       interval: 3s
@@ -35,6 +31,12 @@ services:
   chat:
     image: ghcr.io/sanbei101/chat:latest
     container_name: chat
+    environment:
+      POSTGRES_DSN: "host=postgres port=5432 user=myuser password=mypassword dbname=database sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: "123456"
+      REDIS_DB: "0"
+      GATEWAY_MAX_TIMEOUT: "10"
     ports:
       - "8800:8800"
       - "8801:8801"
