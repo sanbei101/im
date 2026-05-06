@@ -73,6 +73,10 @@ jobs:
           
       - name: see log
         run: tail -n 100 server.log
+      
+      - name: 触发k6压测
+        run: |
+          curl -s http://bench-k6:9999 || true
 
       - name: Install dependencies with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -134,18 +138,26 @@ jobs:
           done
           echo "✅ 网络连通成功!"
 
+      - name: 等待 Server 就绪
+        run: |
+          nc -l -p 9999
+          echo "✅ 收到 Server 就绪信号, 准备启动 k6 压测"
+
       - name: Run k6 and collect pprof
         working-directory: bench
         run: |
           touch k6.log
-          
+
           k6 --quiet run k6.js -e TARGET_HOST=bench-server &> >(tee k6.log) &
           K6_PID=$!
 
           echo "等待 k6 setup 阶段完成..."
           grep -q -m 1 "Setup complete" <(tail -f k6.log)
-          echo "🚀 Setup 完成, 流量已启动, 开始通过内网采集 Server Pprof"
+          echo "🚀 Setup 完成, 流量已启动"
 
+      - name: Collect Pprof Profiles
+        working-directory: bench
+        run: |
           curl -s -o worker_cpu.prof "http://bench-server:6063/debug/pprof/profile?seconds=20" &
           WORKER_CPU_PID=$!
           curl -s -o gateway_cpu.prof "http://bench-server:6062/debug/pprof/profile?seconds=20" &
@@ -165,6 +177,8 @@ jobs:
           K6_EXIT=$?
           echo "$K6_EXIT" > k6_exit_code.txt
           
+      - name: 通知 Server 压测结束
+        run: |
           echo "通知 Server 压测已结束..."
           curl -s http://bench-server:9999 || true
 
