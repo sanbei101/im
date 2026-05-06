@@ -40,14 +40,39 @@ jobs:
       - name: run server
         run: |
           touch server.log
-          ./worker >> server.log 2>&1 &
-          ./gateway >> server.log 2>&1 &
-          ./api >> server.log 2>&1 &
+
+          nohup ./worker >> server.log 2>&1 &
+          WORKER_PID=$!
+          echo $WORKER_PID > worker.pid
+          
+          nohup ./gateway >> server.log 2>&1 &
+          GATEWAY_PID=$!
+          echo $GATEWAY_PID > gateway.pid
+          
+          nohup ./api >> server.log 2>&1 &
+          API_PID=$!
+          echo $API_PID > api.pid
+          
+          sleep 3
+          
+          for pid in $WORKER_PID $GATEWAY_PID $API_PID; do
+            if ! kill -0 $pid 2>/dev/null; then
+              echo "❌ 进程 $pid 已退出!"
+              echo "=== Server Log ==="
+              cat server.log
+              exit 1
+            fi
+          done
+          
+          echo "✅ 所有服务已启动"
         env:
           POSTGRES_DSN: "host=localhost port=5432 user=myuser password=mypassword dbname=database sslmode=disable"
           REDIS_ADDR: "localhost:6379"
           REDIS_PASSWORD: "123456"
           REDIS_DB: "0"
+          
+      - name: see log
+        run: tail -n 100 server.log
 
       - name: Install dependencies with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -61,8 +86,6 @@ jobs:
           chmod +x monitor.sh
           # 后台运行 monitor
           ./monitor.sh &> >(tee monitor.log) &
-          tail -n 30 server.log
-
           echo "🚀 Server 就绪,正在监听内网请求..."
           echo "等待 k6 节点发送压测结束信号..."
           
