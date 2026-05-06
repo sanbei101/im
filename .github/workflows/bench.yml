@@ -17,15 +17,16 @@ jobs:
 
       - uses: grafana/setup-k6-action@v1
 
-      - name: Install monitor dependencies
-        run: sudo apt update -y && sudo apt install -y redis-tools postgresql-client
+      - name: Install dependencies with cache
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: redis-tools, postgresql-client
+          version: 1.0
 
       - name: Run monitor and k6 together
         working-directory: bench
         run: |
           chmod +x monitor.sh
-
-
           ./monitor.sh &> >(tee monitor.log) &
           MONITOR_PID=$!
 
