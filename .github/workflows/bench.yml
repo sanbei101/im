@@ -9,7 +9,7 @@ on:
 jobs:
   server:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -61,7 +61,7 @@ jobs:
           chmod +x monitor.sh
           # 后台运行 monitor
           ./monitor.sh &> >(tee monitor.log) &
-          MONITOR_PID=$!
+          tail -n 30 server.log
 
           echo "🚀 Server 就绪,正在监听内网请求..."
           echo "等待 k6 节点发送压测结束信号..."
@@ -85,9 +85,9 @@ jobs:
         if: always()
         run: docker compose down
 
-  bench_client:
+  k6:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
