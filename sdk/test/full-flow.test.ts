@@ -14,6 +14,10 @@ describe('SDK 完整流程集成测试', () => {
       sdkB.register({ username: randomUsername(), password: randomPassword() }),
     ]);
 
+    // 创建单聊房间
+    const room = await sdkA.createRoom({ user_id_1: userA.user_id, user_id_2: userB.user_id });
+    const roomId = room.room_id;
+
     // 连接 WebSocket
     await Promise.all([sdkA.connect(), sdkB.connect()]);
     expect(sdkA.isConnected()).toBe(true);
@@ -35,12 +39,12 @@ describe('SDK 完整流程集成测试', () => {
 
     // 双向发送消息
     sdkA.sendTextMessage({
-      room_id: userB.user_id,
+      room_id: roomId,
       text: 'Hello from User A!',
     });
 
     sdkB.sendTextMessage({
-      room_id: userA.user_id,
+      room_id: roomId,
       text: 'Hello from User B!',
     });
 

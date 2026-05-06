@@ -2,15 +2,19 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
-RUN go mod download
+COPY go.mod go.sum .
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 
-RUN GOEXPERIMENT=jsonv2 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o worker ./cmd/worker/
-RUN GOEXPERIMENT=jsonv2 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o gateway ./cmd/gateway/
-RUN GOEXPERIMENT=jsonv2 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o api ./cmd/api/
-
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    GOEXPERIMENT=jsonv2 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o worker ./cmd/worker/ && \
+    GOEXPERIMENT=jsonv2 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o gateway ./cmd/gateway/ && \
+    GOEXPERIMENT=jsonv2 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o api ./cmd/api/
+    
 FROM alpine:latest
 
 WORKDIR /app
