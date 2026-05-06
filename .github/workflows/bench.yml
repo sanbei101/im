@@ -29,24 +29,69 @@ jobs:
           ./monitor.sh &> >(tee monitor.log) &
           MONITOR_PID=$!
 
+          # ===== CPU Profile =====
+          (sleep 5 && curl -s -o worker_cpu.prof "http://localhost:6063/debug/pprof/profile?seconds=15") &
+          WORKER_CPU_PID=$!
+          (sleep 5 && curl -s -o gateway_cpu.prof "http://localhost:6062/debug/pprof/profile?seconds=15") &
+          GATEWAY_CPU_PID=$!
+
+          # ===== Heap Profile =====
+          (sleep 22 && curl -s -o worker_heap.prof "http://localhost:6063/debug/pprof/heap") &
+          WORKER_HEAP_PID=$!
+          (sleep 22 && curl -s -o gateway_heap.prof "http://localhost:6062/debug/pprof/heap") &
+          GATEWAY_HEAP_PID=$!
+          
+
           k6 run k6.js &> >(tee k6.log)
           K6_EXIT=$?
 
           kill -9 "$MONITOR_PID" || true
+          
+          # 确保 pprof 收集完成
+          wait $WORKER_CPU_PID || true
+          wait $GATEWAY_CPU_PID || true
+          wait $WORKER_HEAP_PID || true
+          wait $GATEWAY_HEAP_PID || true
 
-          echo "### 📊 压测监控摘要" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### 📋 完整监控日志" >> $GITHUB_STEP_SUMMARY
-          echo '```log' >> $GITHUB_STEP_SUMMARY
-          cat monitor.log >> $GITHUB_STEP_SUMMARY
+          echo "### 🔥 CPU Profile" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Gateway CPU Top 20</summary>" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -nodecount=20 gateway_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
-          echo "### 🚀 k6 压测最后 100 行" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Worker CPU Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -nodecount=20 worker_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 💾 Heap Profile" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Gateway Heap Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -nodecount=20 gateway_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details><summary>Worker Heap Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -nodecount=20 worker_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📋 监控日志" >> $GITHUB_STEP_SUMMARY
+          echo '<details><summary>monitor.log</summary>' >> $GITHUB_STEP_SUMMARY
+          echo '```log' >> $GITHUB_STEP_SUMMARY
+          tail -n 100 monitor.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo '</details>' >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🚀 k6 压测结果" >> $GITHUB_STEP_SUMMARY
+          echo '<details><summary>k6.log</summary>' >> $GITHUB_STEP_SUMMARY
           echo '```log' >> $GITHUB_STEP_SUMMARY
           tail -n 100 k6.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo '</details>' >> $GITHUB_STEP_SUMMARY
 
           exit "$K6_EXIT"
 

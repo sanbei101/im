@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	_ "net/http/pprof"
 	"os/signal"
 	"syscall"
 	"time"
@@ -50,6 +51,10 @@ func main() {
 		Addr:    ":8801",
 		Handler: r,
 	}
+
+	go func() {
+		http.ListenAndServe(":6061", nil)
+	}()
 
 	go func() {
 		log.Info().Msg("starting API server on :8801")

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net/http"
+	_ "net/http/pprof"
 	"os/signal"
 	"syscall"
 
@@ -14,6 +16,10 @@ func main() {
 	logger.InitLogger()
 	cfg := config.New()
 	svc := worker.New(cfg)
+
+	go func() {
+		http.ListenAndServe(":6063", nil)
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
