@@ -64,3 +64,5 @@
 
 4. 目标网关推送给接收方
 职责:监听 Redis Stream 的投递指令 -> 定位接收方在线连接 -> 推送消息(先不考虑离线)
+
+tskey-auth-kXXKZ1N3aE11CNTRL-FNCQtrsFbMGbWvbfiqjEMGP9uGrX7tkc
