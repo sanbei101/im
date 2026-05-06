@@ -55,44 +55,37 @@ jobs:
           wait $GATEWAY_HEAP_PID || true
 
           echo "### 🔥 CPU Profile" >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Gateway CPU Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+
+          echo "#### Gateway CPU Top 20" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           go tool pprof -text -nodecount=20 gateway_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
-          echo "<details><summary>Worker CPU Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "#### Worker CPU Top 20" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           go tool pprof -text -nodecount=20 worker_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
           echo "### 💾 Heap Profile" >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Gateway Heap Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "#### Gateway Heap Top 20" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           go tool pprof -text -nodecount=20 gateway_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
-          echo "<details><summary>Worker Heap Top 20</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "#### Worker Heap Top 20" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           go tool pprof -text -nodecount=20 worker_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
           echo "### 📋 监控日志" >> $GITHUB_STEP_SUMMARY
-          echo '<details><summary>monitor.log</summary>' >> $GITHUB_STEP_SUMMARY
           echo '```log' >> $GITHUB_STEP_SUMMARY
           tail -n 100 monitor.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo '</details>' >> $GITHUB_STEP_SUMMARY
 
           echo "### 🚀 k6 压测结果" >> $GITHUB_STEP_SUMMARY
-          echo '<details><summary>k6.log</summary>' >> $GITHUB_STEP_SUMMARY
           echo '```log' >> $GITHUB_STEP_SUMMARY
           tail -n 100 k6.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo '</details>' >> $GITHUB_STEP_SUMMARY
 
           exit "$K6_EXIT"
 
