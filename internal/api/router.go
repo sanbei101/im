@@ -27,7 +27,7 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 
 		rooms := v1.Group("/rooms")
 		{
-			rooms.POST("", roomHandler.CreateOrGetSingleChatRoom)
+			rooms.POST("/single", roomHandler.CreateOrGetSingleChatRoom)
 			rooms.POST("/group", roomHandler.CreateGroupRoom)
 		}
 	}
