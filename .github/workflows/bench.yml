@@ -2,6 +2,9 @@ name: 集成测试
 on:
   workflow_call:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   server:
@@ -17,7 +20,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-action
-          args: --hostname=bench-server
+          hostname: bench-server
 
       - name: Start services with docker-compose
         run: |
@@ -73,8 +76,9 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-action
-          args: --hostname=bench-k6
-          
+          hostname: bench-k6
+          ping: bench-server
+
       - uses: grafana/setup-k6-action@v1
       
       - name: 等待 Server 节点上线
