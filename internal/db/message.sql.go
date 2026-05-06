@@ -75,6 +75,35 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) er
 	return err
 }
 
+const getMembersByRoomIDs = `-- name: GetMembersByRoomIDs :many
+SELECT room_id, user_id FROM room_members WHERE room_id = ANY($1::uuid[])
+`
+
+type GetMembersByRoomIDsRow struct {
+	RoomID uuid.UUID `json:"room_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetMembersByRoomIDs(ctx context.Context, roomIds []uuid.UUID) ([]*GetMembersByRoomIDsRow, error) {
+	rows, err := q.db.Query(ctx, getMembersByRoomIDs, roomIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*GetMembersByRoomIDsRow{}
+	for rows.Next() {
+		var i GetMembersByRoomIDsRow
+		if err := rows.Scan(&i.RoomID, &i.UserID); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMessageByID = `-- name: GetMessageByID :one
 SELECT
     msg_id,

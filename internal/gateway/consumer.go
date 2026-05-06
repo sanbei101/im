@@ -38,7 +38,7 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 }
 
 func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPushTask) {
-	var streamIDs []string
+	streamIDs := make([]string, 0, len(tasks))
 	for _, task := range tasks {
 		streamIDs = append(streamIDs, task.StreamID)
 
