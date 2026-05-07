@@ -224,22 +224,30 @@ export class WebSocketManager {
    */
   private handleMessage(data: string): void {
     try {
-      const message = JSON.parse(data) as Message;
+      const messages = JSON.parse(data) as Message[];
 
-      // 验证消息格式
-      if (!message.msg_id || !message.sender_id) {
+      if (!Array.isArray(messages)) {
         this.emitter.emit(
           ChatEventType.Error,
-          createError('INVALID_MESSAGE', 'Received invalid message format')
+          createError('INVALID_MESSAGE', 'Received non-array message format')
         );
         return;
       }
 
-      this.emitter.emit(ChatEventType.MessageReceived, {
-        message,
-      } as MessageReceivedData);
+      for (const message of messages) {
+        if (!message.msg_id || !message.sender_id) {
+          this.emitter.emit(
+            ChatEventType.Error,
+            createError('INVALID_MESSAGE', 'Received invalid message format')
+          );
+          continue;
+        }
+
+        this.emitter.emit(ChatEventType.MessageReceived, {
+          message,
+        } as MessageReceivedData);
+      }
     } catch (error) {
-      // 可能是服务器返回的错误文本
       this.emitter.emit(
         ChatEventType.Error,
         createError(

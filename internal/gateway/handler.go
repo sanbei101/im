@@ -63,7 +63,7 @@ func (gateway *Gateway) authenticate(r *http.Request) (string, error) {
 func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*Client, *UserSession) {
 	c := &Client{
 		Conn: conn,
-		Send: make(chan []byte, 100),
+		Send: make(chan [][]byte, 100),
 	}
 	session := gateway.sessions.LoadOrCreate(userID, NewUserSession)
 	session.Add(c)
@@ -132,8 +132,9 @@ func (gateway *Gateway) handleIncomingMessage(
 }
 
 func (gateway *Gateway) sendError(c *Client, errMsg string) {
+	bin, _ := json.Marshal(map[string]string{"error": errMsg})
 	select {
-	case c.Send <- []byte(errMsg):
+	case c.Send <- [][]byte{bin}:
 	default:
 		log.Warn().
 			Str("error_msg", errMsg).
