@@ -1,2 +1,5 @@
 sdk/node_modules
 sdk/dist
+im-frontend/node_modules
+im-frontend/dist
+im-frontend/.vscode
