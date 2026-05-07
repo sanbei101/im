@@ -19,7 +19,6 @@ import {
   CreateRoomRequest,
   CreateRoomResponse,
   CreateGroupRoomRequest,
-  ListRoomsRequest,
   ListRoomsResponse,
 } from './types';
 
