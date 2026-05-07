@@ -108,7 +108,10 @@ SELECT user_id FROM room_members WHERE room_id = sqlc.arg(room_id);
 SELECT room_id, user_id FROM room_members WHERE room_id = ANY(sqlc.arg(room_ids)::uuid[]);
 
 -- name: GetUserRooms :many
-SELECT room_id FROM room_members WHERE user_id = sqlc.arg(user_id);
+SELECT r.room_id, r.chat_type, r.name, r.avatar_url, r.single_chat_hash, r.created_at, r.updated_at
+FROM rooms r
+INNER JOIN room_members rm ON r.room_id = rm.room_id
+WHERE rm.user_id = sqlc.arg(user_id);
 
 -- name: GetRoomByHash :one
 SELECT room_id, chat_type, name, avatar_url, single_chat_hash, created_at, updated_at

@@ -242,3 +242,21 @@ export interface CreateGroupRoomRequest {
   /** 成员用户ID列表(至少2人) */
   member_ids: string[];
 }
+
+// 房间信息
+export interface RoomInfo {
+  room_id: string;
+  chat_type: string;
+  name: string;
+  avatar_url: string;
+}
+
+// 列出用户房间请求
+export interface ListRoomsRequest {
+  user_id: string;
+}
+
+// 列出用户房间响应
+export interface ListRoomsResponse {
+  rooms: RoomInfo[];
+}

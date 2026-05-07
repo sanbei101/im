@@ -276,22 +276,33 @@ func (q *Queries) GetRoomMembers(ctx context.Context, roomID uuid.UUID) ([]uuid.
 }
 
 const getUserRooms = `-- name: GetUserRooms :many
-SELECT room_id FROM room_members WHERE user_id = $1
+SELECT r.room_id, r.chat_type, r.name, r.avatar_url, r.single_chat_hash, r.created_at, r.updated_at
+FROM rooms r
+INNER JOIN room_members rm ON r.room_id = rm.room_id
+WHERE rm.user_id = $1
 `
 
-func (q *Queries) GetUserRooms(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+func (q *Queries) GetUserRooms(ctx context.Context, userID uuid.UUID) ([]*Room, error) {
 	rows, err := q.db.Query(ctx, getUserRooms, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []uuid.UUID{}
+	items := []*Room{}
 	for rows.Next() {
-		var room_id uuid.UUID
-		if err := rows.Scan(&room_id); err != nil {
+		var i Room
+		if err := rows.Scan(
+			&i.RoomID,
+			&i.ChatType,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.SingleChatHash,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, room_id)
+		items = append(items, &i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

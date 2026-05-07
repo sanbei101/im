@@ -33,6 +33,49 @@ type RoomResp struct {
 	RoomID string `json:"room_id"`
 }
 
+type ListRoomsReq struct {
+	UserID string `json:"user_id"`
+}
+
+type ListRoomsResp struct {
+	Rooms []RoomInfo `json:"rooms"`
+}
+
+type RoomInfo struct {
+	RoomID    string `json:"room_id"`
+	ChatType  string `json:"chat_type"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+func (s *RoomService) ListRooms(ctx context.Context, req ListRoomsReq) (*ListRoomsResp, error) {
+	userUUID, err := uuid.Parse(req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	rooms, err := s.q.GetUserRooms(ctx, userUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rooms) == 0 {
+		return &ListRoomsResp{Rooms: []RoomInfo{}}, nil
+	}
+
+	result := make([]RoomInfo, 0, len(rooms))
+	for _, r := range rooms {
+		result = append(result, RoomInfo{
+			RoomID:    r.RoomID.String(),
+			ChatType:  string(r.ChatType),
+			Name:      r.Name,
+			AvatarURL: r.AvatarUrl,
+		})
+	}
+
+	return &ListRoomsResp{Rooms: result}, nil
+}
+
 func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, req CreateRoomReq) (*RoomResp, error) {
 	user1, err := uuid.Parse(req.UserID1)
 	if err != nil {
