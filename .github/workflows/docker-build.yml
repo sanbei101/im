@@ -35,11 +35,6 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
-  bench:
-    needs: docker-build
-    uses: ./.github/workflows/bench.yml
-    secrets: inherit
-
   sdk-test:
     needs: docker-build
     uses: ./.github/workflows/sdk-test.yml
