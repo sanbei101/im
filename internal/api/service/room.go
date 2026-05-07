@@ -20,7 +20,6 @@ func NewRoomService(q *db.Queries) *RoomService {
 }
 
 type CreateRoomReq struct {
-	UserID1 string `json:"user_id_1"`
 	UserID2 string `json:"user_id_2"`
 }
 
@@ -31,10 +30,6 @@ type CreateGroupRoomReq struct {
 
 type RoomResp struct {
 	RoomID string `json:"room_id"`
-}
-
-type ListRoomsReq struct {
-	UserID string `json:"user_id"`
 }
 
 type ListRoomsResp struct {
@@ -48,8 +43,8 @@ type RoomInfo struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
-func (s *RoomService) ListRooms(ctx context.Context, req ListRoomsReq) (*ListRoomsResp, error) {
-	userUUID, err := uuid.Parse(req.UserID)
+func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsResp, error) {
+	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +71,8 @@ func (s *RoomService) ListRooms(ctx context.Context, req ListRoomsReq) (*ListRoo
 	return &ListRoomsResp{Rooms: result}, nil
 }
 
-func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, req CreateRoomReq) (*RoomResp, error) {
-	user1, err := uuid.Parse(req.UserID1)
+func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 string, req CreateRoomReq) (*RoomResp, error) {
+	user1, err := uuid.Parse(userID1)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/sanbei101/im/internal/api/middleware"
 	"github.com/sanbei101/im/internal/api/service"
 )
 
@@ -23,7 +24,13 @@ func (h *RoomHandler) CreateOrGetSingleChatRoom(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.svc.CreateOrGetSingleChatRoom(c.Request.Context(), req)
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		return
+	}
+
+	resp, err := h.svc.CreateOrGetSingleChatRoom(c.Request.Context(), userID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -49,13 +56,13 @@ func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
 }
 
 func (h *RoomHandler) ListRooms(c *gin.Context) {
-	var req service.ListRoomsReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
 
-	resp, err := h.svc.ListRooms(c.Request.Context(), req)
+	resp, err := h.svc.ListRooms(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
