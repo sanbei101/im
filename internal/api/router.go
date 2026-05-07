@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sanbei101/im/internal/api/handler"
+	"github.com/sanbei101/im/internal/api/middleware"
 )
 
 func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler) *gin.Engine {
@@ -22,11 +23,13 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 
 		messages := v1.Group("/messages")
 		{
+			messages.Use(middleware.AuthMiddleware())
 			messages.GET("/history", messageHandler.GetHistory)
 		}
 
 		rooms := v1.Group("/rooms")
 		{
+			rooms.Use(middleware.AuthMiddleware())
 			rooms.POST("/single", roomHandler.CreateOrGetSingleChatRoom)
 			rooms.POST("/group", roomHandler.CreateGroupRoom)
 			rooms.POST("/list", roomHandler.ListRooms)
