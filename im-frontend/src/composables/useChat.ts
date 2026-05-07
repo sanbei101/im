@@ -1,20 +1,24 @@
+import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ChatSDK, ChatEventType, type Message, type ConnectionState } from 'go-chat-sdk'
+import { getSDK } from '@/lib/sdk'
+import { ChatEventType, ConnectionState, MessageType, type Message } from 'go-chat-sdk'
 import { toast } from 'vue-sonner'
 
 export interface ChatMessage extends Message {
   status?: 'sending' | 'sent' | 'failed'
 }
 
-const messages = ref<ChatMessage[]>([])
-const connectionState = ref<ConnectionState>('disconnected' as ConnectionState)
-const isLoadingHistory = ref(false)
-const hasMoreHistory = ref(true)
+export const useChatStore = defineStore('chat', () => {
+  const sdk = getSDK()
 
-export function useChat() {
+  const messages = ref<ChatMessage[]>([])
+  const connectionState = ref<ConnectionState>(ConnectionState.Disconnected)
+  const isLoadingHistory = ref(false)
+  const hasMoreHistory = ref(true)
+
   const isConnected = computed(() => connectionState.value === 'connected')
 
-  function initChat(sdk: ChatSDK) {
+  function initChat() {
     sdk.on(ChatEventType.ConnectionStateChange, (event) => {
       connectionState.value = event.data.state
     })
@@ -44,16 +48,17 @@ export function useChat() {
     })
   }
 
-  async function connect(sdk: ChatSDK) {
+  async function connect() {
     try {
       await sdk.connect()
-    } catch (err: any) {
-      toast.error(err.message || '连接失败')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '连接失败'
+      toast.error(message)
       throw err
     }
   }
 
-  function sendTextMessage(sdk: ChatSDK, roomId: string, text: string) {
+  function sendTextMessage(roomId: string, text: string) {
     const clientMsgId = sdk.generateMessageId()
     const tempMessage: ChatMessage = {
       msg_id: '',
@@ -61,7 +66,7 @@ export function useChat() {
       sender_id: sdk.getCurrentUser()?.user_id || '',
       room_id: roomId,
       server_time: Date.now() * 1000,
-      msg_type: 'text' as any,
+      msg_type: MessageType.Text,
       payload: { text },
       status: 'sending',
     }
@@ -69,7 +74,7 @@ export function useChat() {
     sdk.sendTextMessage({ room_id: roomId, text })
   }
 
-  async function loadHistory(sdk: ChatSDK, roomId: string) {
+  async function loadHistory(roomId: string) {
     if (isLoadingHistory.value || !hasMoreHistory.value) return
     isLoadingHistory.value = true
     try {
@@ -86,8 +91,9 @@ export function useChat() {
       const historyMessages = resp.messages.map(m => ({ ...m, status: 'sent' as const }))
       messages.value.unshift(...historyMessages)
       hasMoreHistory.value = resp.hasMore
-    } catch (err: any) {
-      toast.error(err.message || '加载历史消息失败')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '加载历史消息失败'
+      toast.error(message)
     } finally {
       isLoadingHistory.value = false
     }
@@ -115,4 +121,4 @@ export function useChat() {
     clearMessages,
     setMessagesForRoom,
   }
-}
+})

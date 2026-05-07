@@ -1,37 +1,33 @@
 <script setup lang="ts">
-import { inject, onMounted, watch, nextTick } from 'vue'
-import { ChatSDK } from 'go-chat-sdk'
-import { useRooms } from '@/composables/useRooms'
-import { useChat } from '@/composables/useChat'
+import { onMounted, watch } from 'vue'
+import { useRoomsStore } from '@/composables/useRooms'
+import { useChatStore } from '@/composables/useChat'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import MessageItem from './MessageItem.vue'
 import MessageInput from './MessageInput.vue'
 
-const props = defineProps<{
-  sdk: ChatSDK
-}>()
-
-const { currentRoom } = useRooms()
-const { messages, isLoadingHistory, hasMoreHistory, loadHistory, clearMessages } = useChat()
+const roomsStore = useRoomsStore()
+const chatStore = useChatStore()
 
 async function handleLoadMore() {
-  if (!currentRoom.value) return
-  await loadHistory(props.sdk, currentRoom.value.room_id)
+  if (!roomsStore.currentRoom) return
+  await chatStore.loadHistory(roomsStore.currentRoom.room_id)
 }
 
-watch(() => currentRoom.value?.room_id, async (newRoomId) => {
+watch(() => roomsStore.currentRoom?.room_id, async (newRoomId) => {
   if (newRoomId) {
-    clearMessages()
-    await loadHistory(props.sdk, newRoomId)
+    chatStore.clearMessages()
+    await chatStore.loadHistory(newRoomId)
   }
 })
 
 onMounted(async () => {
-  if (currentRoom.value) {
-    await loadHistory(props.sdk, currentRoom.value.room_id)
+  if (roomsStore.currentRoom) {
+    await chatStore.loadHistory(roomsStore.currentRoom.room_id)
   }
 })
 </script>
@@ -41,12 +37,12 @@ onMounted(async () => {
     <!-- Header -->
     <div class="flex items-center gap-3 px-4 py-3 border-b shrink-0">
       <Avatar class="h-9 w-9">
-        <AvatarFallback>{{ currentRoom?.name?.[0]?.toUpperCase() || '#' }}</AvatarFallback>
+        <AvatarFallback>{{ roomsStore.currentRoom?.name?.[0]?.toUpperCase() || '#' }}</AvatarFallback>
       </Avatar>
       <div class="flex flex-col">
-        <span class="text-sm font-medium">{{ currentRoom?.name || '聊天' }}</span>
+        <span class="text-sm font-medium">{{ roomsStore.currentRoom?.name || '聊天' }}</span>
         <span class="text-xs text-muted-foreground">
-          {{ currentRoom?.type === 'group' ? '群聊' : '单聊' }}
+          {{ roomsStore.currentRoom?.type === 'group' ? '群聊' : '单聊' }}
         </span>
       </div>
     </div>
@@ -54,9 +50,9 @@ onMounted(async () => {
     <!-- Messages -->
     <ScrollArea class="flex-1">
       <div class="flex flex-col p-4 space-y-1">
-        <div v-if="hasMoreHistory" class="flex justify-center py-2">
+        <div v-if="chatStore.hasMoreHistory" class="flex justify-center py-2">
           <Button
-            v-if="!isLoadingHistory"
+            v-if="!chatStore.isLoadingHistory"
             variant="ghost"
             size="sm"
             @click="handleLoadMore"
@@ -67,10 +63,9 @@ onMounted(async () => {
         </div>
 
         <MessageItem
-          v-for="msg in messages"
+          v-for="msg in chatStore.messages"
           :key="msg.client_msg_id || msg.msg_id"
           :message="msg"
-          :sdk="sdk"
         />
       </div>
     </ScrollArea>
@@ -78,11 +73,7 @@ onMounted(async () => {
     <Separator />
 
     <!-- Input -->
-    <MessageInput :sdk="sdk" />
+    <MessageInput />
   </div>
 </template>
 
-<script lang="ts">
-import { Button } from '@/components/ui/button'
-export { Button }
-</script>

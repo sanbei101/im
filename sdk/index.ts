@@ -19,6 +19,8 @@ import {
   CreateRoomRequest,
   CreateRoomResponse,
   CreateGroupRoomRequest,
+  ListRoomsRequest,
+  ListRoomsResponse,
 } from './types';
 
 import {
@@ -312,6 +314,13 @@ export class ChatSDK {
    */
   async createGroupRoom(req: CreateGroupRoomRequest): Promise<CreateRoomResponse> {
     return this.api.createGroupRoom(req);
+  }
+
+  /**
+   * 获取用户房间列表
+   */
+  async listRooms(req: ListRoomsRequest): Promise<ListRoomsResponse> {
+    return this.api.listRooms(req);
   }
 
   // ==================== 工具方法 ====================

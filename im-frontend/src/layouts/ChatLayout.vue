@@ -1,46 +1,43 @@
 <script setup lang="ts">
-import { inject, onMounted, watch } from 'vue'
-import { ChatSDK } from 'go-chat-sdk'
-import { useAuth } from '@/composables/useAuth'
-import { useChat } from '@/composables/useChat'
-import { useRooms } from '@/composables/useRooms'
+import { onMounted, watch } from 'vue'
+import { getSDK } from '@/lib/sdk'
+import { useAuthStore } from '@/composables/useAuth'
+import { useChatStore } from '@/composables/useChat'
+import { useRoomsStore } from '@/composables/useRooms'
 import RoomSidebar from '@/components/room/RoomSidebar.vue'
 import ChatWindow from '@/components/chat/ChatWindow.vue'
 
-const sdk = inject<ChatSDK>('sdk')!
-const { currentUser, initAuth, logout } = useAuth()
-const { initChat, connect, clearMessages } = useChat()
-const { currentRoomId, selectRoom } = useRooms()
+const authStore = useAuthStore()
+const chatStore = useChatStore()
+const roomsStore = useRoomsStore()
 
-initAuth(sdk)
-initChat(sdk)
+authStore.initAuth()
+chatStore.initChat()
 
 onMounted(async () => {
-  if (currentUser.value && !sdk.isConnected()) {
+  if (authStore.currentUser && !getSDK().isConnected()) {
     try {
-      await connect(sdk)
+      await chatStore.connect()
     } catch {
       // connection error handled by useChat
     }
   }
 })
 
-watch(currentRoomId, () => {
-  clearMessages()
+watch(() => roomsStore.currentRoomId, () => {
+  chatStore.clearMessages()
 })
 </script>
 
 <template>
   <div class="flex h-full w-full">
     <RoomSidebar
-      :current-user="currentUser"
-      :sdk="sdk"
-      @logout="logout(sdk)"
+      :current-user="authStore.currentUser"
+      @logout="authStore.logout()"
     />
     <div class="flex-1 flex flex-col min-w-0">
       <ChatWindow
-        v-if="currentRoomId"
-        :sdk="sdk"
+        v-if="roomsStore.currentRoomId"
       />
       <div v-else class="flex-1 flex items-center justify-center text-muted-foreground">
         <div class="text-center space-y-2">

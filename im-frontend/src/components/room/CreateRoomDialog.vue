@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ChatSDK } from 'go-chat-sdk'
-import { useRooms } from '@/composables/useRooms'
+import { useRoomsStore } from '@/composables/useRooms'
+import { getSDK } from '@/lib/sdk'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,7 +16,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const props = defineProps<{
-  sdk: ChatSDK
   open: boolean
 }>()
 
@@ -24,7 +23,7 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
 }>()
 
-const { createRoom, createGroupRoom } = useRooms()
+const roomsStore = useRoomsStore()
 
 const activeTab = ref('single')
 const singleUserId = ref('')
@@ -36,9 +35,9 @@ async function handleCreateSingle() {
   if (!singleUserId.value.trim()) return
   isSubmitting.value = true
   try {
-    const currentUserId = props.sdk.getCurrentUser()?.user_id
+    const currentUserId = getSDK().getCurrentUser()?.user_id
     if (!currentUserId) return
-    await createRoom(props.sdk, currentUserId, singleUserId.value.trim())
+    await roomsStore.createRoom(currentUserId, singleUserId.value.trim())
     emit('update:open', false)
     singleUserId.value = ''
   } finally {
@@ -51,7 +50,7 @@ async function handleCreateGroup() {
   if (members.length < 2) return
   isSubmitting.value = true
   try {
-    await createGroupRoom(props.sdk, members, groupName.value.trim() || undefined)
+    await roomsStore.createGroupRoom(members, groupName.value.trim() || undefined)
     emit('update:open', false)
     groupName.value = ''
     groupMembers.value = ''

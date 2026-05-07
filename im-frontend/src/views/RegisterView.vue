@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { ref, inject } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChatSDK } from 'go-chat-sdk'
-import { useAuth } from '@/composables/useAuth'
+import { useAuthStore } from '@/composables/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 
-const sdk = inject<ChatSDK>('sdk')!
-const { register, isLoading } = useAuth()
+const authStore = useAuthStore()
 const router = useRouter()
 
 const username = ref('')
@@ -27,7 +25,7 @@ async function handleSubmit() {
     error.value = '两次输入的密码不一致'
     return
   }
-  await register(sdk, username.value, password.value)
+  await authStore.register(username.value, password.value)
 }
 </script>
 
@@ -75,8 +73,8 @@ async function handleSubmit() {
           <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
         </CardContent>
         <CardFooter class="flex flex-col gap-4">
-          <Button type="submit" class="w-full" :disabled="isLoading">
-            {{ isLoading ? '注册中...' : '注册' }}
+          <Button type="submit" class="w-full" :disabled="authStore.isLoading">
+            {{ authStore.isLoading ? '注册中...' : '注册' }}
           </Button>
           <p class="text-sm text-muted-foreground">
             已有账号?
