@@ -24,7 +24,7 @@ describe('消息发送与接收集成测试', () => {
     user2Id = result2.user_id;
 
     // 创建单聊房间
-    const room = await sdk1.createRoom({ user_id_1: user1Id, user_id_2: user2Id });
+    const room = await sdk1.createRoom({ user_id_2: user2Id });
     roomId = room.room_id;
 
     // 连接 WebSocket

@@ -9,13 +9,13 @@ describe('SDK 完整流程集成测试', () => {
     const sdkB = new ChatSDK(TEST_CONFIG);
 
     // 注册两个用户
-    const [userA, userB] = await Promise.all([
+    const [_, userB] = await Promise.all([
       sdkA.register({ username: randomUsername(), password: randomPassword() }),
       sdkB.register({ username: randomUsername(), password: randomPassword() }),
     ]);
 
     // 创建单聊房间
-    const room = await sdkA.createRoom({ user_id_1: userA.user_id, user_id_2: userB.user_id });
+    const room = await sdkA.createRoom({ user_id_2: userB.user_id });
     const roomId = room.room_id;
 
     // 连接 WebSocket
