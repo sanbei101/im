@@ -234,3 +234,11 @@ export interface CreateRoomRequest {
 export interface CreateRoomResponse {
   room_id: string;
 }
+
+// 创建群聊房间请求
+export interface CreateGroupRoomRequest {
+  /** 群名称(可选,空则自动生成) */
+  name?: string;
+  /** 成员用户ID列表(至少2人) */
+  member_ids: string[];
+}

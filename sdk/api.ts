@@ -9,6 +9,7 @@ import type {
   Message,
   CreateRoomRequest,
   CreateRoomResponse,
+  CreateGroupRoomRequest,
 } from './types';
 
 /**
@@ -158,6 +159,13 @@ export class APIClient {
    */
   async createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse> {
     return this.request<CreateRoomResponse>('POST', '/api/v1/rooms/single', req);
+  }
+
+  /**
+   * 创建群聊房间
+   */
+  async createGroupRoom(req: CreateGroupRoomRequest): Promise<CreateRoomResponse> {
+    return this.request<CreateRoomResponse>('POST', '/api/v1/rooms/group', req);
   }
 }
 

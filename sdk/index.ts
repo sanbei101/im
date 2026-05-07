@@ -18,6 +18,7 @@ import {
   FilePayload,
   CreateRoomRequest,
   CreateRoomResponse,
+  CreateGroupRoomRequest,
 } from './types';
 
 import {
@@ -304,6 +305,13 @@ export class ChatSDK {
    */
   async createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse> {
     return this.api.createRoom(req);
+  }
+
+  /**
+   * 创建群聊房间
+   */
+  async createGroupRoom(req: CreateGroupRoomRequest): Promise<CreateRoomResponse> {
+    return this.api.createGroupRoom(req);
   }
 
   // ==================== 工具方法 ====================
