@@ -44,6 +44,9 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 
 func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPushTask) {
 	streamIDs := make([]string, 0, len(tasks))
+
+	// 按用户分组,收集每个用户的消息
+	userMessages := make(map[string][][]byte)
 	for _, task := range tasks {
 		streamIDs = append(streamIDs, task.StreamID)
 
@@ -55,9 +58,14 @@ func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPus
 
 		for _, userID := range task.TargetUserIDs {
 			userIDStr := userID.String()
-			if userSession, ok := gateway.sessions.Load(userIDStr); ok {
-				userSession.Broadcast(bin)
-			}
+			userMessages[userIDStr] = append(userMessages[userIDStr], bin)
+		}
+	}
+
+	// 按用户批量广播
+	for userIDStr, msgs := range userMessages {
+		if userSession, ok := gateway.sessions.Load(userIDStr); ok {
+			userSession.Broadcast(msgs)
 		}
 	}
 

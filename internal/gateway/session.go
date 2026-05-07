@@ -10,12 +10,22 @@ import (
 
 type Client struct {
 	Conn *websocket.Conn
-	Send chan []byte
+	Send chan [][]byte
 }
 
 func (c *Client) writePump(ctx context.Context) {
-	for msg := range c.Send {
-		if err := c.Conn.Write(ctx, websocket.MessageText, msg); err != nil {
+	for msgs := range c.Send {
+		// 将多条消息拼接为 JSON 数组: [msg1, msg2, ...]
+		var buf []byte
+		buf = append(buf, '[')
+		for i, msg := range msgs {
+			if i > 0 {
+				buf = append(buf, ',')
+			}
+			buf = append(buf, msg...)
+		}
+		buf = append(buf, ']')
+		if err := c.Conn.Write(ctx, websocket.MessageText, buf); err != nil {
 			return
 		}
 	}
@@ -73,12 +83,12 @@ func (s *UserSession) Remove(c *Client) bool {
 	return len(s.clients) == 0
 }
 
-func (s *UserSession) Broadcast(payload []byte) {
+func (s *UserSession) Broadcast(payloads [][]byte) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for c := range s.clients {
 		select {
-		case c.Send <- payload:
+		case c.Send <- payloads:
 		default:
 			log.Warn().Msg("gateway client buffer full, dropping message")
 		}
