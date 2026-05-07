@@ -44,13 +44,10 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 }
 
 func (gateway *Gateway) authenticate(r *http.Request) (string, error) {
-	jwtToken := r.Header.Get("Authorization")
+	jwtToken := r.URL.Query().Get("token")
 	if jwtToken == "" {
-		log.Error().Str("remote_addr", r.RemoteAddr).Msg("gateway missing Authorization header")
-		return "", errors.New("missing Authorization header")
-	}
-	if len(jwtToken) > 7 && jwtToken[:7] == "Bearer " {
-		jwtToken = jwtToken[7:]
+		log.Error().Str("remote_addr", r.RemoteAddr).Msg("gateway missing token query parameter")
+		return "", errors.New("missing token query parameter")
 	}
 	userID, err := jwt.ParseToken(jwtToken)
 	if err != nil {

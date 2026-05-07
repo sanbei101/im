@@ -79,11 +79,7 @@ export default function (data) {
     return;
   }
 
-  const REQ_HEADERS = {
-    'Authorization': myConfig.user.token,
-  };
-
-  const res = ws.connect(WS_URL, { headers: REQ_HEADERS }, (socket) => {
+  const res = ws.connect(`${WS_URL}?token=${myConfig.user.token}`, null, (socket) => {
     socket.on('open', () => {
       socket.setInterval(() => {
         const message = {
