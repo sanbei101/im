@@ -7,7 +7,6 @@ import type {
 } from './types';
 import { ChatEventType, ConnectionState as State } from './types';
 import { EventEmitter, createError, createStateChange } from './utils';
-import WebSocket from 'ws';
 
 /**
  * WebSocket 连接管理器
@@ -91,13 +90,8 @@ export class WebSocketManager {
 
     try {
       const wsUrl = new URL(this.options.gatewayURL);
-
-      this.ws = new WebSocket(wsUrl.toString(), {
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-        },
-      });
-
+      wsUrl.searchParams.append('token', this.token);
+      this.ws = new WebSocket(wsUrl.toString());
       await this.setupWebSocketHandlers();
     } catch (error) {
       this.setState(State.Error);
@@ -185,14 +179,12 @@ export class WebSocketManager {
         resolve();
       };
 
-      // 接收消息
-      this.ws.onmessage = (event) => {
-        const data = typeof event.data === 'string' ? event.data : event.data.toString();
+      this.ws.onmessage = (event: MessageEvent) => {
+        const data = typeof event.data === 'string' ? event.data : String(event.data);
         this.handleMessage(data);
       };
 
-      // 连接关闭
-      this.ws.onclose = (event) => {
+      this.ws.onclose = (event: CloseEvent) => {
         this.clearTimers();
 
         if (this.intentionalClose) {
@@ -207,14 +199,12 @@ export class WebSocketManager {
         }
       };
 
-      // 连接错误
-      this.ws.onerror = (error) => {
-        const err = error as unknown as Error;
+      this.ws.onerror = (_event: Event) => {
         this.emitter.emit(
           ChatEventType.Error,
-          createError('WS_ERROR', err.message || 'WebSocket error occurred', err)
+          createError('WS_ERROR', 'WebSocket error occurred')
         );
-        reject(err);
+        reject(new Error('WebSocket error occurred'));
       };
     });
   }
@@ -265,8 +255,6 @@ export class WebSocketManager {
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected()) {
-        // 发送 ping 帧(WebSocket 原生支持)
-        // 或者可以发送自定义心跳消息
         this.ws!.send(JSON.stringify({ type: 'ping' }));
       }
     }, this.options.heartbeatInterval);
