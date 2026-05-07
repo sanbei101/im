@@ -1,5 +1,5 @@
 {
-  "name": "go-chat-sdk",
+  "name": "im-sdk",
   "version": "1.0.1",
   "description": "Type-safe Chat SDK for Go-Chat IM service",
   "type": "module",
