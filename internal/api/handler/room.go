@@ -47,3 +47,19 @@ func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+func (h *RoomHandler) ListRooms(c *gin.Context) {
+	var req service.ListRoomsReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	resp, err := h.svc.ListRooms(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

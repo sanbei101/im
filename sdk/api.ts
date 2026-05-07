@@ -10,6 +10,8 @@ import type {
   CreateRoomRequest,
   CreateRoomResponse,
   CreateGroupRoomRequest,
+  ListRoomsRequest,
+  ListRoomsResponse,
 } from './types';
 
 /**
@@ -166,6 +168,13 @@ export class APIClient {
    */
   async createGroupRoom(req: CreateGroupRoomRequest): Promise<CreateRoomResponse> {
     return this.request<CreateRoomResponse>('POST', '/api/v1/rooms/group', req);
+  }
+
+  /**
+   * 获取用户房间列表
+   */
+  async listRooms(req: ListRoomsRequest): Promise<ListRoomsResponse> {
+    return this.request<ListRoomsResponse>('POST', '/api/v1/rooms/list', req);
   }
 }
 
