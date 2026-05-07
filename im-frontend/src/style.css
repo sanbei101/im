@@ -122,3 +122,8 @@
     @apply bg-background text-foreground;
   }
 }
+
+html, body, #app {
+  height: 100%;
+  overflow: hidden;
+}
