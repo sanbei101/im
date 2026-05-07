@@ -319,8 +319,8 @@ export class ChatSDK {
   /**
    * 获取用户房间列表
    */
-  async listRooms(req: ListRoomsRequest): Promise<ListRoomsResponse> {
-    return this.api.listRooms(req);
+  async listRooms(): Promise<ListRoomsResponse> {
+    return this.api.listRooms();
   }
 
   // ==================== 工具方法 ====================

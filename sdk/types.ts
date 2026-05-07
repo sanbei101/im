@@ -226,7 +226,6 @@ export interface HistoryMessagesResponse {
 
 // 创建房间请求
 export interface CreateRoomRequest {
-  user_id_1: string;
   user_id_2: string;
 }
 
@@ -249,11 +248,6 @@ export interface RoomInfo {
   chat_type: string;
   name: string;
   avatar_url: string;
-}
-
-// 列出用户房间请求
-export interface ListRoomsRequest {
-  user_id: string;
 }
 
 // 列出用户房间响应
