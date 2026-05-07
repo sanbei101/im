@@ -199,23 +199,22 @@ jobs:
 
           echo "#### Gateway CPU Top 20" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -nodecount=20 gateway_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -nodecount=20 -cum gateway_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
           echo "#### Worker CPU Top 20" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -nodecount=20 worker_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -nodecount=20 -cum worker_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-          echo "### 💾 Heap Profile" >> $GITHUB_STEP_SUMMARY
-          echo "#### Gateway Heap Top 20" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -nodecount=20 gateway_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          echo "#### Gateway Heap - In Use" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -sample_index=inuse_space -nodecount=15 gateway_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-          echo "#### Worker Heap Top 20" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -nodecount=20 worker_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
+          echo "#### Worker Heap - Alloc Space" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          go tool pprof -text -sample_index=alloc_space -nodecount=15 worker_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
           echo "### 🚀 k6 压测结果" >> $GITHUB_STEP_SUMMARY
