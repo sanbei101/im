@@ -2,12 +2,49 @@ package worker
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
-
+	"github.com/phuslu/lru"
 	"github.com/sanbei101/im/internal/db"
 )
+
+var roomMembersCache = lru.NewTTLCache[uuid.UUID, []uuid.UUID](10000)
+
+func (s *Service) getRoomMembersWithCache(ctx context.Context, roomIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	result := make(map[uuid.UUID][]uuid.UUID, len(roomIDs))
+	var missingRoomIDs []uuid.UUID
+
+	for _, roomID := range roomIDs {
+		if members, ok := roomMembersCache.Get(roomID); ok {
+			result[roomID] = members
+		} else {
+			missingRoomIDs = append(missingRoomIDs, roomID)
+		}
+	}
+
+	if len(missingRoomIDs) == 0 {
+		return result, nil
+	}
+
+	memberRows, err := s.queries.GetMembersByRoomIDs(ctx, missingRoomIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	missingMap := make(map[uuid.UUID][]uuid.UUID)
+	for _, row := range memberRows {
+		missingMap[row.RoomID] = append(missingMap[row.RoomID], row.UserID)
+	}
+
+	for _, roomID := range missingRoomIDs {
+		members := missingMap[roomID]
+		roomMembersCache.Set(roomID, members, 5*time.Minute)
+		result[roomID] = members
+	}
+	return result, nil
+}
 
 func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*db.Message) ([]*db.GatewayPushTask, error) {
 	var totalMsgs int
@@ -23,16 +60,10 @@ func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid
 		return nil, nil
 	}
 
-	// 批量查询房间成员
-	memberRows, err := s.queries.GetMembersByRoomIDs(ctx, roomIDs)
+	roomMembers, err := s.getRoomMembersWithCache(ctx, roomIDs)
 	if err != nil {
-		log.Error().Err(err).Msg("batch get room members failed")
+		log.Error().Err(err).Msg("batch get room members with cache failed")
 		return nil, err
-	}
-
-	roomMembers := make(map[uuid.UUID][]uuid.UUID)
-	for _, row := range memberRows {
-		roomMembers[row.RoomID] = append(roomMembers[row.RoomID], row.UserID)
 	}
 
 	tasks := make([]*db.GatewayPushTask, 0, totalMsgs)
@@ -49,7 +80,6 @@ func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid
 			task := db.AcquireGatewayPushTask()
 			task.RoomID = msg.RoomID
 
-			// 确保有足够的容量
 			if cap(task.TargetUserIDs) < len(memberIDs) {
 				task.TargetUserIDs = make([]uuid.UUID, 0, len(memberIDs))
 			} else {
