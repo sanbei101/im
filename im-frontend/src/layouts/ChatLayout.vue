@@ -10,12 +10,13 @@ import ChatWindow from '@/components/chat/ChatWindow.vue'
 const authStore = useAuthStore()
 const chatStore = useChatStore()
 const roomsStore = useRoomsStore()
+const sdk = getSDK()
 
 authStore.initAuth()
 chatStore.initChat()
 
 onMounted(async () => {
-  if (authStore.currentUser && !getSDK().isConnected()) {
+  if (authStore.currentUser && !sdk.isConnected()) {
     try {
       await chatStore.connect()
     } catch {

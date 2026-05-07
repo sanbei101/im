@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-const props = defineProps<{
+defineProps<{
   open: boolean
 }>()
 
@@ -24,6 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const roomsStore = useRoomsStore()
+const sdk = getSDK()
 
 const activeTab = ref('single')
 const singleUserId = ref('')
@@ -35,7 +36,7 @@ async function handleCreateSingle() {
   if (!singleUserId.value.trim()) return
   isSubmitting.value = true
   try {
-    const currentUserId = getSDK().getCurrentUser()?.user_id
+    const currentUserId = sdk.getCurrentUser()?.user_id
     if (!currentUserId) return
     await roomsStore.createRoom(currentUserId, singleUserId.value.trim())
     emit('update:open', false)
