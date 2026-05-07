@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, inject } from 'vue'
-import { ChatSDK, type UserResponse } from 'go-chat-sdk'
-import { useRooms } from '@/composables/useRooms'
+import { ref } from 'vue'
+import { useRoomsStore } from '@/composables/useRooms'
+import { getSDK } from '@/lib/sdk'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -17,6 +17,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Plus, LogOut, Menu, MessageSquare } from 'lucide-vue-next'
 import RoomListItem from './RoomListItem.vue'
 import CreateRoomDialog from './CreateRoomDialog.vue'
+import type { UserResponse } from 'go-chat-sdk'
 
 const props = defineProps<{
   currentUser: UserResponse | null
@@ -26,14 +27,13 @@ const emit = defineEmits<{
   logout: []
 }>()
 
-const sdk = inject<ChatSDK>('sdk')!
-const { rooms, currentRoomId, selectRoom, isLoading } = useRooms()
+const roomsStore = useRoomsStore()
 
 const createDialogOpen = ref(false)
 const mobileMenuOpen = ref(false)
 
 function handleSelectRoom(roomId: string) {
-  selectRoom(roomId)
+  roomsStore.selectRoom(roomId)
   mobileMenuOpen.value = false
 }
 </script>
@@ -61,7 +61,7 @@ function handleSelectRoom(roomId: string) {
 
     <!-- Room List -->
     <ScrollArea class="flex-1">
-      <div v-if="isLoading" class="p-4 space-y-3">
+      <div v-if="roomsStore.isLoading" class="p-4 space-y-3">
         <div v-for="i in 5" :key="i" class="flex items-center gap-3">
           <div class="h-10 w-10 rounded-full bg-muted animate-pulse" />
           <div class="flex-1 space-y-1">
@@ -70,17 +70,17 @@ function handleSelectRoom(roomId: string) {
           </div>
         </div>
       </div>
-      <div v-else-if="rooms.length === 0" class="flex flex-col items-center justify-center p-8 text-muted-foreground">
+      <div v-else-if="roomsStore.rooms.length === 0" class="flex flex-col items-center justify-center p-8 text-muted-foreground">
         <MessageSquare class="h-8 w-8 mb-2 opacity-50" />
         <p class="text-sm">暂无聊天房间</p>
         <p class="text-xs mt-1">点击 + 创建新聊天</p>
       </div>
       <div v-else class="p-2 space-y-1">
         <RoomListItem
-          v-for="room in rooms"
+          v-for="room in roomsStore.rooms"
           :key="room.room_id"
           :room="room"
-          :is-active="room.room_id === currentRoomId"
+          :is-active="room.room_id === roomsStore.currentRoomId"
           @click="handleSelectRoom(room.room_id)"
         />
       </div>
@@ -132,16 +132,16 @@ function handleSelectRoom(roomId: string) {
         </div>
         <Separator />
         <ScrollArea class="flex-1">
-          <div v-if="rooms.length === 0" class="flex flex-col items-center justify-center p-8 text-muted-foreground">
+          <div v-if="roomsStore.rooms.length === 0" class="flex flex-col items-center justify-center p-8 text-muted-foreground">
             <MessageSquare class="h-8 w-8 mb-2 opacity-50" />
             <p class="text-sm">暂无聊天房间</p>
           </div>
           <div v-else class="p-2 space-y-1">
             <RoomListItem
-              v-for="room in rooms"
+              v-for="room in roomsStore.rooms"
               :key="room.room_id"
               :room="room"
-              :is-active="room.room_id === currentRoomId"
+              :is-active="room.room_id === roomsStore.currentRoomId"
               @click="handleSelectRoom(room.room_id)"
             />
           </div>
@@ -158,5 +158,5 @@ function handleSelectRoom(roomId: string) {
     <span class="font-medium">{{ currentUser?.username }}</span>
   </div>
 
-  <CreateRoomDialog v-model:open="createDialogOpen" :sdk="sdk" />
+  <CreateRoomDialog v-model:open="createDialogOpen" />
 </template>

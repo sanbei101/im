@@ -1,22 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ChatSDK } from 'go-chat-sdk'
+import { getSDK } from '@/lib/sdk'
+import type { ChatMessage } from '@/composables/useChat'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import type { ChatMessage } from '@/composables/useChat'
 
 const props = defineProps<{
   message: ChatMessage
-  sdk: ChatSDK
 }>()
 
-const isSelf = computed(() => props.message.sender_id === props.sdk.getCurrentUser()?.user_id)
+const isSelf = computed(() => props.message.sender_id === getSDK().getCurrentUser()?.user_id)
 
 const displayTime = computed(() => {
   const time = props.message.server_time
   if (!time) return ''
-  // server_time is in microseconds
   const date = new Date(time / 1000)
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 })

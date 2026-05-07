@@ -1,27 +1,21 @@
 <script setup lang="ts">
-import { ref, inject } from 'vue'
-import { ChatSDK } from 'go-chat-sdk'
-import { useRooms } from '@/composables/useRooms'
-import { useChat } from '@/composables/useChat'
+import { ref } from 'vue'
+import { useRoomsStore } from '@/composables/useRooms'
+import { useChatStore } from '@/composables/useChat'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Send } from 'lucide-vue-next'
 
-const props = defineProps<{
-  sdk: ChatSDK
-}>()
-
-const { currentRoomId } = useRooms()
-const { sendTextMessage } = useChat()
+const roomsStore = useRoomsStore()
+const chatStore = useChatStore()
 
 const text = ref('')
-const isSending = ref(false)
 
 async function handleSend() {
   const trimmed = text.value.trim()
-  if (!trimmed || !currentRoomId.value) return
+  if (!trimmed || !roomsStore.currentRoomId) return
 
-  sendTextMessage(props.sdk, currentRoomId.value, trimmed)
+  chatStore.sendTextMessage(roomsStore.currentRoomId, trimmed)
   text.value = ''
 }
 
@@ -45,7 +39,7 @@ function handleKeydown(e: KeyboardEvent) {
     <Button
       size="icon"
       class="shrink-0 h-11 w-11"
-      :disabled="!text.trim() || !currentRoomId"
+      :disabled="!text.trim() || !roomsStore.currentRoomId"
       @click="handleSend"
     >
       <Send class="h-4 w-4" />

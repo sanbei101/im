@@ -1,17 +1,15 @@
 import { createApp } from 'vue'
-import { ChatSDK } from 'go-chat-sdk'
 import { Toaster } from '@/components/ui/sonner'
 import router from './router'
 import App from './App.vue'
+import { createPinia } from 'pinia'
 import './style.css'
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 
-const sdk = new ChatSDK({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
-  gatewayURL: import.meta.env.VITE_GATEWAY_URL || 'ws://localhost:8081/ws',
-})
-
+const pinia = createPinia()
+pinia.use(piniaPluginPersistedstate)
 const app = createApp(App)
+app.use(pinia)
 app.use(router)
-app.provide('sdk', sdk)
 app.component('Toaster', Toaster)
 app.mount('#app')

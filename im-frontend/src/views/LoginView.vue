@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { ref, inject } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChatSDK } from 'go-chat-sdk'
-import { useAuth } from '@/composables/useAuth'
+import { useAuthStore } from '@/composables/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 
-const sdk = inject<ChatSDK>('sdk')!
-const { login, isLoading } = useAuth()
+const authStore = useAuthStore()
 const router = useRouter()
 
 const username = ref('')
@@ -17,7 +15,7 @@ const password = ref('')
 
 async function handleSubmit() {
   if (!username.value || !password.value) return
-  await login(sdk, username.value, password.value)
+  await authStore.login(username.value, password.value)
 }
 </script>
 
@@ -53,8 +51,8 @@ async function handleSubmit() {
           </div>
         </CardContent>
         <CardFooter class="flex flex-col gap-4">
-          <Button type="submit" class="w-full" :disabled="isLoading">
-            {{ isLoading ? '登录中...' : '登录' }}
+          <Button type="submit" class="w-full" :disabled="authStore.isLoading">
+            {{ authStore.isLoading ? '登录中...' : '登录' }}
           </Button>
           <p class="text-sm text-muted-foreground">
             还没有账号?
