@@ -7,19 +7,25 @@ export const options = {
   vus: 500,
   duration: '30s',
 };
-const ServerIP = __ENV.TARGET_HOST
+
+const ServerIP = __ENV.TARGET_HOST;
 const API_BASE = `http://${ServerIP}:8801`;
 const WS_URL = `ws://${ServerIP}:8800/ws`;
 
 const api = {
-  post: (path, payload) => {
+  post: (path, payload, token) => {
     const url = `${API_BASE}${path}`;
-    const params = { headers: { 'Content-Type': 'application/json' } };
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    };
     return http.post(url, JSON.stringify(payload), params);
   },
 
   createUsers: (count) => {
-    const res = api.post('/api/v1/users/batch', { count });
+    const res = api.post('/api/v1/users/batch', { count }, '');
     const users = res.json('users');
     if (!users || users.length < count) {
       throw new Error(`Failed to get ${count} users. Status: ${res.status}`);
@@ -27,15 +33,15 @@ const api = {
     return users;
   },
 
-  createSingleRoom: (userId1, userId2) => {
-    const res = api.post('/api/v1/rooms/single', { user_id_1: userId1, user_id_2: userId2 });
+  createSingleRoom: (userId1, userId2, token) => {
+    const res = api.post('/api/v1/rooms/single', { user_id_1: userId1, user_id_2: userId2 }, token);
     const roomId = res.json('room_id');
     if (!roomId) console.error(`Single room creation failed: ${res.status} ${res.body}`);
     return roomId;
   },
 
-  createGroupRoom: (name, memberIds) => {
-    const res = api.post('/api/v1/rooms/group', { name, member_ids: memberIds });
+  createGroupRoom: (name, memberIds, token) => {
+    const res = api.post('/api/v1/rooms/group', { name, member_ids: memberIds }, token);
     const roomId = res.json('room_id');
     if (!roomId) console.error(`Group room creation failed: ${res.status} ${res.body}`);
     return roomId;
@@ -47,22 +53,24 @@ export function setup() {
   const users = api.createUsers(userCount);
   console.log(`Created ${users.length} users`);
 
+  const tokens = users.map(u => u.token);
+
   const vuData = new Array(userCount);
 
   for (let i = 0; i < 300; i += 2) {
-    const roomId = api.createSingleRoom(users[i].user_id, users[i + 1].user_id);
+    const roomId = api.createSingleRoom(users[i].user_id, users[i + 1].user_id, tokens[i]);
     vuData[i] = { user: users[i], room_id: roomId, type: 'single' };
     vuData[i + 1] = { user: users[i + 1], room_id: roomId, type: 'single' };
   }
 
   const group1Users = users.slice(300, 400);
-  const roomIdG1 = api.createGroupRoom('Group 1', group1Users.map(u => u.user_id));
+  const roomIdG1 = api.createGroupRoom('Group 1', group1Users.map(u => u.user_id), tokens[300]);
   for (let i = 300; i < 400; i++) {
     vuData[i] = { user: users[i], room_id: roomIdG1, type: 'group' };
   }
 
   const group2Users = users.slice(400, 500);
-  const roomIdG2 = api.createGroupRoom('Group 2', group2Users.map(u => u.user_id));
+  const roomIdG2 = api.createGroupRoom('Group 2', group2Users.map(u => u.user_id), tokens[400]);
   for (let i = 400; i < 500; i++) {
     vuData[i] = { user: users[i], room_id: roomIdG2, type: 'group' };
   }
