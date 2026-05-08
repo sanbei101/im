@@ -20,12 +20,12 @@ func NewRoomService(q *db.Queries) *RoomService {
 }
 
 type CreateRoomReq struct {
-	UserID2 string `json:"user_id_2"`
+	UserID2 string `json:"user_id_2" validate:"required,uuid"`
 }
 
 type CreateGroupRoomReq struct {
 	Name      string   `json:"name"`
-	MemberIDs []string `json:"member_ids"`
+	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
 }
 
 type RoomResp struct {
