@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Plus, LogOut, Menu, MessageSquare } from 'lucide-vue-next'
 import RoomListItem from './RoomListItem.vue'
 import CreateRoomDialog from './CreateRoomDialog.vue'
-import type { UserResponse } from 'go-chat-sdk'
+import type { UserResponse } from '../../../../sdk'
 
 const props = defineProps<{
   currentUser: UserResponse | null
