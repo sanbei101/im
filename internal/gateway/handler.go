@@ -102,6 +102,13 @@ func (gateway *Gateway) handleIncomingMessage(
 	userID string,
 	senderUUID uuid.UUID,
 ) {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err == nil && envelope.Type == "ping" {
+		return
+	}
+
 	var message db.Message
 	if err := json.Unmarshal(payload, &message); err != nil {
 		log.Error().Err(err).Str("user_id", userID).Msg("gateway unmarshal message failed")
