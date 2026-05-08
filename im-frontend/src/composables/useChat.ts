@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getSDK } from '@/lib/sdk'
-import { ChatEventType, ConnectionState, MessageType, type Message } from 'go-chat-sdk'
+import { ChatEventType, ConnectionState, MessageType, type Message } from "../../../sdk"
 import { toast } from 'vue-sonner'
 
 export interface ChatMessage extends Message {

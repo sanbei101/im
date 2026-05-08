@@ -19,6 +19,7 @@ onMounted(async () => {
   if (authStore.currentUser && !sdk.isConnected()) {
     try {
       await chatStore.connect()
+      await roomsStore.fetchRooms()
     } catch {
       // connection error handled by useChat
     }
