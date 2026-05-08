@@ -22,7 +22,9 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, nil)
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("gateway accept connection failed")
 		return
