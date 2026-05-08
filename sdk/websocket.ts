@@ -73,12 +73,18 @@ export class WebSocketManager {
     this.emitter.emit(ChatEventType.ConnectionStateChange, createStateChange(newState, previousState));
   }
 
+  private connectPromise: Promise<void> | null = null;
+
   /**
    * 连接到 WebSocket 网关
    */
   async connect(): Promise<void> {
     if (this.isConnected()) {
       return;
+    }
+
+    if (this.currentState === State.Connecting && this.connectPromise) {
+      return this.connectPromise;
     }
 
     if (!this.token) {
@@ -88,24 +94,33 @@ export class WebSocketManager {
     this.intentionalClose = false;
     this.setState(State.Connecting);
 
-    try {
-      const wsUrl = new URL(this.options.gatewayURL);
-      wsUrl.searchParams.append('token', this.token);
-      this.ws = new WebSocket(wsUrl.toString());
-      await this.setupWebSocketHandlers();
-    } catch (error) {
-      this.setState(State.Error);
-      this.emitter.emit(
-        ChatEventType.Error,
-        createError(
-          'WS_CONNECT_FAILED',
-          'Failed to connect to WebSocket',
-          error instanceof Error ? error : undefined
-        )
-      );
-      this.scheduleReconnect();
-      throw error;
-    }
+    this.connectPromise = (async () => {
+      try {
+        if (this.ws) {
+          this.ws.close();
+        }
+        const wsUrl = new URL(this.options.gatewayURL);
+        wsUrl.searchParams.append('token', this.token!);
+        this.ws = new WebSocket(wsUrl.toString());
+        await this.setupWebSocketHandlers();
+      } catch (error) {
+        this.setState(State.Error);
+        this.emitter.emit(
+          ChatEventType.Error,
+          createError(
+            'WS_CONNECT_FAILED',
+            'Failed to connect to WebSocket',
+            error instanceof Error ? error : undefined
+          )
+        );
+        this.scheduleReconnect();
+        throw error;
+      } finally {
+        this.connectPromise = null;
+      }
+    })();
+
+    return this.connectPromise;
   }
 
   /**

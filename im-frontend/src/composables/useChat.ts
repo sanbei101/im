@@ -18,15 +18,26 @@ export const useChatStore = defineStore('chat', () => {
 
   const isConnected = computed(() => connectionState.value === 'connected')
 
+  let isInitialized = false
+
   function initChat() {
+    if (isInitialized) return
+    isInitialized = true
+
     sdk.on(ChatEventType.ConnectionStateChange, (event) => {
       connectionState.value = event.data.state
     })
 
     sdk.on(ChatEventType.MessageReceived, (event) => {
       const msg = event.data.message as ChatMessage
-      msg.status = 'sent'
-      messages.value.push(msg)
+      const existing = messages.value.find(m => m.client_msg_id === msg.client_msg_id || m.msg_id === msg.msg_id)
+      if (existing) {
+        Object.assign(existing, msg)
+        existing.status = 'sent'
+      } else {
+        msg.status = 'sent'
+        messages.value.push(msg)
+      }
     })
 
     sdk.on(ChatEventType.MessageSent, (event) => {
