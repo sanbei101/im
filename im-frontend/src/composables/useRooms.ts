@@ -40,7 +40,7 @@ export const useRoomsStore = defineStore('rooms', () => {
       if (!user) {
         throw new Error('用户未登录')
       }
-      const resp: ListRoomsResponse = await sdk.listRooms({ user_id: user.user_id })
+      const resp: ListRoomsResponse = await sdk.listRooms()
       rooms.value = resp.rooms.map(mapRoomInfoToRoom)
     } catch (err) {
       const message = err instanceof Error ? err.message : '获取房间列表失败'
@@ -50,9 +50,9 @@ export const useRoomsStore = defineStore('rooms', () => {
     }
   }
 
-  async function createRoom(userId1: string, userId2: string) {
+  async function createRoom(_userId1: string, userId2: string) {
     try {
-      const resp = await sdk.createRoom({ user_id_1: userId1, user_id_2: userId2 })
+      const resp = await sdk.createRoom({ user_id_2: userId2 })
       const newRoom: Room = {
         room_id: resp.room_id,
         name: `单聊 ${userId2}`,
