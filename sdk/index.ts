@@ -236,13 +236,16 @@ export class ChatSDK {
    */
   sendTextMessage(
     params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & { text: string }
-  ): void {
+  ): string {
     const { text, ...rest } = params;
+    const clientMsgId = generateUUID()
     this.sendMessage({
       ...rest,
+      client_msg_id: clientMsgId,
       msg_type: MessageType.Text,
       payload: { text } as TextPayload,
     });
+    return clientMsgId
   }
 
   /**
