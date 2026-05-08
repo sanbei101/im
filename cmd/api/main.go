@@ -59,7 +59,7 @@ func main() {
 	go func() {
 		log.Info().Msg("starting API server on :8801")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("failed to start server")
+			log.Fatal().Err(err).Msg("failed to start API server")
 		}
 	}()
 
@@ -69,7 +69,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("server forced to shutdown")
+		log.Error().Err(err).Msg("API server forced to shutdown")
 	}
 	log.Info().Msg("API server exited")
 }

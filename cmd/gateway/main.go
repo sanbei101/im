@@ -46,11 +46,11 @@ func main() {
 	})
 
 	wg.Go(func() {
-		log.Info().Msg("starting http server on :8800...")
+		log.Info().Msg("starting gateway server on :8800...")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("failed to start HTTP server")
+			log.Fatal().Err(err).Msg("failed to start gateway server")
 		}
-		log.Info().Msg("http server stopped")
+		log.Info().Msg("gateway server stopped")
 	})
 
 	<-ctx.Done()

@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRoomsStore } from '@/composables/useRooms'
-import { getSDK } from '@/lib/sdk'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,

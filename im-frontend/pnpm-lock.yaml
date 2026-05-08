@@ -21,8 +21,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       go-chat-sdk:
-        specifier: ^1.0.5
-        version: 1.0.5
+        specifier: ^1.0.9
+        version: 1.0.9
       lucide-vue-next:
         specifier: ^1.0.0
         version: 1.0.0(vue@3.5.34(typescript@6.0.3))
@@ -544,8 +544,8 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  go-chat-sdk@1.0.5:
-    resolution: {integrity: sha512-E5pO/EhGeZZPzsMuQrTuFJOuOvCCIKrljfomfND1ZpZrtbVnrX2zt01GFkMOxNNsESo3/wgzVTziih5lJTnGkQ==}
+  go-chat-sdk@1.0.9:
+    resolution: {integrity: sha512-BxO11VO8g9Yt9q9tUV6bRCFpDG5L75KaH9GbKMJoLsylaQif8PhcmopNgEpsf2klvt9USeMpzTiE5ZWUhJPmdg==}
     engines: {node: '>=24'}
 
   graceful-fs@4.2.11:
@@ -1354,7 +1354,7 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  go-chat-sdk@1.0.5: {}
+  go-chat-sdk@1.0.9: {}
 
   graceful-fs@4.2.11: {}
 
