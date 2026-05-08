@@ -21,8 +21,8 @@ func NewUserService(q *db.Queries) *UserService {
 }
 
 type RegisterReq struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required,min=6"`
 }
 
 type UserResp struct {
@@ -32,7 +32,7 @@ type UserResp struct {
 }
 
 type BatchGenerateReq struct {
-	Count int `json:"count"`
+	Count int `json:"count" validate:"required,min=1,max=1000"`
 }
 
 type BatchGenerateResp struct {

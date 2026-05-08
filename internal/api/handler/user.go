@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sanbei101/im/internal/api/service"
+	"github.com/sanbei101/im/internal/api/validate"
 )
 
 type UserHandler struct {
@@ -19,8 +20,8 @@ func NewUserHandler(svc *service.UserService) *UserHandler {
 
 func (h *UserHandler) Register(c *gin.Context) {
 	var req service.RegisterReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if err := validate.ValidateAndParseJSON(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -42,8 +43,8 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 func (h *UserHandler) Login(c *gin.Context) {
 	var req service.RegisterReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if err := validate.ValidateAndParseJSON(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -67,8 +68,8 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 func (h *UserHandler) BatchGenerate(c *gin.Context) {
 	var req service.BatchGenerateReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if err := validate.ValidateAndParseJSON(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

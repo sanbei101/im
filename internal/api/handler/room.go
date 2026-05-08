@@ -7,6 +7,7 @@ import (
 
 	"github.com/sanbei101/im/internal/api/middleware"
 	"github.com/sanbei101/im/internal/api/service"
+	"github.com/sanbei101/im/internal/api/validate"
 )
 
 type RoomHandler struct {
@@ -19,11 +20,11 @@ func NewRoomHandler(svc *service.RoomService) *RoomHandler {
 
 func (h *RoomHandler) CreateOrGetSingleChatRoom(c *gin.Context) {
 	var req service.CreateRoomReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	err := validate.ValidateAndParseJSON(c, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	userID := middleware.GetUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
@@ -41,8 +42,9 @@ func (h *RoomHandler) CreateOrGetSingleChatRoom(c *gin.Context) {
 
 func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
 	var req service.CreateGroupRoomReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	err := validate.ValidateAndParseJSON(c, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
