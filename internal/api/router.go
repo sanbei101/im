@@ -11,7 +11,11 @@ import (
 func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(cors.Default())
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"*"},
+		AllowHeaders: []string{"*"},
+	}))
 	v1 := r.Group("/api/v1")
 	{
 		users := v1.Group("/users")
