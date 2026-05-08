@@ -1,4 +1,4 @@
-import { ChatSDK } from 'go-chat-sdk'
+import { ChatSDK } from '../../../sdk'
 
 let _sdk: ChatSDK | null = null
 
