@@ -3,7 +3,7 @@ import { onMounted, watch } from 'vue'
 import { useRoomsStore } from '@/composables/useRooms'
 import { useChatStore } from '@/composables/useChat'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -37,6 +37,7 @@ onMounted(async () => {
     <!-- Header -->
     <div class="flex items-center gap-3 px-4 py-3 border-b shrink-0">
       <Avatar class="h-9 w-9">
+        <AvatarImage v-if="roomsStore.currentRoom?.avatar_url" :src="roomsStore.currentRoom.avatar_url" :alt="roomsStore.currentRoom.name" /> 
         <AvatarFallback>{{ roomsStore.currentRoom?.name?.[0]?.toUpperCase() || '#' }}</AvatarFallback>
       </Avatar>
       <div class="flex flex-col">
@@ -48,8 +49,8 @@ onMounted(async () => {
     </div>
 
     <!-- Messages -->
-    <ScrollArea class="flex-1">
-      <div class="flex flex-col p-4 space-y-1">
+    <ScrollArea class="flex-1 min-h-0">
+      <div class="flex flex-col p-4 space-y-1 h-full">
         <div v-if="chatStore.hasMoreHistory" class="flex justify-center py-2">
           <Button
             v-if="!chatStore.isLoadingHistory"

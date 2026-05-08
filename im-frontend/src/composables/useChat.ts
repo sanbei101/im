@@ -70,7 +70,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function sendTextMessage(roomId: string, text: string) {
-    const clientMsgId = sdk.generateMessageId()
+    const clientMsgId = sdk.sendTextMessage({ room_id: roomId, text })
     const tempMessage: ChatMessage = {
       msg_id: '',
       client_msg_id: clientMsgId,
@@ -82,7 +82,6 @@ export const useChatStore = defineStore('chat', () => {
       status: 'sending',
     }
     messages.value.push(tempMessage)
-    sdk.sendTextMessage({ room_id: roomId, text })
   }
 
   async function loadHistory(roomId: string) {
