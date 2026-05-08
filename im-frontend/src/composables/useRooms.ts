@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getSDK } from '@/lib/sdk'
-import type { RoomInfo, ListRoomsResponse } from 'go-chat-sdk'
+import type { RoomInfo, ListRoomsResponse } from '../../../sdk'
 import { toast } from 'vue-sonner'
 
 export interface Room {
   room_id: string
   name: string
   type: 'single' | 'group'
+  avatar_url?: string
   members?: string[]
   last_message?: string
   unread_count?: number
@@ -19,6 +20,7 @@ function mapRoomInfoToRoom(info: RoomInfo): Room {
     room_id: info.room_id,
     name: info.name,
     type: info.chat_type as 'single' | 'group',
+    avatar_url: info.avatar_url,
   }
 }
 

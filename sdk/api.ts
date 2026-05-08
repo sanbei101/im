@@ -142,14 +142,14 @@ export class APIClient {
       queryParams.append('page_size', params.page_size.toString());
     }
 
-    const messages = await this.request<Message[]>(
+    const resp = await this.request<{ messages: Message[], hasMore: boolean }>(
       'GET',
       `/api/v1/messages/history?${queryParams.toString()}`
     );
 
     return {
-      messages: messages || [],
-      hasMore: messages.length === (params.page_size || 20),
+      messages: resp?.messages || [],
+      hasMore: resp?.hasMore ?? false,
     };
   }
 

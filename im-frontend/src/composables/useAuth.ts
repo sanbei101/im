@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSDK } from '@/lib/sdk'
-import type { UserResponse } from 'go-chat-sdk'
+import type { UserResponse } from '../../../sdk'
 import { toast } from 'vue-sonner'
 
 export const useAuthStore = defineStore('auth', () => {

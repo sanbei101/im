@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import type { Room } from '@/composables/useRooms'
 
@@ -15,6 +15,7 @@ const props = defineProps<{
     :class="isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/50'"
   >
     <Avatar class="h-10 w-10 shrink-0">
+      <AvatarImage v-if="room.avatar_url" :src="room.avatar_url" :alt="room.name" />
       <AvatarFallback>{{ room.name?.[0]?.toUpperCase() || '#' }}</AvatarFallback>
     </Avatar>
     <div class="flex-1 min-w-0">
