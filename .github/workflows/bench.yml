@@ -116,6 +116,9 @@ jobs:
           test "$msg" = "done"
           echo "🎉 收到 k6 结束信号,准备生成报告!"
           kill -9 "$MONITOR_PID" || true
+      
+      - name: see log
+        run: tail -n 100 monitor.log
 
       - name: Publish Server Monitor Summary
         working-directory: bench

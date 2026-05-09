@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	BatchReadSize = 100
+	BatchReadSize = 1000
 )
 
 type Service struct {
