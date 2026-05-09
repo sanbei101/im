@@ -1,4 +1,5 @@
 # 由Go 实现的高性能即时通讯(IM)系统
+<img width="2861" height="1558" alt="app" src="https://github.com/user-attachments/assets/bdd0ce2b-6a19-4099-8a6c-05927bb951e5" />
 
 # Go IM System 架构与开发指南 (AI 开发指令)
 
@@ -56,14 +57,11 @@
   }
 }
 ```
-
 2. 网关接收消息
 职责:接收 JSON -> 补全核心参数(msg_id,server_time) -> 丢进 Redis Stream
 
 3. 工作线程处理消息
-职责:从 Redis Stream 拉取消息 -> 持久化到 PostgreSQL -> 生成投递指令 -> 丢回 Redis Stream
+职责:从 Redis Stream 拉取消息 -> 持久化到 PostgreSQL -> 丢回 Redis Stream
 
 4. 目标网关推送给接收方
-职责:监听 Redis Stream 的投递指令 -> 定位接收方在线连接 -> 推送消息(先不考虑离线)
-
-tskey-auth-kXXKZ1N3aE11CNTRL-FNCQtrsFbMGbWvbfiqjEMGP9uGrX7tkc
+职责:监听 Redis Stream 的投递指令 -> 定位接收方在线连接 -> 推送消息
