@@ -79,9 +79,6 @@ jobs:
           REDIS_ADDR: "localhost:6379"
           REDIS_PASSWORD: "123456"
           REDIS_DB: "0"
-          
-      - name: see log
-        run: tail -n 100 server.log
       
       - name: 触发k6压测
         run: |
@@ -118,7 +115,7 @@ jobs:
           kill -9 "$MONITOR_PID" || true
       
       - name: see log
-        run: tail -n 100 monitor.log
+        run: tail -n 100 server.log
 
       - name: Publish Server Monitor Summary
         working-directory: bench
