@@ -28,6 +28,30 @@ type CreateGroupRoomReq struct {
 	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
 }
 
+type BatchCreateRoomsReq struct {
+	SingleRooms []BatchSingleRoomReq `json:"single_rooms"`
+	GroupRooms  []BatchGroupRoomReq  `json:"group_rooms"`
+}
+
+type BatchSingleRoomReq struct {
+	UserID1 string `json:"user_id_1" validate:"required,uuid"`
+	UserID2 string `json:"user_id_2" validate:"required,uuid"`
+}
+
+type BatchGroupRoomReq struct {
+	Name      string   `json:"name"`
+	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
+}
+
+type BatchCreateRoomsResp struct {
+	SingleRooms []BatchRoomResult `json:"single_rooms"`
+	GroupRooms  []BatchRoomResult `json:"group_rooms"`
+}
+
+type BatchRoomResult struct {
+	RoomID string `json:"room_id"`
+}
+
 type RoomResp struct {
 	RoomID string `json:"room_id"`
 }
@@ -181,6 +205,31 @@ func (s *RoomService) generateRoomInfo(roomID uuid.UUID) (name string, avatarURL
 
 	avatarURL = fmt.Sprintf("https://api.dicebear.com/7.x/identicon/svg?seed=%s", roomID.String())
 	return name, avatarURL
+}
+
+func (s *RoomService) BatchCreateRooms(ctx context.Context, req BatchCreateRoomsReq) (*BatchCreateRoomsResp, error) {
+	singleResults := make([]BatchRoomResult, 0, len(req.SingleRooms))
+	for _, sr := range req.SingleRooms {
+		resp, err := s.CreateOrGetSingleChatRoom(ctx, sr.UserID1, CreateRoomReq{UserID2: sr.UserID2})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create single room for %s-%s: %w", sr.UserID1, sr.UserID2, err)
+		}
+		singleResults = append(singleResults, BatchRoomResult{RoomID: resp.RoomID})
+	}
+
+	groupResults := make([]BatchRoomResult, 0, len(req.GroupRooms))
+	for _, gr := range req.GroupRooms {
+		resp, err := s.CreateGroupRoom(ctx, CreateGroupRoomReq{Name: gr.Name, MemberIDs: gr.MemberIDs})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create group room %s: %w", gr.Name, err)
+		}
+		groupResults = append(groupResults, BatchRoomResult{RoomID: resp.RoomID})
+	}
+
+	return &BatchCreateRoomsResp{
+		SingleRooms: singleResults,
+		GroupRooms:  groupResults,
+	}, nil
 }
 
 func computeSingleChatHash(user1, user2 uuid.UUID) []byte {

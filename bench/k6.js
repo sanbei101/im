@@ -24,7 +24,7 @@ const api = {
     return http.post(url, JSON.stringify(payload), params);
   },
 
-  createUsers: (count) => {
+  batchCreateUsers: (count) => {
     const res = api.post('/api/v1/users/batch', { count }, '');
     const users = res.json('users');
     if (!users || users.length < count) {
@@ -33,49 +33,61 @@ const api = {
     return users;
   },
 
-  createSingleRoom: (userId1, userId2, token) => {
-    const res = api.post('/api/v1/rooms/single', { user_id_1: userId1, user_id_2: userId2 }, token);
-    const roomId = res.json('room_id');
-    if (!roomId) console.error(`Single room creation failed: ${res.status} ${res.body}`);
-    return roomId;
-  },
-
-  createGroupRoom: (name, memberIds, token) => {
-    const res = api.post('/api/v1/rooms/group', { name, member_ids: memberIds }, token);
-    const roomId = res.json('room_id');
-    if (!roomId) console.error(`Group room creation failed: ${res.status} ${res.body}`);
-    return roomId;
+  batchCreateRooms: (singleRooms, groupRooms, token) => {
+    const payload = {
+      single_rooms: singleRooms || [],
+      group_rooms: groupRooms || [],
+    };
+    const res = api.post('/api/v1/rooms/batch', payload, token);
+    if (res.status !== 201) {
+      console.error(`Batch create rooms failed: ${res.status} ${res.body}`);
+      return null;
+    }
+    return res.json();
   }
 };
 
 export function setup() {
   const userCount = 500;
-  const users = api.createUsers(userCount);
+  const users = api.batchCreateUsers(userCount);
   console.log(`Created ${users.length} users`);
 
   const tokens = users.map(u => u.token);
 
+  const singleRooms = [];
+  for (let i = 0; i < 300; i += 2) {
+    singleRooms.push({ user_id_1: users[i].user_id, user_id_2: users[i + 1].user_id });
+  }
+
+  const groupRooms = [
+    { name: 'Group 1', member_ids: users.slice(300, 400).map(u => u.user_id) },
+    { name: 'Group 2', member_ids: users.slice(400, 500).map(u => u.user_id) },
+  ];
+
+  const batchRes = api.batchCreateRooms(singleRooms, groupRooms, tokens[0]);
+  if (!batchRes) {
+    throw new Error('Batch create rooms failed');
+  }
+
   const vuData = new Array(userCount);
 
   for (let i = 0; i < 300; i += 2) {
-    const roomId = api.createSingleRoom(users[i].user_id, users[i + 1].user_id, tokens[i]);
+    const roomId = batchRes.single_rooms[i / 2].room_id;
     vuData[i] = { user: users[i], room_id: roomId, type: 'single' };
     vuData[i + 1] = { user: users[i + 1], room_id: roomId, type: 'single' };
   }
 
-  const group1Users = users.slice(300, 400);
-  const roomIdG1 = api.createGroupRoom('Group 1', group1Users.map(u => u.user_id), tokens[300]);
+  const roomIdG1 = batchRes.group_rooms[0].room_id;
   for (let i = 300; i < 400; i++) {
     vuData[i] = { user: users[i], room_id: roomIdG1, type: 'group' };
   }
 
-  const group2Users = users.slice(400, 500);
-  const roomIdG2 = api.createGroupRoom('Group 2', group2Users.map(u => u.user_id), tokens[400]);
+  const roomIdG2 = batchRes.group_rooms[1].room_id;
   for (let i = 400; i < 500; i++) {
     vuData[i] = { user: users[i], room_id: roomIdG2, type: 'group' };
   }
 
-  console.log(`Setup complete: 150 single rooms, 2 group rooms.`);
+  console.log(`Setup complete: ${batchRes.single_rooms.length} single rooms, ${batchRes.group_rooms.length} group rooms.`);
   return { vuData };
 }
 
