@@ -128,6 +128,7 @@ func (r *Redis) GatewayPullTask(ctx context.Context, batch int64) ([]*GatewayPus
 			ReleaseGatewayPushTask(task)
 			continue
 		}
+		task.StreamID = msg.ID
 		tasks = append(tasks, task)
 	}
 	return tasks, nil
