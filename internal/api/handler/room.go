@@ -72,3 +72,20 @@ func (h *RoomHandler) ListRooms(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+func (h *RoomHandler) BatchCreateRooms(c *gin.Context) {
+	var req service.BatchCreateRoomsReq
+	err := validate.ValidateAndParseJSON(c, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.svc.BatchCreateRooms(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, resp)
+}
