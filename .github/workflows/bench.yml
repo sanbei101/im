@@ -198,6 +198,18 @@ jobs:
           echo "通知 Server 压测已结束..."
           echo "done" | nc -N bench-server 9999
 
+      - name: Upload pprof profiles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pprof-profiles
+          path: |
+            bench/worker_cpu.prof
+            bench/gateway_cpu.prof
+            bench/worker_heap.prof
+            bench/gateway_heap.prof
+          retention-days: 7
+
       - name: Publish K6 and Profiling Summary
         working-directory: bench
         if: always()
