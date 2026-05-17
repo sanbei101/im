@@ -80,7 +80,7 @@ func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 	message.SenderID = c.UserID
 	message.ServerTime = time.Now().UnixMicro()
 
-	if err := c.gateway.redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
+	if err := c.gateway.Redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client push message failed")
 	}
 }
@@ -97,30 +97,30 @@ func (c *UserClient) sendError(errMsg string) {
 }
 
 type UserSessionManager struct {
-	sessions sync.Map
+	UserSessions sync.Map
 }
 
 func NewSessionManager() *UserSessionManager {
 	return &UserSessionManager{
-		sessions: sync.Map{},
+		UserSessions: sync.Map{},
 	}
 }
 
 func (sm *UserSessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
-	if v, ok := sm.sessions.Load(key); ok {
+	if v, ok := sm.UserSessions.Load(key); ok {
 		return v.(*UserSession)
 	}
 	session := createFn()
-	actual, _ := sm.sessions.LoadOrStore(key, session)
+	actual, _ := sm.UserSessions.LoadOrStore(key, session)
 	return actual.(*UserSession)
 }
 
 func (sm *UserSessionManager) Delete(key string) {
-	sm.sessions.Delete(key)
+	sm.UserSessions.Delete(key)
 }
 
 func (sm *UserSessionManager) Load(key string) (*UserSession, bool) {
-	if v, ok := sm.sessions.Load(key); ok {
+	if v, ok := sm.UserSessions.Load(key); ok {
 		return v.(*UserSession), true
 	}
 	return nil, false

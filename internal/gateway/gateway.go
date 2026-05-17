@@ -6,15 +6,15 @@ import (
 )
 
 type Gateway struct {
-	sessions *UserSessionManager
-	redis    *db.Redis
-	config   *config.Config
+	UserSessionManager *UserSessionManager
+	Redis              *db.Redis
+	Config             *config.Config
 }
 
-func New(cfg *config.Config) *Gateway {
+func NewGateway(cfg *config.Config) *Gateway {
 	return &Gateway{
-		sessions: NewSessionManager(),
-		redis:    db.NewRedis(cfg),
-		config:   cfg,
+		UserSessionManager: NewSessionManager(),
+		Redis:              db.NewRedis(cfg),
+		Config:             cfg,
 	}
 }

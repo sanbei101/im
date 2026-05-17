@@ -20,7 +20,7 @@ var wg sync.WaitGroup
 func main() {
 	logger.InitLogger()
 	config := config.New()
-	g := gateway.New(config)
+	g := gateway.NewGateway(config)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
