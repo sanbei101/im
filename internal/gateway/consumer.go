@@ -10,7 +10,7 @@ import (
 )
 
 func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
-	err := gateway.redis.InitStreamGroups(context.Background())
+	err := gateway.Redis.InitStreamGroups(context.Background())
 	if err != nil {
 		log.Panic().Err(err).Msg("gateway init stream groups failed")
 		return
@@ -26,7 +26,7 @@ func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
 }
 
 func (gateway *Gateway) pollAndProcess(ctx context.Context) {
-	tasks, err := gateway.redis.GatewayPullTask(ctx, 1000)
+	tasks, err := gateway.Redis.GatewayPullTask(ctx, 1000)
 	if err != nil {
 		if ctx.Err() != nil {
 			return
@@ -64,12 +64,12 @@ func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPus
 
 	// 按用户批量广播
 	for userIDStr, msgs := range userMessages {
-		if userSession, ok := gateway.sessions.Load(userIDStr); ok {
+		if userSession, ok := gateway.UserSessionManager.Load(userIDStr); ok {
 			userSession.Broadcast(msgs)
 		}
 	}
 
-	err := gateway.redis.GatewayAckMessage(ctx, streamIDs...)
+	err := gateway.Redis.GatewayAckMessage(ctx, streamIDs...)
 	if err != nil {
 		log.Error().Err(err).Msg("gateway ack messages failed")
 	}

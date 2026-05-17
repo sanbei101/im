@@ -55,20 +55,21 @@ func (gateway *Gateway) authenticate(r *http.Request) (uuid.UUID, error) {
 }
 
 func (gateway *Gateway) setupUserClient(userID uuid.UUID, conn *websocket.Conn) (*UserClient, *UserSession) {
-	c := &UserClient{
-		Conn:   conn,
-		Send:   make(chan [][]byte, 100),
-		UserID: userID,
+	userClient := &UserClient{
+		gateway: gateway,
+		Conn:    conn,
+		Send:    make(chan [][]byte, 100),
+		UserID:  userID,
 	}
-	session := gateway.sessions.LoadOrCreate(userID.String(), NewUserSession)
-	session.Add(c)
+	userSession := gateway.UserSessionManager.LoadOrCreate(userID.String(), NewUserSession)
+	userSession.Add(userClient)
 
-	return c, session
+	return userClient, userSession
 }
 
 func (gateway *Gateway) cleanUserClient(userID uuid.UUID, c *UserClient, session *UserSession) {
 	if session.Remove(c) {
-		gateway.sessions.Delete(userID.String())
+		gateway.UserSessionManager.Delete(userID.String())
 	}
 	close(c.Send)
 }
