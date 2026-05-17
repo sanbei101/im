@@ -48,9 +48,17 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 		roomToMsgs[chatMsg.RoomID] = append(roomToMsgs[chatMsg.RoomID], chatMsg)
 	}
 
-	_, err = s.queries.BatchCopyMessages(ctx, params)
+	rowsInserted, err := s.queries.BatchCopyMessages(ctx, params)
 	if err != nil {
+		log.Error().Err(err).Msg("批量插入消息失败")
 		return fmt.Errorf("batch copy messages failed: %w", err)
+	}
+	if rowsInserted != int64(len(params)) {
+		log.Warn().
+			Int64("rowsInserted", rowsInserted).
+			Int("paramsLength", len(params)).
+			Any("params", params).
+			Msg("批量插入消息行数与参数长度不匹配")
 	}
 
 	tasks, err := s.buildGatewayPushTasks(ctx, roomToMsgs)
