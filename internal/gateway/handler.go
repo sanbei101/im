@@ -31,76 +31,69 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	c, session := gateway.setupClient(userID, conn)
-	defer gateway.cleanupClient(userID, c, session)
+	userClient, userSession := gateway.setupClient(userID, conn)
+	defer gateway.cleanupClient(userID, userClient, userSession)
 
-	go c.writePump(context.Background())
+	go userClient.writePump(r.Context())
 
-	senderUUID, err := uuid.Parse(userID)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("gateway parse user_id to uuid failed")
-		return
-	}
-
-	gateway.readPump(r.Context(), conn, c, userID, senderUUID)
+	gateway.readPump(r.Context(), userClient)
 }
 
-func (gateway *Gateway) authenticate(r *http.Request) (string, error) {
+func (gateway *Gateway) authenticate(r *http.Request) (uuid.UUID, error) {
 	jwtToken := r.URL.Query().Get("token")
 	if jwtToken == "" {
 		log.Error().Str("remote_addr", r.RemoteAddr).Msg("gateway missing token query parameter")
-		return "", errors.New("missing token query parameter")
+		return uuid.Nil, errors.New("missing token query parameter")
 	}
-	userID, err := jwt.ParseToken(jwtToken)
+	userIDStr, err := jwt.ParseToken(jwtToken)
 	if err != nil {
 		log.Error().Err(err).Msg("gateway parse token failed")
-		return "", err
+		return uuid.Nil, err
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userIDStr).Msg("gateway parse user_id to uuid failed")
+		return uuid.Nil, err
 	}
 	return userID, nil
 }
 
-func (gateway *Gateway) setupClient(userID string, conn *websocket.Conn) (*Client, *UserSession) {
+func (gateway *Gateway) setupClient(userID uuid.UUID, conn *websocket.Conn) (*Client, *UserSession) {
 	c := &Client{
-		Conn: conn,
-		Send: make(chan [][]byte, 100),
+		Conn:   conn,
+		Send:   make(chan [][]byte, 100),
+		UserID: userID,
 	}
-	session := gateway.sessions.LoadOrCreate(userID, NewUserSession)
+	session := gateway.sessions.LoadOrCreate(userID.String(), NewUserSession)
 	session.Add(c)
 
 	return c, session
 }
 
-func (gateway *Gateway) cleanupClient(userID string, c *Client, session *UserSession) {
+func (gateway *Gateway) cleanupClient(userID uuid.UUID, c *Client, session *UserSession) {
 	if session.Remove(c) {
-		gateway.sessions.Delete(userID)
+		gateway.sessions.Delete(userID.String())
 	}
 	close(c.Send)
 }
 
-func (gateway *Gateway) readPump(
-	ctx context.Context,
-	conn *websocket.Conn,
-	c *Client,
-	userID string,
-	senderUUID uuid.UUID,
-) {
+func (gateway *Gateway) readPump(ctx context.Context, c *Client) {
 	for {
-		_, payload, err := conn.Read(ctx)
+		_, payload, err := c.Conn.Read(ctx)
 		if err != nil {
 			if websocket.CloseStatus(err) == -1 {
-				log.Error().Err(err).Str("user_id", userID).Msg("gateway read message failed")
+				log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway read message failed")
 			}
 			return
 		}
-		gateway.handleIncomingMessage(ctx, payload, c, userID, senderUUID)
+		gateway.handleIncomingMessage(ctx, payload, c)
 	}
 }
 
 func (gateway *Gateway) handleIncomingMessage(
 	ctx context.Context,
-	payload []byte, c *Client,
-	userID string,
-	senderUUID uuid.UUID,
+	payload []byte,
+	c *Client,
 ) {
 	var envelope struct {
 		Type string `json:"type"`
@@ -111,13 +104,13 @@ func (gateway *Gateway) handleIncomingMessage(
 
 	var message db.Message
 	if err := json.Unmarshal(payload, &message); err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("gateway unmarshal message failed")
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway unmarshal message failed")
 		gateway.sendError(c, "invalid message format")
 		return
 	}
 
 	if message.ClientMsgID == uuid.Nil {
-		log.Error().Str("user_id", userID).Msg("gateway missing client_msg_id")
+		log.Error().Str("user_id", c.UserID.String()).Msg("gateway missing client_msg_id")
 		gateway.sendError(c, "missing client_msg_id")
 		return
 	}
@@ -125,15 +118,15 @@ func (gateway *Gateway) handleIncomingMessage(
 	var err error
 	message.MsgID, err = uuid.NewV7()
 	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("gateway generate msg_id failed")
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway generate msg_id failed")
 		gateway.sendError(c, "failed to generate msg_id")
 		return
 	}
-	message.SenderID = senderUUID
+	message.SenderID = c.UserID
 	message.ServerTime = time.Now().UnixMicro()
 
 	if err := gateway.redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("gateway push message failed")
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway push message failed")
 	}
 }
 
