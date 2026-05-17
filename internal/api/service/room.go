@@ -79,17 +79,17 @@ func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsR
 	}
 
 	if len(rooms) == 0 {
-		return &ListRoomsResp{Rooms: []RoomInfo{}}, nil
+		return nil, nil
 	}
 
-	result := make([]RoomInfo, 0, len(rooms))
-	for _, r := range rooms {
-		result = append(result, RoomInfo{
+	result := make([]RoomInfo, len(rooms))
+	for i, r := range rooms {
+		result[i] = RoomInfo{
 			RoomID:    r.RoomID.String(),
 			ChatType:  string(r.ChatType),
 			Name:      r.Name,
 			AvatarURL: r.AvatarUrl,
-		})
+		}
 	}
 
 	return &ListRoomsResp{Rooms: result}, nil
