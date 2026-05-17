@@ -2,17 +2,21 @@ package gateway
 
 import (
 	"context"
+	"encoding/json/v2"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
+	"github.com/sanbei101/im/internal/db"
 )
 
 type Client struct {
-	Conn   *websocket.Conn
-	Send   chan [][]byte
-	UserID uuid.UUID
+	gateway *Gateway
+	Conn    *websocket.Conn
+	Send    chan [][]byte
+	UserID  uuid.UUID
 }
 
 func (c *Client) writePump(ctx context.Context) {
@@ -30,6 +34,65 @@ func (c *Client) writePump(ctx context.Context) {
 		if err := c.Conn.Write(ctx, websocket.MessageText, buf); err != nil {
 			return
 		}
+	}
+}
+func (c *Client) readPump(ctx context.Context) {
+	for {
+		_, payload, err := c.Conn.Read(ctx)
+		if err != nil {
+			if websocket.CloseStatus(err) == -1 {
+				log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client read message failed")
+			}
+			return
+		}
+		c.handleIncomingMessage(ctx, payload)
+	}
+}
+
+func (c *Client) handleIncomingMessage(ctx context.Context, payload []byte) {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err == nil && envelope.Type == "ping" {
+		return
+	}
+
+	var message db.Message
+	if err := json.Unmarshal(payload, &message); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal message failed")
+		c.sendError("invalid message format")
+		return
+	}
+
+	if message.ClientMsgID == uuid.Nil {
+		log.Error().Str("user_id", c.UserID.String()).Msg("client missing client_msg_id")
+		c.sendError("missing client_msg_id")
+		return
+	}
+
+	var err error
+	message.MsgID, err = uuid.NewV7()
+	if err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client generate msg_id failed")
+		c.sendError("failed to generate msg_id")
+		return
+	}
+	message.SenderID = c.UserID
+	message.ServerTime = time.Now().UnixMicro()
+
+	// 使用绑定的 gateway 指针去调用 Redis
+	if err := c.gateway.redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client push message failed")
+	}
+}
+func (c *Client) sendError(errMsg string) {
+	bin, _ := json.Marshal(map[string]string{"error": errMsg})
+	select {
+	case c.Send <- [][]byte{bin}:
+	default:
+		log.Warn().
+			Str("error_msg", errMsg).
+			Msg("client send error message failed, send channel is full")
 	}
 }
 
