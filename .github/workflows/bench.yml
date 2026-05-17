@@ -29,9 +29,10 @@ jobs:
 
       - name: build server
         run: |
-          go build -ldflags="-s -w" -o worker  ./cmd/worker
-          go build -ldflags="-s -w" -o gateway ./cmd/gateway
-          go build -ldflags="-s -w" -o api     ./cmd/api
+          go build -trimpath -ldflags="-s -w" -o worker  ./cmd/worker
+          go build -trimpath -ldflags="-s -w" -o gateway ./cmd/gateway
+          go build -trimpath -ldflags="-s -w" -o api     ./cmd/api
+          du -h worker gateway api
         env:
           GOEXPERIMENT: jsonv2
           CGO_ENABLED: 0
