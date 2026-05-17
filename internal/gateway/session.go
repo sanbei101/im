@@ -5,12 +5,14 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/phuslu/log"
 )
 
 type Client struct {
-	Conn *websocket.Conn
-	Send chan [][]byte
+	Conn   *websocket.Conn
+	Send   chan [][]byte
+	UserID uuid.UUID
 }
 
 func (c *Client) writePump(ctx context.Context) {
