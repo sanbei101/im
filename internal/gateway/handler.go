@@ -1,17 +1,13 @@
 package gateway
 
 import (
-	"context"
-	"encoding/json/v2"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
 
-	"github.com/sanbei101/im/internal/db"
 	"github.com/sanbei101/im/pkg/jwt"
 )
 
@@ -36,7 +32,7 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 
 	go userClient.writePump(r.Context())
 
-	gateway.readPump(r.Context(), userClient)
+	userClient.readPump(r.Context())
 }
 
 func (gateway *Gateway) authenticate(r *http.Request) (uuid.UUID, error) {
@@ -75,68 +71,4 @@ func (gateway *Gateway) cleanupClient(userID uuid.UUID, c *Client, session *User
 		gateway.sessions.Delete(userID.String())
 	}
 	close(c.Send)
-}
-
-func (gateway *Gateway) readPump(ctx context.Context, c *Client) {
-	for {
-		_, payload, err := c.Conn.Read(ctx)
-		if err != nil {
-			if websocket.CloseStatus(err) == -1 {
-				log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway read message failed")
-			}
-			return
-		}
-		gateway.handleIncomingMessage(ctx, payload, c)
-	}
-}
-
-func (gateway *Gateway) handleIncomingMessage(
-	ctx context.Context,
-	payload []byte,
-	c *Client,
-) {
-	var envelope struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err == nil && envelope.Type == "ping" {
-		return
-	}
-
-	var message db.Message
-	if err := json.Unmarshal(payload, &message); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway unmarshal message failed")
-		gateway.sendError(c, "invalid message format")
-		return
-	}
-
-	if message.ClientMsgID == uuid.Nil {
-		log.Error().Str("user_id", c.UserID.String()).Msg("gateway missing client_msg_id")
-		gateway.sendError(c, "missing client_msg_id")
-		return
-	}
-
-	var err error
-	message.MsgID, err = uuid.NewV7()
-	if err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway generate msg_id failed")
-		gateway.sendError(c, "failed to generate msg_id")
-		return
-	}
-	message.SenderID = c.UserID
-	message.ServerTime = time.Now().UnixMicro()
-
-	if err := gateway.redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("gateway push message failed")
-	}
-}
-
-func (gateway *Gateway) sendError(c *Client, errMsg string) {
-	bin, _ := json.Marshal(map[string]string{"error": errMsg})
-	select {
-	case c.Send <- [][]byte{bin}:
-	default:
-		log.Warn().
-			Str("error_msg", errMsg).
-			Msg("gateway send error message failed, send channel is full")
-	}
 }
