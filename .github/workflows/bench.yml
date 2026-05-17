@@ -86,7 +86,11 @@ jobs:
       - name: 触发k6压测
         run: |
           echo "通知 k6 节点开始压测..."
-          echo "ready" | nc -N bench-k6 9999
+          until echo "ready" | nc -N ${{ env.K6_HOST }} 9999; do
+            echo "k6 节点监听未就绪,重试..."
+            sleep 1
+          done
+          echo "信号发送成功,压测开始!"
 
       - name: Install dependencies with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -111,9 +115,7 @@ jobs:
         run: |
           MONITOR_PID=$(cat /tmp/monitor.pid)
           echo "等待 k6 节点发送压测结束信号..."
-          msg=$(nc -l 9999)
-          echo "收到消息: $msg"
-          test "$msg" = "done"
+          nc -l 9999
           echo "🎉 收到 k6 结束信号,准备生成报告!"
           kill -9 "$MONITOR_PID" || true
       
@@ -152,10 +154,7 @@ jobs:
       - uses: grafana/setup-k6-action@v1
     
       - name: 等待 Server 就绪
-        run: |
-          msg=$(nc -l 9999)
-          echo "收到消息: $msg"
-          test "$msg" = "ready"
+        run: nc -l 9999
 
       - name: Run k6 and collect pprof
         working-directory: bench
