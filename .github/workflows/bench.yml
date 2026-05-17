@@ -8,6 +8,9 @@ on:
     paths-ignore:
       - 'im-frontend/**'
       - 'sdk/**'
+env:
+  SERVER_HOST: bench-server-${{ github.run_id }}
+  K6_HOST: bench-k6-${{ github.run_id }}
 
 jobs:
   server:
@@ -40,7 +43,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-action
-          hostname: bench-server
+          hostname: ${{ env.SERVER_HOST }}
 
       - name: Start services with docker-compose
         run: |
@@ -143,8 +146,8 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-action
-          hostname: bench-k6
-          ping: bench-server
+          hostname: ${{ env.K6_HOST }}
+          ping: ${{ env.SERVER_HOST }}
 
       - uses: grafana/setup-k6-action@v1
     
@@ -159,8 +162,9 @@ jobs:
         run: |
           touch k6.log
 
-          k6 --quiet run k6.js -e TARGET_HOST=bench-server &> >(tee k6.log) &
+          k6 --quiet run k6.js -e TARGET_HOST=${{ env.SERVER_HOST }} &> >(tee k6.log) &
           K6_PID=$!
+          echo $K6_PID > /tmp/k6.pid
 
           echo "等待 k6 setup 阶段完成..."
           grep -q -m 1 "Setup complete" <(tail -f k6.log)
@@ -168,35 +172,40 @@ jobs:
 
       - name: 触发 Server 监控
         run: |
-          echo "ready" | nc -N bench-server 9999
+          echo "ready" | nc -N ${{ env.SERVER_HOST }} 9999
           echo "🚀 已通知 Server 开始监控"
 
       - name: Collect Pprof Profiles
         working-directory: bench
         run: |
-          curl -s -o worker_cpu.prof "http://bench-server:6063/debug/pprof/profile?seconds=20" &
+          curl -s -o worker_cpu.prof "http://${{ env.SERVER_HOST }}:6063/debug/pprof/profile?seconds=20" &
           WORKER_CPU_PID=$!
-          curl -s -o gateway_cpu.prof "http://bench-server:6062/debug/pprof/profile?seconds=20" &
+          curl -s -o gateway_cpu.prof "http://${{ env.SERVER_HOST }}:6062/debug/pprof/profile?seconds=20" &
           GATEWAY_CPU_PID=$!
 
-          (sleep 10 && curl -s -o worker_heap.prof "http://bench-server:6063/debug/pprof/heap") &
+          (sleep 10 && curl -s -o worker_heap.prof "http://${{ env.SERVER_HOST }}:6063/debug/pprof/heap") &
           WORKER_HEAP_PID=$!
-          (sleep 10 && curl -s -o gateway_heap.prof "http://bench-server:6062/debug/pprof/heap") &
+          (sleep 10 && curl -s -o gateway_heap.prof "http://${{ env.SERVER_HOST }}:6062/debug/pprof/heap") &
           GATEWAY_HEAP_PID=$!
 
-          wait $WORKER_CPU_PID || true
-          wait $GATEWAY_CPU_PID || true
-          wait $WORKER_HEAP_PID || true
-          wait $GATEWAY_HEAP_PID || true
-          
-          wait $K6_PID
-          K6_EXIT=$?
-          echo "$K6_EXIT" > k6_exit_code.txt
+          wait $WORKER_CPU_PID
+          wait $GATEWAY_CPU_PID
+          wait $WORKER_HEAP_PID
+          wait $GATEWAY_HEAP_PID
+
+      - name: 等待 K6 Bench 完成
+        run: |
+          K6_PID=$(cat /tmp/k6.pid)
+          echo "等待 k6 进程 (PID: $K6_PID) 结束..."
+          while kill -0 $K6_PID 2>/dev/null; do
+            sleep 1
+          done
+          echo "K6 压测已结束!"
           
       - name: 通知 Server 压测结束
         run: |
           echo "通知 Server 压测已结束..."
-          echo "done" | nc -N bench-server 9999
+          echo "done" | nc -N ${{ env.SERVER_HOST }} 9999
 
       - name: Upload pprof profiles
         if: always()
@@ -240,6 +249,3 @@ jobs:
           echo '```log' >> $GITHUB_STEP_SUMMARY
           tail -n 100 k6.log >> $GITHUB_STEP_SUMMARY || echo "No k6.log found" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-          K6_EXIT=$(cat k6_exit_code.txt || echo 1)
-          exit "$K6_EXIT"
