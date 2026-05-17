@@ -37,12 +37,12 @@ func main() {
 	}
 	log.Info().Msg("connected to postgres")
 
-	q := db.New(pool)
-	userSvc := service.NewUserService(q)
+	query := db.New(pool)
+	userSvc := service.NewUserService(query)
 	userHandler := handler.NewUserHandler(userSvc)
-	messageSvc := service.NewMessageService(q)
+	messageSvc := service.NewMessageService(query)
 	messageHandler := handler.NewMessageHandler(messageSvc)
-	roomSvc := service.NewRoomService(q)
+	roomSvc := service.NewRoomService(query, pool)
 	roomHandler := handler.NewRoomHandler(roomSvc)
 
 	r := api.SetupRouter(userHandler, messageHandler, roomHandler)

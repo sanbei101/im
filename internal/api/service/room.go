@@ -7,16 +7,18 @@ import (
 	"math/rand"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sanbei101/im/internal/db"
 )
 
 type RoomService struct {
-	q *db.Queries
+	query *db.Queries
+	db    *pgxpool.Pool
 }
 
-func NewRoomService(q *db.Queries) *RoomService {
-	return &RoomService{q: q}
+func NewRoomService(query *db.Queries, db *pgxpool.Pool) *RoomService {
+	return &RoomService{query: query, db: db}
 }
 
 type CreateRoomReq struct {
@@ -73,7 +75,7 @@ func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsR
 		return nil, err
 	}
 
-	rooms, err := s.q.GetUserRooms(ctx, userUUID)
+	rooms, err := s.query.GetUserRooms(ctx, userUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,14 +113,19 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 str
 
 	hash := computeSingleChatHash(user1, user2)
 
-	room, err := s.q.GetRoomByHash(ctx, hash)
+	room, err := s.query.GetRoomByHash(ctx, hash)
 	if err == nil && room != nil {
 		return &RoomResp{RoomID: room.RoomID.String()}, nil
 	}
-
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txQuery := s.query.WithTx(tx)
 	roomUUID := uuid.Must(uuid.NewV7())
 	roomName, roomAvatar := s.generateRoomInfo(roomUUID)
-	_, err = s.q.CreateRoom(ctx, db.CreateRoomParams{
+	_, err = txQuery.CreateRoom(ctx, db.CreateRoomParams{
 		RoomID:         roomUUID,
 		ChatType:       db.ChatTypeSingle,
 		Name:           roomName,
@@ -129,7 +136,7 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 str
 		return nil, err
 	}
 
-	err = s.q.AddRoomMember(ctx, db.AddRoomMemberParams{
+	err = txQuery.AddRoomMember(ctx, db.AddRoomMemberParams{
 		RoomID: roomUUID,
 		UserID: user1,
 		Role:   db.MemberRoleMember,
@@ -138,13 +145,17 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 str
 		return nil, err
 	}
 
-	err = s.q.AddRoomMember(ctx, db.AddRoomMemberParams{
+	err = txQuery.AddRoomMember(ctx, db.AddRoomMemberParams{
 		RoomID: roomUUID,
 		UserID: user2,
 		Role:   db.MemberRoleMember,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return &RoomResp{RoomID: roomUUID.String()}, nil
@@ -170,7 +181,7 @@ func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomRe
 		roomName = req.Name
 	}
 
-	_, err := s.q.CreateGroupRoom(ctx, db.CreateGroupRoomParams{
+	_, err := s.query.CreateGroupRoom(ctx, db.CreateGroupRoomParams{
 		RoomID:    roomUUID,
 		Name:      roomName,
 		AvatarUrl: roomUrl,
@@ -179,7 +190,7 @@ func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomRe
 		return nil, err
 	}
 
-	err = s.q.AddRoomMembers(ctx, db.AddRoomMembersParams{
+	err = s.query.AddRoomMembers(ctx, db.AddRoomMembersParams{
 		RoomID:  roomUUID,
 		UserIds: memberUUIDs,
 	})
