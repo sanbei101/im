@@ -45,11 +45,11 @@ func (c *Client) readPump(ctx context.Context) {
 			}
 			return
 		}
-		c.handleIncomingMessage(ctx, payload)
+		c.handleUserMessage(ctx, payload)
 	}
 }
 
-func (c *Client) handleIncomingMessage(ctx context.Context, payload []byte) {
+func (c *Client) handleUserMessage(ctx context.Context, payload []byte) {
 	var envelope struct {
 		Type string `json:"type"`
 	}
@@ -80,11 +80,11 @@ func (c *Client) handleIncomingMessage(ctx context.Context, payload []byte) {
 	message.SenderID = c.UserID
 	message.ServerTime = time.Now().UnixMicro()
 
-	// 使用绑定的 gateway 指针去调用 Redis
 	if err := c.gateway.redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client push message failed")
 	}
 }
+
 func (c *Client) sendError(errMsg string) {
 	bin, _ := json.Marshal(map[string]string{"error": errMsg})
 	select {
@@ -101,7 +101,9 @@ type SessionManager struct {
 }
 
 func NewSessionManager() *SessionManager {
-	return &SessionManager{}
+	return &SessionManager{
+		sessions: sync.Map{},
+	}
 }
 
 func (sm *SessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
