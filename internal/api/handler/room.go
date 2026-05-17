@@ -59,11 +59,6 @@ func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
 
 func (h *RoomHandler) ListRooms(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
-		return
-	}
-
 	resp, err := h.svc.ListRooms(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

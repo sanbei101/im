@@ -75,10 +75,6 @@ func (h *UserHandler) BatchGenerate(c *gin.Context) {
 
 	resp, err := h.svc.BatchGenerate(c.Request.Context(), req)
 	if err != nil {
-		if errors.Is(err, service.ErrCountOutOfRange) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "count must be between 1 and 100"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
