@@ -12,14 +12,14 @@ import (
 	"github.com/sanbei101/im/internal/db"
 )
 
-type Client struct {
+type UserClient struct {
 	gateway *Gateway
 	Conn    *websocket.Conn
 	Send    chan [][]byte
 	UserID  uuid.UUID
 }
 
-func (c *Client) writePump(ctx context.Context) {
+func (c *UserClient) writePump(ctx context.Context) {
 	for msgs := range c.Send {
 		// 将多条消息拼接为 JSON 数组: [msg1, msg2, ...]
 		var buf []byte
@@ -36,7 +36,7 @@ func (c *Client) writePump(ctx context.Context) {
 		}
 	}
 }
-func (c *Client) readPump(ctx context.Context) {
+func (c *UserClient) readPump(ctx context.Context) {
 	for {
 		_, payload, err := c.Conn.Read(ctx)
 		if err != nil {
@@ -49,7 +49,7 @@ func (c *Client) readPump(ctx context.Context) {
 	}
 }
 
-func (c *Client) handleUserMessage(ctx context.Context, payload []byte) {
+func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 	var envelope struct {
 		Type string `json:"type"`
 	}
@@ -85,7 +85,7 @@ func (c *Client) handleUserMessage(ctx context.Context, payload []byte) {
 	}
 }
 
-func (c *Client) sendError(errMsg string) {
+func (c *UserClient) sendError(errMsg string) {
 	bin, _ := json.Marshal(map[string]string{"error": errMsg})
 	select {
 	case c.Send <- [][]byte{bin}:
@@ -96,17 +96,17 @@ func (c *Client) sendError(errMsg string) {
 	}
 }
 
-type SessionManager struct {
+type UserSessionManager struct {
 	sessions sync.Map
 }
 
-func NewSessionManager() *SessionManager {
-	return &SessionManager{
+func NewSessionManager() *UserSessionManager {
+	return &UserSessionManager{
 		sessions: sync.Map{},
 	}
 }
 
-func (sm *SessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
+func (sm *UserSessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
 	if v, ok := sm.sessions.Load(key); ok {
 		return v.(*UserSession)
 	}
@@ -115,11 +115,11 @@ func (sm *SessionManager) LoadOrCreate(key string, createFn func() *UserSession)
 	return actual.(*UserSession)
 }
 
-func (sm *SessionManager) Delete(key string) {
+func (sm *UserSessionManager) Delete(key string) {
 	sm.sessions.Delete(key)
 }
 
-func (sm *SessionManager) Load(key string) (*UserSession, bool) {
+func (sm *UserSessionManager) Load(key string) (*UserSession, bool) {
 	if v, ok := sm.sessions.Load(key); ok {
 		return v.(*UserSession), true
 	}
@@ -128,22 +128,22 @@ func (sm *SessionManager) Load(key string) (*UserSession, bool) {
 
 type UserSession struct {
 	mu      sync.RWMutex
-	clients map[*Client]struct{}
+	clients map[*UserClient]struct{}
 }
 
 func NewUserSession() *UserSession {
 	return &UserSession{
-		clients: make(map[*Client]struct{}),
+		clients: make(map[*UserClient]struct{}),
 	}
 }
 
-func (s *UserSession) Add(c *Client) {
+func (s *UserSession) Add(c *UserClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clients[c] = struct{}{}
 }
 
-func (s *UserSession) Remove(c *Client) bool {
+func (s *UserSession) Remove(c *UserClient) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.clients, c)

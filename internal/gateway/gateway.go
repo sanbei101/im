@@ -6,7 +6,7 @@ import (
 )
 
 type Gateway struct {
-	sessions *SessionManager
+	sessions *UserSessionManager
 	redis    *db.Redis
 	config   *config.Config
 }

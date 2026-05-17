@@ -27,8 +27,8 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	userClient, userSession := gateway.setupClient(userID, conn)
-	defer gateway.cleanupClient(userID, userClient, userSession)
+	userClient, userSession := gateway.setupUserClient(userID, conn)
+	defer gateway.cleanUserClient(userID, userClient, userSession)
 
 	go userClient.writePump(r.Context())
 
@@ -54,8 +54,8 @@ func (gateway *Gateway) authenticate(r *http.Request) (uuid.UUID, error) {
 	return userID, nil
 }
 
-func (gateway *Gateway) setupClient(userID uuid.UUID, conn *websocket.Conn) (*Client, *UserSession) {
-	c := &Client{
+func (gateway *Gateway) setupUserClient(userID uuid.UUID, conn *websocket.Conn) (*UserClient, *UserSession) {
+	c := &UserClient{
 		Conn:   conn,
 		Send:   make(chan [][]byte, 100),
 		UserID: userID,
@@ -66,7 +66,7 @@ func (gateway *Gateway) setupClient(userID uuid.UUID, conn *websocket.Conn) (*Cl
 	return c, session
 }
 
-func (gateway *Gateway) cleanupClient(userID uuid.UUID, c *Client, session *UserSession) {
+func (gateway *Gateway) cleanUserClient(userID uuid.UUID, c *UserClient, session *UserSession) {
 	if session.Remove(c) {
 		gateway.sessions.Delete(userID.String())
 	}
