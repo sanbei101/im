@@ -19,10 +19,22 @@ type UserClient struct {
 	UserID  uuid.UUID
 }
 
+var msgBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 1024)
+		return &b
+	},
+}
+
 func (c *UserClient) writePump(ctx context.Context) {
 	for msgs := range c.Send {
-		// 将多条消息拼接为 JSON 数组: [msg1, msg2, ...]
-		var buf []byte
+		bufPtr := msgBufPool.Get().(*[]byte)
+		buf := (*bufPtr)[:0]
+
+		totalLen := 2 + len(msgs) - 1
+		for _, msg := range msgs {
+			totalLen += len(msg)
+		}
 		buf = append(buf, '[')
 		for i, msg := range msgs {
 			if i > 0 {
@@ -31,9 +43,13 @@ func (c *UserClient) writePump(ctx context.Context) {
 			buf = append(buf, msg...)
 		}
 		buf = append(buf, ']')
-		if err := c.Conn.Write(ctx, websocket.MessageText, buf); err != nil {
+
+		err := c.Conn.Write(ctx, websocket.MessageText, buf)
+		if err != nil {
+			msgBufPool.Put(bufPtr)
 			return
 		}
+		msgBufPool.Put(bufPtr)
 	}
 }
 func (c *UserClient) readPump(ctx context.Context) {
