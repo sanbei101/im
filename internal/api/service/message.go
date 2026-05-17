@@ -10,11 +10,11 @@ import (
 )
 
 type MessageService struct {
-	q *db.Queries
+	query *db.Queries
 }
 
-func NewMessageService(q *db.Queries) *MessageService {
-	return &MessageService{q: q}
+func NewMessageService(query *db.Queries) *MessageService {
+	return &MessageService{query: query}
 }
 
 type HistoryReq struct {
@@ -44,7 +44,7 @@ func (s *MessageService) GetHistory(ctx context.Context, req HistoryReq) (*Histo
 		pageSize = 20
 	}
 
-	messages, err := s.q.ListMessagesByRoom(ctx, db.ListMessagesByRoomParams{
+	messages, err := s.query.ListMessagesByRoom(ctx, db.ListMessagesByRoomParams{
 		RoomID:           roomID,
 		BeforeServerTime: beforeTime,
 		PageSize:         pageSize + 1,

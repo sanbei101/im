@@ -13,11 +13,11 @@ import (
 )
 
 type UserService struct {
-	q *db.Queries
+	query *db.Queries
 }
 
-func NewUserService(q *db.Queries) *UserService {
-	return &UserService{q: q}
+func NewUserService(query *db.Queries) *UserService {
+	return &UserService{query: query}
 }
 
 type RegisterReq struct {
@@ -67,7 +67,7 @@ func (s *UserService) Register(ctx context.Context, req RegisterReq) (*UserResp,
 		return nil, err
 	}
 
-	user, err := s.q.CreateUser(ctx, db.CreateUserParams{
+	user, err := s.query.CreateUser(ctx, db.CreateUserParams{
 		Username: req.Username,
 		Password: string(hashed),
 	})
@@ -92,7 +92,7 @@ func (s *UserService) Login(ctx context.Context, req RegisterReq) (*UserResp, er
 		return nil, ErrInvalidInput
 	}
 
-	user, err := s.q.GetUserByUsername(ctx, req.Username)
+	user, err := s.query.GetUserByUsername(ctx, req.Username)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -138,7 +138,7 @@ func (s *UserService) BatchGenerate(ctx context.Context, req BatchGenerateReq) (
 		}
 	}
 
-	result := s.q.BatchCreateUsers(ctx, batchCreatedUser)
+	result := s.query.BatchCreateUsers(ctx, batchCreatedUser)
 	defer result.Close()
 	var batchErr error
 	result.QueryRow(func(i int, returnedID uuid.UUID, err error) {
