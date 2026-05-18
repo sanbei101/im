@@ -118,9 +118,7 @@ export default function (data) {
 
         pending.set(clientMsgId, now);
         socket.send(JSON.stringify(message));
-      }, 500);
-
-      socket.setTimeout(() => socket.close(), 30000);
+      }, 300);
     });
 
     socket.on('message', (raw) => {
