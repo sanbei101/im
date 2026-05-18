@@ -29,12 +29,18 @@ var msgBufPool = sync.Pool{
 func (c *UserClient) writePump(ctx context.Context) {
 	for msgs := range c.Send {
 		bufPtr := msgBufPool.Get().(*[]byte)
-		buf := (*bufPtr)[:0]
 
 		totalLen := 2 + len(msgs) - 1
 		for _, msg := range msgs {
 			totalLen += len(msg)
 		}
+
+		if cap(*bufPtr) < totalLen {
+			newBuf := make([]byte, 0, totalLen)
+			bufPtr = &newBuf
+		}
+
+		buf := (*bufPtr)[:0]
 		buf = append(buf, '[')
 		for i, msg := range msgs {
 			if i > 0 {
@@ -45,11 +51,14 @@ func (c *UserClient) writePump(ctx context.Context) {
 		buf = append(buf, ']')
 
 		err := c.Conn.Write(ctx, websocket.MessageText, buf)
-		if err != nil {
+		if cap(buf) <= 64*1024 {
+			*bufPtr = buf
 			msgBufPool.Put(bufPtr)
+		}
+
+		if err != nil {
 			return
 		}
-		msgBufPool.Put(bufPtr)
 	}
 }
 func (c *UserClient) readPump(ctx context.Context) {
