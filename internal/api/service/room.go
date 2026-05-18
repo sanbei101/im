@@ -2,9 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -207,11 +206,8 @@ var (
 )
 
 func (s *RoomService) generateRoomInfo(roomID uuid.UUID) (name string, avatarURL string) {
-	seed := int64(binary.BigEndian.Uint64(roomID[:8]))
-	rng := rand.New(rand.NewSource(seed))
-
-	adj := adjectives[rng.Intn(len(adjectives))]
-	noun := nouns[rng.Intn(len(nouns))]
+	adj := adjectives[rand.IntN(len(adjectives))]
+	noun := nouns[rand.IntN(len(nouns))]
 	name = adj + noun
 
 	avatarURL = fmt.Sprintf("https://api.dicebear.com/7.x/identicon/svg?seed=%s", roomID.String())
