@@ -1,8 +1,11 @@
 import ws from 'k6/ws';
 import { check } from 'k6';
+import { Trend, Counter } from 'k6/metrics';
 import { v7 as uuidv7 } from 'https://unpkg.com/uuid@14.0.0/dist/index.js';
 import http from 'k6/http';
 
+export const wsMsgLatency = new Trend('ws_msg_latency', true);
+export const wsMsgUnmatched = new Counter('ws_msg_unmatched');
 export const options = {
   vus: 500,
   duration: '30s',
@@ -94,34 +97,64 @@ export function setup() {
 export default function (data) {
   const vuIndex = __VU - 1;
   const myConfig = data.vuData[vuIndex];
+  if (!myConfig || !myConfig.user) return;
 
-  if (!myConfig || !myConfig.user) {
-    return;
-  }
+  const pending = new Map();
 
   const res = ws.connect(`${WS_URL}?token=${myConfig.user.token}`, null, (socket) => {
     socket.on('open', () => {
       socket.setInterval(() => {
+        const clientMsgId = uuidv7();
+        const now = Date.now();
+
         const message = {
-          client_msg_id: uuidv7(),
+          client_msg_id: clientMsgId,
           room_id: myConfig.room_id,
           msg_type: 'text',
           payload: {
-            text: `[VU${__VU}] ${myConfig.type} msg`,
+            content: `[VU${__VU}] hello`,
           },
-          ext: {},
         };
 
+        pending.set(clientMsgId, now);
         socket.send(JSON.stringify(message));
-      }, 500); 
+      }, 500);
 
-      socket.setTimeout(() => {
-        socket.close();
-      }, 30000);
+      socket.setTimeout(() => socket.close(), 30000);
     });
 
-    socket.on('error', (e) => console.error(`[VU ${__VU}] Error:`, e.error()));
+    socket.on('message', (raw) => {
+      let arr;
+      try {
+        arr = JSON.parse(raw);
+      } catch (e) {
+        console.error(`[VU ${__VU}] Error parsing message:`, e);
+        return;
+      }
+      for (const msg of arr) {
+        const id = msg.client_msg_id;
+        if (!id) continue;
+
+        const start = pending.get(id);
+        if (!start) continue;
+
+        if (msg.sender_id && msg.sender_id !== myConfig.user.user_id) {
+          continue;
+        }
+
+        const latency = Date.now() - start;
+        wsMsgLatency.add(latency);
+        pending.delete(id);
+      }
+    });
+
+    socket.on('close', () => {
+      wsMsgUnmatched.add(pending.size);
+      pending.clear();
+    });
   });
 
-  check(res, { 'handshake success 101': (r) => r && r.status === 101 });
+  check(res, {
+    'handshake success 101': (r) => r && r.status === 101,
+  });
 }
