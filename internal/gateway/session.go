@@ -121,34 +121,71 @@ func (c *UserClient) sendError(errMsg string) {
 	}
 }
 
+const shardCount = 256
+
+type sessionShard struct {
+	mu sync.RWMutex
+	m  map[string]*UserSession
+}
+
 type UserSessionManager struct {
-	UserSessions sync.Map
+	shards [shardCount]*sessionShard
 }
 
 func NewSessionManager() *UserSessionManager {
-	return &UserSessionManager{
-		UserSessions: sync.Map{},
+	sm := &UserSessionManager{}
+	for i := range shardCount {
+		sm.shards[i] = &sessionShard{
+			m: make(map[string]*UserSession),
+		}
 	}
+	return sm
+}
+
+func (sm *UserSessionManager) getShard(key string) *sessionShard {
+	var hash uint32 = 2166136261
+	for i := 0; i < len(key); i++ {
+		hash ^= uint32(key[i])
+		hash *= 16777619
+	}
+	return sm.shards[hash%shardCount]
 }
 
 func (sm *UserSessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
-	if v, ok := sm.UserSessions.Load(key); ok {
-		return v.(*UserSession)
+	shard := sm.getShard(key)
+
+	shard.mu.RLock()
+	if session, ok := shard.m[key]; ok {
+		shard.mu.RUnlock()
+		return session
 	}
+	shard.mu.RUnlock()
+
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+
+	if session, ok := shard.m[key]; ok {
+		return session
+	}
+
 	session := createFn()
-	actual, _ := sm.UserSessions.LoadOrStore(key, session)
-	return actual.(*UserSession)
+	shard.m[key] = session
+	return session
 }
 
 func (sm *UserSessionManager) Delete(key string) {
-	sm.UserSessions.Delete(key)
+	shard := sm.getShard(key)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	delete(shard.m, key)
 }
 
 func (sm *UserSessionManager) Load(key string) (*UserSession, bool) {
-	if v, ok := sm.UserSessions.Load(key); ok {
-		return v.(*UserSession), true
-	}
-	return nil, false
+	shard := sm.getShard(key)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	session, ok := shard.m[key]
+	return session, ok
 }
 
 type UserSession struct {
