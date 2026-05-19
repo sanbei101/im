@@ -45,7 +45,10 @@ func main() {
 	roomSvc := service.NewRoomService(query, pool)
 	roomHandler := handler.NewRoomHandler(roomSvc)
 
-	r := api.SetupRouter(userHandler, messageHandler, roomHandler)
+	benchSvc := service.NewBenchMockService(query)
+	benchHandler := handler.NewBenchMockHandler(benchSvc)
+
+	r := api.SetupRouter(userHandler, messageHandler, roomHandler, benchHandler)
 
 	srv := &http.Server{
 		Addr:    ":8801",

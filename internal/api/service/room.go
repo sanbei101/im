@@ -99,7 +99,7 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 str
 	defer tx.Rollback(ctx)
 	txQuery := s.query.WithTx(tx)
 	roomUUID := uuid.Must(uuid.NewV7())
-	roomName, roomAvatar := s.generateRoomInfo(roomUUID)
+	roomName, roomAvatar := generateRoomInfo(roomUUID)
 	_, err = txQuery.CreateRoom(ctx, db.CreateRoomParams{
 		RoomID:         roomUUID,
 		ChatType:       db.ChatTypeSingle,
@@ -151,7 +151,7 @@ func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomRe
 	}
 
 	roomUUID := uuid.Must(uuid.NewV7())
-	roomName, roomUrl := s.generateRoomInfo(roomUUID)
+	roomName, roomUrl := generateRoomInfo(roomUUID)
 	if req.Name != "" {
 		roomName = req.Name
 	}
@@ -181,7 +181,7 @@ var (
 	nouns      = []string{"会议室", "小屋", "角落", "广场", "花园", "沙龙", "茶馆", "驿站"}
 )
 
-func (s *RoomService) generateRoomInfo(roomID uuid.UUID) (name string, avatarURL string) {
+func generateRoomInfo(roomID uuid.UUID) (name string, avatarURL string) {
 	adj := adjectives[rand.IntN(len(adjectives))]
 	noun := nouns[rand.IntN(len(nouns))]
 	name = adj + noun
