@@ -214,31 +214,6 @@ func (s *RoomService) generateRoomInfo(roomID uuid.UUID) (name string, avatarURL
 	return name, avatarURL
 }
 
-func (s *RoomService) BatchCreateRooms(ctx context.Context, req BatchCreateRoomsReq) (*BatchCreateRoomsResp, error) {
-	singleResults := make([]BatchRoomResult, 0, len(req.SingleRooms))
-	for _, sr := range req.SingleRooms {
-		resp, err := s.CreateOrGetSingleChatRoom(ctx, sr.UserID1, CreateRoomReq{UserID2: sr.UserID2})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create single room for %s-%s: %w", sr.UserID1, sr.UserID2, err)
-		}
-		singleResults = append(singleResults, BatchRoomResult{RoomID: resp.RoomID})
-	}
-
-	groupResults := make([]BatchRoomResult, 0, len(req.GroupRooms))
-	for _, gr := range req.GroupRooms {
-		resp, err := s.CreateGroupRoom(ctx, CreateGroupRoomReq{Name: gr.Name, MemberIDs: gr.MemberIDs})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create group room %s: %w", gr.Name, err)
-		}
-		groupResults = append(groupResults, BatchRoomResult{RoomID: resp.RoomID})
-	}
-
-	return &BatchCreateRoomsResp{
-		SingleRooms: singleResults,
-		GroupRooms:  groupResults,
-	}, nil
-}
-
 func computeSingleChatHash(user1, user2 uuid.UUID) []byte {
 	if user1.String() > user2.String() {
 		user1, user2 = user2, user1
