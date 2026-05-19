@@ -66,7 +66,7 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 	users := make([]BenchMockUserInfo, 0, totalUsers)
 	for i := 0; i < totalUsers; i++ {
 		id := uuid.Must(uuid.NewV7())
-		uname := "bench_" + id.String()[:8]
+		uname := "bench_" + id.String()
 		userParams = append(userParams, db.BatchCreateUserParams{
 			UserID:   id,
 			Username: uname,
