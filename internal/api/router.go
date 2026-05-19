@@ -8,7 +8,7 @@ import (
 	"github.com/sanbei101/im/internal/api/middleware"
 )
 
-func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler) *gin.Engine {
+func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler, benchHandler *handler.BenchMockHandler) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(cors.New(cors.Config{
@@ -36,6 +36,11 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 			rooms.POST("/single", roomHandler.CreateOrGetSingleChatRoom)
 			rooms.POST("/group", roomHandler.CreateGroupRoom)
 			rooms.POST("/list", roomHandler.ListRooms)
+		}
+
+		bench := v1.Group("/bench")
+		{
+			bench.POST("/mock", benchHandler.CreateMock)
 		}
 	}
 
