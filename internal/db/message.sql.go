@@ -77,57 +77,6 @@ func (q *Queries) CreateGroupRoom(ctx context.Context, arg CreateGroupRoomParams
 	return room_id, err
 }
 
-const createMessage = `-- name: CreateMessage :exec
-INSERT INTO messages (
-    msg_id,
-    client_msg_id,
-    sender_id,
-    room_id,
-    msg_type,
-    server_time,
-    reply_to_msg_id,
-    payload,
-    ext
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6,
-    $7,
-    $8,
-    $9
-)
-`
-
-type CreateMessageParams struct {
-	MsgID        uuid.UUID      `json:"msg_id"`
-	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
-	SenderID     uuid.UUID      `json:"sender_id"`
-	RoomID       uuid.UUID      `json:"room_id"`
-	MsgType      MessageType    `json:"msg_type"`
-	ServerTime   int64          `json:"server_time"`
-	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
-	Payload      jsontext.Value `json:"payload"`
-	Ext          jsontext.Value `json:"ext"`
-}
-
-func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) error {
-	_, err := q.db.Exec(ctx, createMessage,
-		arg.MsgID,
-		arg.ClientMsgID,
-		arg.SenderID,
-		arg.RoomID,
-		arg.MsgType,
-		arg.ServerTime,
-		arg.ReplyToMsgID,
-		arg.Payload,
-		arg.Ext,
-	)
-	return err
-}
-
 const createRoom = `-- name: CreateRoom :one
 INSERT INTO rooms (room_id, chat_type, name, avatar_url, single_chat_hash)
 VALUES ($1, $2, $3, $4, $5)
@@ -184,51 +133,6 @@ func (q *Queries) GetMembersByRoomIDs(ctx context.Context, roomIds []uuid.UUID) 
 	return items, nil
 }
 
-const getMessageByID = `-- name: GetMessageByID :one
-SELECT
-    msg_id,
-    client_msg_id,
-    sender_id,
-    room_id,
-    msg_type,
-    server_time,
-    reply_to_msg_id,
-    payload,
-    ext
-FROM messages
-WHERE msg_id = $1
-LIMIT 1
-`
-
-type GetMessageByIDRow struct {
-	MsgID        uuid.UUID      `json:"msg_id"`
-	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
-	SenderID     uuid.UUID      `json:"sender_id"`
-	RoomID       uuid.UUID      `json:"room_id"`
-	MsgType      MessageType    `json:"msg_type"`
-	ServerTime   int64          `json:"server_time"`
-	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
-	Payload      jsontext.Value `json:"payload"`
-	Ext          jsontext.Value `json:"ext"`
-}
-
-func (q *Queries) GetMessageByID(ctx context.Context, msgID uuid.UUID) (*GetMessageByIDRow, error) {
-	row := q.db.QueryRow(ctx, getMessageByID, msgID)
-	var i GetMessageByIDRow
-	err := row.Scan(
-		&i.MsgID,
-		&i.ClientMsgID,
-		&i.SenderID,
-		&i.RoomID,
-		&i.MsgType,
-		&i.ServerTime,
-		&i.ReplyToMsgID,
-		&i.Payload,
-		&i.Ext,
-	)
-	return &i, err
-}
-
 const getRoomByHash = `-- name: GetRoomByHash :one
 SELECT room_id, chat_type, name, avatar_url, single_chat_hash, created_at, updated_at
 FROM rooms
@@ -249,30 +153,6 @@ func (q *Queries) GetRoomByHash(ctx context.Context, hash []byte) (*Room, error)
 		&i.UpdatedAt,
 	)
 	return &i, err
-}
-
-const getRoomMembers = `-- name: GetRoomMembers :many
-SELECT user_id FROM room_members WHERE room_id = $1
-`
-
-func (q *Queries) GetRoomMembers(ctx context.Context, roomID uuid.UUID) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, getRoomMembers, roomID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var user_id uuid.UUID
-		if err := rows.Scan(&user_id); err != nil {
-			return nil, err
-		}
-		items = append(items, user_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const getUserRooms = `-- name: GetUserRooms :many

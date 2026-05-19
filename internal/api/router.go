@@ -22,7 +22,6 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 		{
 			users.POST("/register", userHandler.Register)
 			users.POST("/login", userHandler.Login)
-			users.POST("/batch", userHandler.BatchGenerate)
 		}
 
 		messages := v1.Group("/messages")
@@ -37,7 +36,6 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 			rooms.POST("/single", roomHandler.CreateOrGetSingleChatRoom)
 			rooms.POST("/group", roomHandler.CreateGroupRoom)
 			rooms.POST("/list", roomHandler.ListRooms)
-			rooms.POST("/batch", roomHandler.BatchCreateRooms)
 		}
 	}
 

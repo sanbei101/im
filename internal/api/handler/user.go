@@ -65,19 +65,3 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
-
-func (h *UserHandler) BatchGenerate(c *gin.Context) {
-	var req service.BatchGenerateReq
-	if err := validate.ValidateAndParseJSON(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	resp, err := h.svc.BatchGenerate(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, resp)
-}
