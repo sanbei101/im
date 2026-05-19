@@ -1,4 +1,3 @@
--- Active: 1773747183783@@154.8.213.38@5433@database
 CREATE TYPE chat_type AS ENUM (
     'single',
     'group'
@@ -19,7 +18,7 @@ CREATE TYPE member_role AS ENUM (
 );
 
 CREATE TABLE rooms (
-    room_id uuid PRIMARY KEY,
+    room_id uuid PRIMARY KEY DEFAULT uuidv7(),
     chat_type chat_type NOT NULL,
     name VARCHAR(255) NOT NULL,
     avatar_url VARCHAR(1024) NOT NULL,
@@ -39,7 +38,7 @@ CREATE TABLE room_members (
 );
 
 CREATE TABLE messages (
-    msg_id uuid PRIMARY KEY,
+    msg_id uuid PRIMARY KEY DEFAULT uuidv7(),
     client_msg_id uuid NOT NULL,
     sender_id uuid NOT NULL,
     room_id uuid NOT NULL,
