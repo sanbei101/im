@@ -27,70 +27,59 @@ const api = {
     return http.post(url, JSON.stringify(payload), params);
   },
 
-  batchCreateUsers: (count) => {
-    const res = api.post('/api/v1/users/batch', { count }, '');
-    const users = res.json('users');
-    if (!users || users.length < count) {
-      throw new Error(`Failed to get ${count} users. Status: ${res.status}`);
-    }
-    return users;
-  },
-
-  batchCreateRooms: (singleRooms, groupRooms, token) => {
-    const payload = {
-      single_rooms: singleRooms || [],
-      group_rooms: groupRooms || [],
-    };
-    const res = api.post('/api/v1/rooms/batch', payload, token);
+  createBenchMock: (payload) => {
+    const res = api.post('/api/v1/bench/mock', payload, '');
     if (res.status !== 201) {
-      console.error(`Batch create rooms failed: ${res.status} ${res.body}`);
+      console.error(`Create bench mock failed: ${res.status} ${res.body}`);
       return null;
     }
     return res.json();
   }
 };
 
+function flattenBenchData(batchRes) {
+  const vuData = [];
+
+  for (const room of batchRes.single_rooms || []) {
+    for (const user of room.users || []) {
+      vuData.push({
+        user,
+        room_id: room.room_id,
+        type: 'single',
+      });
+    }
+  }
+
+  for (const room of batchRes.group_rooms || []) {
+    for (const user of room.users || []) {
+      vuData.push({
+        user,
+        room_id: room.room_id,
+        type: 'group',
+      });
+    }
+  }
+
+  return vuData;
+}
+
 export function setup() {
-  const userCount = 500;
-  const users = api.batchCreateUsers(userCount);
-  console.log(`Created ${users.length} users`);
+  const payload = {
+    single_room_num: 500,
+    group_room: [100, 100],
+  };
 
-  const tokens = users.map(u => u.token);
-
-  const singleRooms = [];
-  for (let i = 0; i < 300; i += 2) {
-    singleRooms.push({ user_id_1: users[i].user_id, user_id_2: users[i + 1].user_id });
-  }
-
-  const groupRooms = [
-    { name: 'Group 1', member_ids: users.slice(300, 400).map(u => u.user_id) },
-    { name: 'Group 2', member_ids: users.slice(400, 500).map(u => u.user_id) },
-  ];
-
-  const batchRes = api.batchCreateRooms(singleRooms, groupRooms, tokens[0]);
+  const batchRes = api.createBenchMock(payload);
   if (!batchRes) {
-    throw new Error('Batch create rooms failed');
+    throw new Error('Create bench mock failed');
   }
 
-  const vuData = new Array(userCount);
-
-  for (let i = 0; i < 300; i += 2) {
-    const roomId = batchRes.single_rooms[i / 2].room_id;
-    vuData[i] = { user: users[i], room_id: roomId, type: 'single' };
-    vuData[i + 1] = { user: users[i + 1], room_id: roomId, type: 'single' };
+  const vuData = flattenBenchData(batchRes);
+  if (vuData.length < batchRes.total_user_num) {
+    throw new Error(`Expected ${batchRes.total_user_num} users, got ${vuData.length}`);
   }
 
-  const roomIdG1 = batchRes.group_rooms[0].room_id;
-  for (let i = 300; i < 400; i++) {
-    vuData[i] = { user: users[i], room_id: roomIdG1, type: 'group' };
-  }
-
-  const roomIdG2 = batchRes.group_rooms[1].room_id;
-  for (let i = 400; i < 500; i++) {
-    vuData[i] = { user: users[i], room_id: roomIdG2, type: 'group' };
-  }
-
-  console.log(`Setup complete: ${batchRes.single_rooms.length} single rooms, ${batchRes.group_rooms.length} group rooms.`);
+  console.log(`Setup complete: ${batchRes.single_rooms.length} single rooms, ${batchRes.group_rooms.length} group rooms, ${vuData.length} users.`);
   return { vuData };
 }
 
