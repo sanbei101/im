@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'https://unpkg.com/uuid@14.0.0/dist/index.js';
 import http from 'k6/http';
 const SingleRoomNum = 500;
 const GroupRoom = [100, 100];
-const groupTotal = GroupRoom.reduce((acc, val) => acc * val, 1);
+const groupTotal = GroupRoom.reduce((sum, val) => sum + val, 0);
 const VU_NUM = SingleRoomNum * 2 + groupTotal;
 const DURATION = '30s';
 
