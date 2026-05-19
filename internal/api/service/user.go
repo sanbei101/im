@@ -29,14 +29,6 @@ type UserResp struct {
 	Token    string `json:"token"`
 }
 
-type BatchGenerateReq struct {
-	Count int `json:"count" validate:"required,min=1,max=1000"`
-}
-
-type BatchGenerateResp struct {
-	Users []BatchUserResp `json:"users"`
-}
-
 type BatchUserResp struct {
 	UserID   string `json:"user_id"`
 	Username string `json:"username"`
