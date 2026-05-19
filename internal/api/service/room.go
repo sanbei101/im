@@ -29,30 +29,6 @@ type CreateGroupRoomReq struct {
 	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
 }
 
-type BatchCreateRoomsReq struct {
-	SingleRooms []BatchSingleRoomReq `json:"single_rooms"`
-	GroupRooms  []BatchGroupRoomReq  `json:"group_rooms"`
-}
-
-type BatchSingleRoomReq struct {
-	UserID1 string `json:"user_id_1" validate:"required,uuid"`
-	UserID2 string `json:"user_id_2" validate:"required,uuid"`
-}
-
-type BatchGroupRoomReq struct {
-	Name      string   `json:"name"`
-	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
-}
-
-type BatchCreateRoomsResp struct {
-	SingleRooms []BatchRoomResult `json:"single_rooms"`
-	GroupRooms  []BatchRoomResult `json:"group_rooms"`
-}
-
-type BatchRoomResult struct {
-	RoomID string `json:"room_id"`
-}
-
 type RoomResp struct {
 	RoomID string `json:"room_id"`
 }
