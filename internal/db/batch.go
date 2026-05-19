@@ -84,6 +84,66 @@ func (b *BatchCreateRoomBatchResults) Close() error {
 	return b.br.Close()
 }
 
+const batchCreateRoomMember = `-- name: BatchCreateRoomMember :batchexec
+INSERT INTO room_members (
+    room_id,
+    user_id,
+    role
+) VALUES (
+    $1,
+    $2,
+    $3
+)
+ON CONFLICT (room_id, user_id) DO NOTHING
+`
+
+type BatchCreateRoomMemberBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type BatchCreateRoomMemberParams struct {
+	RoomID uuid.UUID  `json:"room_id"`
+	UserID uuid.UUID  `json:"user_id"`
+	Role   MemberRole `json:"role"`
+}
+
+func (q *Queries) BatchCreateRoomMember(ctx context.Context, arg []BatchCreateRoomMemberParams) *BatchCreateRoomMemberBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.RoomID,
+			a.UserID,
+			a.Role,
+		}
+		batch.Queue(batchCreateRoomMember, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &BatchCreateRoomMemberBatchResults{br, len(arg), false}
+}
+
+func (b *BatchCreateRoomMemberBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *BatchCreateRoomMemberBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
 const batchCreateUser = `-- name: BatchCreateUser :batchexec
 INSERT INTO users (
     user_id, 

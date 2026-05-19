@@ -45,7 +45,7 @@ type BatchMockResp struct {
 	TotalUserNum int `json:"total_user_num"`
 }
 
-// CreateMock 会在内存中构造所有用户和房间数据,然后进行批量插入。
+// CreateMock 会在内存中构造所有用户和房间数据,然后进行批量插入
 func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*BatchMockResp, error) {
 	totalUsers := req.SingleRoomNum * 2
 	for _, sz := range req.GroupRoom {
@@ -94,6 +94,7 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 	userBR.Close()
 
 	offset := 0
+	roomMemberParams := make([]db.BatchCreateRoomMemberParams, 0, totalUsers)
 
 	for i := 0; i < req.SingleRoomNum; i++ {
 		if offset+1 >= len(users) {
@@ -127,10 +128,10 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 			return nil, roomErr
 		}
 		br.Close()
-
-		if err := s.query.AddRoomMembers(ctx, db.AddRoomMembersParams{RoomID: roomID, UserIds: []uuid.UUID{u1.UserID, u2.UserID}}); err != nil {
-			return nil, err
-		}
+		roomMemberParams = append(roomMemberParams,
+			db.BatchCreateRoomMemberParams{RoomID: roomID, UserID: u1.UserID, Role: db.MemberRoleMember},
+			db.BatchCreateRoomMemberParams{RoomID: roomID, UserID: u2.UserID, Role: db.MemberRoleMember},
+		)
 
 		resp.SingleRooms = append(resp.SingleRooms, struct {
 			Users []BenchMockUserInfo `json:"users"`
@@ -173,13 +174,12 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 			return nil, roomErr
 		}
 
-		// 添加成员
-		uids := make([]uuid.UUID, 0, len(members))
 		for _, mu := range members {
-			uids = append(uids, mu.UserID)
-		}
-		if err := s.query.AddRoomMembers(ctx, db.AddRoomMembersParams{RoomID: roomID, UserIds: uids}); err != nil {
-			return nil, err
+			roomMemberParams = append(roomMemberParams, db.BatchCreateRoomMemberParams{
+				RoomID: roomID,
+				UserID: mu.UserID,
+				Role:   db.MemberRoleMember,
+			})
 		}
 
 		g := struct {
@@ -187,6 +187,23 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 			Users    []BenchMockUserInfo `json:"users"`
 		}{RoomSize: sz, Users: members}
 		resp.GroupRooms = append(resp.GroupRooms, g)
+	}
+
+	if len(roomMemberParams) > 0 {
+		memberBR := s.query.BatchCreateRoomMember(ctx, roomMemberParams)
+		var memberErr error
+		memberBR.Exec(func(i int, e error) {
+			if e != nil && memberErr == nil {
+				log.Error().Err(e).Msgf("failed to create room member row %d", i)
+				memberErr = e
+			}
+		})
+		if cerr := memberBR.Close(); cerr != nil && memberErr == nil {
+			memberErr = cerr
+		}
+		if memberErr != nil {
+			return nil, memberErr
+		}
 	}
 
 	return resp, nil
