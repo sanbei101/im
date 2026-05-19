@@ -2,12 +2,12 @@ name: 集成测试
 on:
   workflow_call:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'im-frontend/**'
-      - 'sdk/**'
+  # push:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - 'im-frontend/**'
+  #     - 'sdk/**'
 env:
   SERVER_HOST: bench-server-${{ github.run_id }}
   K6_HOST: bench-k6-${{ github.run_id }}
