@@ -3,12 +3,51 @@ import { check } from 'k6';
 import { Trend, Counter } from 'k6/metrics';
 import { v7 as uuidv7 } from 'https://unpkg.com/uuid@14.0.0/dist/index.js';
 import http from 'k6/http';
+const SingleRoomNum = 500;
+const GroupRoom = [100, 100];
+const groupTotal = GroupRoom.reduce((acc, val) => acc * val, 1);
+const VU_NUM = SingleRoomNum * 2 + groupTotal;
+const DURATION = '30s';
+
+/**
+ * @typedef {Object} BenchMockUserInfo
+ * @property {string} user_id
+ * @property {string} username
+ * @property {string} token
+ */
+
+/**
+ * @typedef {Object} SingleRoomResp
+ * @property {string} room_id
+ * @property {BenchMockUserInfo[]} users
+ */
+
+/**
+ * @typedef {Object} GroupRoomResp
+ * @property {string} room_id
+ * @property {number} room_size
+ * @property {BenchMockUserInfo[]} users
+ */
+
+/**
+ * @typedef {Object} BatchMockResp
+ * @property {SingleRoomResp[]} single_rooms
+ * @property {GroupRoomResp[]} group_rooms
+ * @property {number} total_user_num
+ */
+
+/**
+ * @typedef {Object} VuConfig
+ * @property {BenchMockUserInfo} user
+ * @property {string} room_id
+ * @property {"single"|"group"} type
+ */
 
 export const wsMsgLatency = new Trend('ws_msg_latency', true);
 export const wsMsgUnmatched = new Counter('ws_msg_unmatched');
 export const options = {
-  vus: 500,
-  duration: '30s',
+  vus: VU_NUM,
+  duration: DURATION,
 };
 
 const ServerIP = __ENV.TARGET_HOST;
@@ -16,6 +55,13 @@ const API_BASE = `http://${ServerIP}:8801`;
 const WS_URL = `ws://${ServerIP}:8800/ws`;
 
 const api = {
+  /**
+   * POST helper
+   * @param {string} path
+   * @param {any} payload
+   * @param {string} token
+   * @returns {{status:number, body:string, json:()=>any}}
+   */
   post: (path, payload, token) => {
     const url = `${API_BASE}${path}`;
     const params = {
@@ -27,6 +73,11 @@ const api = {
     return http.post(url, JSON.stringify(payload), params);
   },
 
+  /**
+   * Create bench mock
+   * @param {Object} payload
+   * @returns {BatchMockResp|null}
+   */
   createBenchMock: (payload) => {
     const res = api.post('/api/v1/bench/mock', payload, '');
     if (res.status !== 201) {
@@ -37,7 +88,13 @@ const api = {
   }
 };
 
+/**
+ * Flatten BatchMockResp into per-VU configs
+ * @param {BatchMockResp} batchRes
+ * @returns {VuConfig[]}
+ */
 function flattenBenchData(batchRes) {
+  /** @type {VuConfig[]} */
   const vuData = [];
 
   for (const room of batchRes.single_rooms || []) {
@@ -63,10 +120,14 @@ function flattenBenchData(batchRes) {
   return vuData;
 }
 
+/**
+ * K6 setup: create bench mock and return vuData
+ * @returns {{vuData:VuConfig[]}}
+ */
 export function setup() {
   const payload = {
-    single_room_num: 500,
-    group_room: [100, 100],
+    single_room_num: SingleRoomNum,
+    group_room: GroupRoom,
   };
 
   const batchRes = api.createBenchMock(payload);
@@ -83,11 +144,16 @@ export function setup() {
   return { vuData };
 }
 
+/**
+ * Default VU function
+ * @param {{vuData:VuConfig[]}} data
+ */
 export default function (data) {
   const vuIndex = __VU - 1;
   const myConfig = data.vuData[vuIndex];
   if (!myConfig || !myConfig.user) return;
 
+  /** @type {Map<string, number>} */
   const pending = new Map();
 
   const res = ws.connect(`${WS_URL}?token=${myConfig.user.token}`, null, (socket) => {
@@ -107,7 +173,7 @@ export default function (data) {
 
         pending.set(clientMsgId, now);
         socket.send(JSON.stringify(message));
-      }, 300);
+      }, 500);
     });
 
     socket.on('message', (raw) => {

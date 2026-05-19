@@ -220,6 +220,12 @@ jobs:
             bench/gateway_heap.prof
           retention-days: 7
 
+      - name: setup go for pprof analysis
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+          
       - name: Publish K6 and Profiling Summary
         working-directory: bench
         if: always()
