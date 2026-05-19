@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
@@ -133,13 +132,17 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 			db.BatchCreateRoomMemberParams{RoomID: roomID, UserID: u2.UserID, Role: db.MemberRoleMember},
 		)
 
-		resp.SingleRooms = append(resp.SingleRooms, struct {
-			Users []BenchMockUserInfo `json:"users"`
-		}{Users: []BenchMockUserInfo{u1, u2}})
+		resp.SingleRooms = append(
+			resp.SingleRooms, struct {
+				Users []BenchMockUserInfo `json:"users"`
+			}{
+				Users: []BenchMockUserInfo{u1, u2},
+			},
+		)
 	}
 
 	// 群聊房间
-	for gi, sz := range req.GroupRoom {
+	for _, sz := range req.GroupRoom {
 		if sz <= 0 {
 			continue
 		}
@@ -152,12 +155,13 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 		members := users[offset : offset+sz]
 		offset += sz
 
-		roomID := uuid.New()
+		roomID := uuid.Must(uuid.NewV7())
+		roomName, roomAvatar := generateRoomInfo(roomID)
 		roomParams := []db.BatchCreateRoomParams{{
 			RoomID:         roomID,
 			ChatType:       db.ChatTypeGroup,
-			Name:           fmt.Sprintf("group_%d", gi+1),
-			AvatarUrl:      "",
+			Name:           roomName,
+			AvatarUrl:      roomAvatar,
 			SingleChatHash: nil,
 		}}
 		br := s.query.BatchCreateRoom(ctx, roomParams)
@@ -167,13 +171,10 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 				roomErr = e
 			}
 		})
-		if cerr := br.Close(); cerr != nil && roomErr == nil {
-			roomErr = cerr
-		}
 		if roomErr != nil {
 			return nil, roomErr
 		}
-
+		br.Close()
 		for _, mu := range members {
 			roomMemberParams = append(roomMemberParams, db.BatchCreateRoomMemberParams{
 				RoomID: roomID,
@@ -185,7 +186,10 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 		g := struct {
 			RoomSize int                 `json:"room_size"`
 			Users    []BenchMockUserInfo `json:"users"`
-		}{RoomSize: sz, Users: members}
+		}{
+			RoomSize: sz,
+			Users:    members,
+		}
 		resp.GroupRooms = append(resp.GroupRooms, g)
 	}
 
@@ -198,9 +202,7 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 				memberErr = e
 			}
 		})
-		if cerr := memberBR.Close(); cerr != nil && memberErr == nil {
-			memberErr = cerr
-		}
+		memberBR.Close()
 		if memberErr != nil {
 			return nil, memberErr
 		}
