@@ -24,3 +24,16 @@ INSERT INTO rooms (
     sqlc.arg(avatar_url), 
     sqlc.arg(single_chat_hash)
 );
+
+
+-- name: BatchCreateRoomMember :batchexec
+INSERT INTO room_members (
+    room_id,
+    user_id,
+    role
+) VALUES (
+    sqlc.arg(room_id),
+    sqlc.arg(user_id),
+    sqlc.arg(role)
+)
+ON CONFLICT (room_id, user_id) DO NOTHING;
