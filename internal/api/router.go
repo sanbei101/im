@@ -1,48 +1,56 @@
 package api
 
 import (
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 
 	"github.com/sanbei101/im/internal/api/handler"
 	"github.com/sanbei101/im/pkg/jwt"
 )
 
-func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler, benchHandler *handler.BenchMockHandler) *gin.Engine {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"*"},
-		AllowHeaders: []string{"*"},
+// SetupRouter wires the HTTP handlers into a chi router. Returned handler
+// implements http.Handler so the caller can mount it on any net/http server.
+func SetupRouter(
+	userHandler *handler.UserHandler,
+	messageHandler *handler.MessageHandler,
+	roomHandler *handler.RoomHandler,
+	benchHandler *handler.BenchMockHandler,
+) http.Handler {
+	r := chi.NewRouter()
+	r.Use(chimw.RequestID)
+	r.Use(chimw.Recoverer)
+
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"*"},
+		AllowedHeaders: []string{"*"},
 	}))
-	v1 := r.Group("/api/v1")
-	{
-		users := v1.Group("/users")
-		{
-			users.POST("/register", userHandler.Register)
-			users.POST("/login", userHandler.Login)
-		}
 
-		messages := v1.Group("/messages")
-		{
-			messages.Use(jwt.AuthMiddleware)
-			messages.GET("/history", messageHandler.GetHistory)
-		}
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/users", func(r chi.Router) {
+			r.Post("/register", userHandler.Register)
+			r.Post("/login", userHandler.Login)
+		})
 
-		rooms := v1.Group("/rooms")
-		{
-			rooms.Use(middleware.AuthMiddleware())
-			rooms.POST("/single", roomHandler.CreateOrGetSingleChatRoom)
-			rooms.POST("/group", roomHandler.CreateGroupRoom)
-			rooms.POST("/list", roomHandler.ListRooms)
-		}
+		r.Route("/messages", func(r chi.Router) {
+			r.Use(jwt.AuthMiddleware)
+			r.Get("/history", messageHandler.GetHistory)
+		})
 
-		bench := v1.Group("/bench")
-		{
-			bench.POST("/mock", benchHandler.CreateMock)
-		}
-	}
+		r.Route("/rooms", func(r chi.Router) {
+			r.Use(jwt.AuthMiddleware)
+			r.Post("/single", roomHandler.CreateOrGetSingleChatRoom)
+			r.Post("/group", roomHandler.CreateGroupRoom)
+			r.Post("/list", roomHandler.ListRooms)
+		})
+
+		r.Route("/bench", func(r chi.Router) {
+			r.Post("/mock", benchHandler.CreateMock)
+		})
+	})
 
 	return r
 }

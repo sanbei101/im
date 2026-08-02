@@ -3,9 +3,8 @@ package handler
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/sanbei101/im/internal/api/service"
-	"github.com/sanbei101/im/internal/api/validate"
+	"github.com/sanbei101/im/pkg/render"
 )
 
 type BenchMockHandler struct {
@@ -16,18 +15,17 @@ func NewBenchMockHandler(svc *service.BenchMockService) *BenchMockHandler {
 	return &BenchMockHandler{svc: svc}
 }
 
-func (h *BenchMockHandler) CreateMock(c *gin.Context) {
-	var req service.BenchMockReq
-	if err := validate.ValidateAndParseJSON(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	resp, err := h.svc.CreateMock(c.Request.Context(), req)
+func (h *BenchMockHandler) CreateMock(w http.ResponseWriter, r *http.Request) {
+	req, err := render.ReadBody[service.BenchMockReq](w, r)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, resp)
+	resp, err := h.svc.CreateMock(r.Context(), req)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.Success(w, "批量造数成功", resp)
 }

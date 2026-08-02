@@ -13,7 +13,6 @@ import (
 	"github.com/sanbei101/im/pkg/render"
 
 	"github.com/cristalhq/jwt/v5"
-	"github.com/google/uuid"
 )
 
 const (
@@ -111,7 +110,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func GetUserIDFromContext(r *http.Request) uuid.UUID {
-	id, _ := r.Context().Value(userIDKey).(uuid.UUID)
+func GetUserIDFromContext(r *http.Request) string {
+	id, _ := r.Context().Value(userIDKey).(string)
 	return id
 }

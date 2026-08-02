@@ -3,11 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
-	"github.com/sanbei101/im/internal/api/middleware"
 	"github.com/sanbei101/im/internal/api/service"
-	"github.com/sanbei101/im/internal/api/validate"
+	"github.com/sanbei101/im/pkg/jwt"
+	"github.com/sanbei101/im/pkg/render"
 )
 
 type RoomHandler struct {
@@ -18,52 +16,48 @@ func NewRoomHandler(svc *service.RoomService) *RoomHandler {
 	return &RoomHandler{svc: svc}
 }
 
-func (h *RoomHandler) CreateOrGetSingleChatRoom(c *gin.Context) {
-	var req service.CreateRoomReq
-	err := validate.ValidateAndParseJSON(c, &req)
+func (h *RoomHandler) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Request) {
+	req, err := render.ReadBody[service.CreateRoomReq](w, r)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	userID := middleware.GetUserID(c)
+	userID := jwt.GetUserIDFromContext(r)
 	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		render.Error(w, http.StatusUnauthorized, "user not authenticated")
 		return
 	}
 
-	resp, err := h.svc.CreateOrGetSingleChatRoom(c.Request.Context(), userID, req)
+	resp, err := h.svc.CreateOrGetSingleChatRoom(r.Context(), userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	render.Success(w, "获取或创建单聊房间成功", resp)
 }
 
-func (h *RoomHandler) CreateGroupRoom(c *gin.Context) {
-	var req service.CreateGroupRoomReq
-	err := validate.ValidateAndParseJSON(c, &req)
+func (h *RoomHandler) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
+	req, err := render.ReadBody[service.CreateGroupRoomReq](w, r)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	resp, err := h.svc.CreateGroupRoom(c.Request.Context(), req)
+	resp, err := h.svc.CreateGroupRoom(r.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	render.Success(w, "创建群聊房间成功", resp)
 }
 
-func (h *RoomHandler) ListRooms(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	resp, err := h.svc.ListRooms(c.Request.Context(), userID)
+func (h *RoomHandler) ListRooms(w http.ResponseWriter, r *http.Request) {
+	userID := jwt.GetUserIDFromContext(r)
+	resp, err := h.svc.ListRooms(r.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	render.Success(w, "获取房间列表成功", resp)
 }
