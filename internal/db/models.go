@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"encoding/json/jsontext"
 	"github.com/google/uuid"
 )
 
@@ -144,15 +143,15 @@ func (ns NullMessageType) Value() (driver.Value, error) {
 }
 
 type Message struct {
-	MsgID        uuid.UUID      `json:"msg_id"`
-	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
-	SenderID     uuid.UUID      `json:"sender_id"`
-	RoomID       uuid.UUID      `json:"room_id"`
-	ServerTime   int64          `json:"server_time"`
-	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
-	MsgType      MessageType    `json:"msg_type"`
-	Payload      jsontext.Value `json:"payload"`
-	Ext          jsontext.Value `json:"ext"`
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	MsgType      MessageType `json:"msg_type"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
 }
 
 type Room struct {

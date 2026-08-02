@@ -1,0 +1,7 @@
+version: v2
+plugins:
+  - local: protoc-gen-go-lite
+    out: gen/go
+    opt:
+      - paths=source_relative
+      - features=marshal+unmarshal+size+equal+clone
