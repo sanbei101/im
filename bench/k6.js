@@ -84,7 +84,8 @@ const api = {
       console.error(`Create bench mock failed: ${res.status} ${res.body}`);
       return null;
     }
-    return res.json();
+    const wrapper = res.json();
+    return wrapper.data;
   },
 };
 
