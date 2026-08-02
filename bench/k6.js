@@ -80,7 +80,7 @@ const api = {
    */
   createBenchMock: (payload) => {
     const res = api.post("/api/v1/bench/mock", payload, "");
-    if (res.status !== 201) {
+    if (res.status !== 200) {
       console.error(`Create bench mock failed: ${res.status} ${res.body}`);
       return null;
     }
