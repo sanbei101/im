@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
-	streamMsgs, err := s.redis.WorkerPullMessage(ctx, batchSize)
+	streamMsgs, err := s.mq.WorkerPullMessage(ctx, batchSize)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			log.Info().Msg("worker 收到退出信号,停止读取消息")
@@ -66,11 +66,11 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 		return fmt.Errorf("build gateway push tasks failed: %w", err)
 	}
 
-	if err := s.redis.WorkerPushGatewayTask(ctx, tasks); err != nil {
+	if err := s.mq.WorkerPushGatewayTask(ctx, tasks); err != nil {
 		return fmt.Errorf("worker publish deliver batch failed: %w", err)
 	}
 
-	if err := s.redis.WorkerAckMessage(ctx, msgIDs...); err != nil {
+	if err := s.mq.WorkerAckMessage(ctx, msgIDs...); err != nil {
 		return fmt.Errorf("worker ack messages failed: %w", err)
 	}
 	return nil

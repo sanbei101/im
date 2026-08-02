@@ -11,6 +11,7 @@ import (
 
 	"github.com/phuslu/log"
 	"github.com/sanbei101/im/internal/gateway"
+	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
 )
@@ -20,7 +21,8 @@ var wg sync.WaitGroup
 func main() {
 	logger.InitLogger()
 	config := config.New()
-	g := gateway.NewGateway(config)
+	redisMQ := mq.NewRedisMQ(config)
+	g := gateway.NewGateway(config, redisMQ)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -8,6 +8,7 @@ import (
 	"github.com/phuslu/log"
 	"github.com/phuslu/lru"
 	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/mq"
 )
 
 var roomMembersCache = lru.NewTTLCache[uuid.UUID, []uuid.UUID](10000)
@@ -46,7 +47,7 @@ func (s *Service) getRoomMembersWithCache(ctx context.Context, roomIDs []uuid.UU
 	return result, nil
 }
 
-func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*db.Message) ([]*db.GatewayPushTask, error) {
+func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*db.Message) ([]*mq.GatewayPushTask, error) {
 	var totalMsgs int
 	roomIDs := make([]uuid.UUID, 0, len(roomToMsgs))
 	for roomID, msgs := range roomToMsgs {
@@ -66,7 +67,7 @@ func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid
 		return nil, err
 	}
 
-	tasks := make([]*db.GatewayPushTask, 0, totalMsgs)
+	tasks := make([]*mq.GatewayPushTask, 0, totalMsgs)
 
 	for _, roomID := range roomIDs {
 		msgs := roomToMsgs[roomID]
@@ -77,7 +78,7 @@ func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid
 		}
 
 		for _, msg := range msgs {
-			task := db.AcquireGatewayPushTask()
+			task := mq.AcquireGatewayPushTask()
 			task.RoomID = msg.RoomID
 
 			if cap(task.TargetUserIDs) < len(memberIDs) {
