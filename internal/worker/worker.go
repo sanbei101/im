@@ -4,11 +4,13 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/db"
 	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/logger"
 )
 
 const (
@@ -21,7 +23,15 @@ type Service struct {
 }
 
 func New(cfg *config.Config, m mq.MQ) *Service {
-	pool, err := pgxpool.New(context.Background(), cfg.Postgres.DSN)
+	config, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
+	if err != nil {
+		log.Fatal().Err(err).Msg("postgres parse config failed")
+	}
+	config.ConnConfig.Tracer = &tracelog.TraceLog{
+		Logger:   logger.NewPgxLogger(),
+		LogLevel: tracelog.LogLevelDebug,
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		log.Fatal().Err(err).Msg("worker connect postgres failed")
 	}
