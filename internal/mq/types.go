@@ -1,14 +1,11 @@
 package mq
 
 import (
-	"encoding/binary"
-	"errors"
 	"sync"
-	"unsafe"
 
 	"github.com/google/uuid"
 
-	"github.com/sanbei101/im/internal/db"
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 )
 
 // StreamMessage pairs a broker-assigned stream ID with the decoded message
@@ -16,17 +13,21 @@ import (
 // MQ implementation via the corresponding Ack method.
 type StreamMessage struct {
 	ID   string
-	Data *db.Message
+	Data *imv1.MessagePush
 }
 
 // GatewayPushTask is the worker's instruction to the gateway: deliver
 // `Message` to every user in `TargetUserIDs`. StreamID is set by the broker
 // on read and only the streaming protocol needs to interpret it.
+//
+// Wire format: the proto representation (imv1.GatewayPushTask) is used
+// end-to-end via vtproto Marshal/Unmarshal — there is no separate
+// implementation-private encoding.
 type GatewayPushTask struct {
 	StreamID      string
 	RoomID        uuid.UUID
 	TargetUserIDs []uuid.UUID
-	Message       db.Message
+	Message       *imv1.MessagePush
 }
 
 var gatewayPushTaskPool = sync.Pool{
@@ -51,76 +52,64 @@ func ReleaseGatewayPushTask(t *GatewayPushTask) {
 }
 
 // Reset clears the task so it can be reused. The TargetUserIDs slice keeps
-// its backing array.
+// its backing array; the embedded MessagePush is reset via Reset().
 func (t *GatewayPushTask) Reset() {
 	t.RoomID = uuid.UUID{}
 	if t.TargetUserIDs != nil {
 		t.TargetUserIDs = t.TargetUserIDs[:0]
 	}
-	t.Message.Reset()
+	if t.Message != nil {
+		t.Message.Reset()
+		t.Message = nil
+	}
 }
 
-// Marshal serializes the task to a length-prefixed binary blob. The encoding
-// is MQ-implementation-private; it is not part of the MQ interface contract.
-func (t *GatewayPushTask) Marshal() ([]byte, error) {
-	msgSize := t.Message.Size()
-	totalSize := 16 + 4 + (len(t.TargetUserIDs) * 16) + msgSize
-
-	buf := make([]byte, totalSize)
-	offset := 0
-
-	copy(buf[offset:], t.RoomID[:])
-	offset += 16
-
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(t.TargetUserIDs)))
-	offset += 4
-
+// Proto converts the task to its wire representation.
+func (t *GatewayPushTask) Proto() *imv1.GatewayPushTask {
+	roomID := t.RoomID.String()
+	p := &imv1.GatewayPushTask{
+		RoomId:  &roomID,
+		Message: t.Message,
+	}
 	if len(t.TargetUserIDs) > 0 {
-		byteLen := len(t.TargetUserIDs) * 16
-		src := unsafe.Slice((*byte)(unsafe.Pointer(&t.TargetUserIDs[0])), byteLen)
-		copy(buf[offset:], src)
-		offset += byteLen
+		ids := make([]string, len(t.TargetUserIDs))
+		for i, u := range t.TargetUserIDs {
+			ids[i] = u.String()
+		}
+		p.TargetUserIds = ids
 	}
-
-	t.Message.MarshalTo(buf[offset:])
-
-	return buf, nil
+	return p
 }
 
-// Unmarshal populates the task from a length-prefixed binary blob produced
-// by Marshal.
-func (t *GatewayPushTask) Unmarshal(data []byte) error {
-	if len(data) < 20 {
-		return errors.New("data too short for GatewayPushTask")
+// FromProto populates the task from its wire representation. The proto
+// message is consumed; caller may safely reset/release it afterwards.
+func (t *GatewayPushTask) FromProto(p *imv1.GatewayPushTask) error {
+	if p == nil {
+		return nil
 	}
-	offset := 0
-
-	copy(t.RoomID[:], data[offset:offset+16])
-	offset += 16
-
-	targetLen := int(binary.BigEndian.Uint32(data[offset : offset+4]))
-	offset += 4
-
-	if targetLen > 0 {
-		byteLen := targetLen * 16
-		if len(data) < offset+byteLen {
-			return errors.New("data too short for TargetUserIDs")
+	if p.GetRoomId() != "" {
+		roomID, err := uuid.Parse(p.GetRoomId())
+		if err != nil {
+			return err
 		}
-
-		if cap(t.TargetUserIDs) >= targetLen {
-			t.TargetUserIDs = t.TargetUserIDs[:targetLen]
+		t.RoomID = roomID
+	}
+	if ids := p.GetTargetUserIds(); len(ids) > 0 {
+		if cap(t.TargetUserIDs) >= len(ids) {
+			t.TargetUserIDs = t.TargetUserIDs[:0]
 		} else {
-			t.TargetUserIDs = make([]uuid.UUID, targetLen)
+			t.TargetUserIDs = make([]uuid.UUID, 0, len(ids))
 		}
-		dst := unsafe.Slice((*byte)(unsafe.Pointer(&t.TargetUserIDs[0])), byteLen)
-		copy(dst, data[offset:offset+byteLen])
-		offset += byteLen
-	} else {
-		t.TargetUserIDs = t.TargetUserIDs[:0]
+		for _, s := range ids {
+			u, err := uuid.Parse(s)
+			if err != nil {
+				return err
+			}
+			t.TargetUserIDs = append(t.TargetUserIDs, u)
+		}
 	}
-
-	if offset < len(data) {
-		return t.Message.Unmarshal(data[offset:])
+	if p.GetMessage() != nil {
+		t.Message = p.GetMessage()
 	}
-	return errors.New("data too short, missing Message")
+	return nil
 }

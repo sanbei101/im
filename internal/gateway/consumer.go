@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json/v2"
 
 	"github.com/phuslu/log"
 
@@ -44,33 +43,40 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 
 func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.GatewayPushTask) {
 	streamIDs := make([]string, 0, len(tasks))
-
-	// 按用户分组,收集每个用户的消息
 	userMessages := make(map[string][][]byte)
-	for _, task := range tasks {
-		streamIDs = append(streamIDs, task.StreamID)
 
-		bin, marshalErr := json.Marshal(task.Message)
-		if marshalErr != nil {
-			log.Error().Err(marshalErr).Msg("gateway marshal message failed")
+	for _, task := range tasks {
+		if task.Message == nil {
+			log.Error().Str("stream_id", task.StreamID).Msg("nil Message in push task")
+			mq.ReleaseGatewayPushTask(task)
 			continue
 		}
+		streamIDs = append(streamIDs, task.StreamID)
+
+		push := task.Message
+		bin := make([]byte, push.SizeVT())
+		n, err := push.MarshalToVT(bin)
+		if err != nil {
+			log.Error().Err(err).Str("stream_id", task.StreamID).Msg("marshal MessagePush failed")
+			continue
+		}
+		bin = bin[:n]
 
 		for _, userID := range task.TargetUserIDs {
-			userIDStr := userID.String()
-			userMessages[userIDStr] = append(userMessages[userIDStr], bin)
+			uid := userID.String()
+			userMessages[uid] = append(userMessages[uid], bin)
 		}
+
+		mq.ReleaseGatewayPushTask(task)
 	}
 
-	// 按用户批量广播
-	for userIDStr, msgs := range userMessages {
-		if userSession, ok := gateway.UserSessionManager.Load(userIDStr); ok {
+	for uid, msgs := range userMessages {
+		if userSession, ok := gateway.UserSessionManager.Load(uid); ok {
 			userSession.Broadcast(msgs)
 		}
 	}
 
-	err := gateway.MQ.GatewayAckMessage(ctx, streamIDs...)
-	if err != nil {
+	if err := gateway.MQ.GatewayAckMessage(ctx, streamIDs...); err != nil {
 		log.Error().Err(err).Msg("gateway ack messages failed")
 	}
 }
