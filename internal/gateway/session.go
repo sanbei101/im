@@ -2,14 +2,14 @@ package gateway
 
 import (
 	"context"
-	"encoding/json/v2"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
-	"github.com/sanbei101/im/internal/db"
+
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 )
 
 type UserClient struct {
@@ -19,48 +19,16 @@ type UserClient struct {
 	UserID  uuid.UUID
 }
 
-var msgBufPool = sync.Pool{
-	New: func() any {
-		b := make([]byte, 0, 1024)
-		return &b
-	},
-}
-
 func (c *UserClient) writePump(ctx context.Context) {
-	for msgs := range c.Send {
-		bufPtr := msgBufPool.Get().(*[]byte)
-
-		totalLen := 2 + len(msgs) - 1
-		for _, msg := range msgs {
-			totalLen += len(msg)
-		}
-
-		if cap(*bufPtr) < totalLen {
-			newBuf := make([]byte, 0, totalLen)
-			bufPtr = &newBuf
-		}
-
-		buf := (*bufPtr)[:0]
-		buf = append(buf, '[')
-		for i, msg := range msgs {
-			if i > 0 {
-				buf = append(buf, ',')
+	for frames := range c.Send {
+		for _, frame := range frames {
+			if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
+				return
 			}
-			buf = append(buf, msg...)
-		}
-		buf = append(buf, ']')
-
-		err := c.Conn.Write(ctx, websocket.MessageText, buf)
-		if cap(buf) <= 64*1024 {
-			*bufPtr = buf
-			msgBufPool.Put(bufPtr)
-		}
-
-		if err != nil {
-			return
 		}
 	}
 }
+
 func (c *UserClient) readPump(ctx context.Context) {
 	for {
 		_, payload, err := c.Conn.Read(ctx)
@@ -75,43 +43,52 @@ func (c *UserClient) readPump(ctx context.Context) {
 }
 
 func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
-	var envelope struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err == nil && envelope.Type == "ping" {
+	req := &imv1.SendMessageReq{}
+	if err := req.UnmarshalVT(payload); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal SendMessageReq failed")
+		c.sendError("invalid proto")
 		return
 	}
 
-	var message db.Message
-	if err := json.Unmarshal(payload, &message); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal message failed")
-		c.sendError("invalid message format")
+	// Ping convention: msg_type == UNSPECIFIED is a keepalive — drop silently.
+	if req.GetMsgType() == imv1.MessageType_MESSAGE_TYPE_UNSPECIFIED {
 		return
 	}
 
-	if message.ClientMsgID == uuid.Nil {
-		log.Error().Str("user_id", c.UserID.String()).Msg("client missing client_msg_id")
-		c.sendError("missing client_msg_id")
-		return
-	}
-
-	var err error
-	message.MsgID, err = uuid.NewV7()
+	msgID, err := uuid.NewV7()
 	if err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client generate msg_id failed")
 		c.sendError("failed to generate msg_id")
 		return
 	}
-	message.SenderID = c.UserID
-	message.ServerTime = time.Now().UnixMicro()
 
-	if err := c.gateway.MQ.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
+	push, err := sendMessageReqToMessagePush(req, c.UserID, msgID, time.Now().UnixMicro())
+	if err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client send message invalid")
+		c.sendError(err.Error())
+		return
+	}
+
+	if err := c.gateway.MQ.GatewayPushMessage(ctx, []*imv1.MessagePush{push}); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client push message failed")
+		c.sendError("push failed")
 	}
 }
 
 func (c *UserClient) sendError(errMsg string) {
-	bin, _ := json.Marshal(map[string]string{"error": errMsg})
+	code := int32(-1)
+	msg := errMsg
+	resp := &imv1.SendMessageResp{
+		Code:   &code,
+		ErrMsg: &msg,
+	}
+	bin := make([]byte, resp.SizeVT())
+	n, err := resp.MarshalToVT(bin)
+	if err != nil {
+		log.Error().Err(err).Str("err_msg", errMsg).Msg("marshal SendMessageResp failed")
+		return
+	}
+	bin = bin[:n]
 	select {
 	case c.Send <- [][]byte{bin}:
 	default:

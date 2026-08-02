@@ -8,8 +8,68 @@ import (
 	"github.com/google/uuid"
 	"github.com/phuslu/log"
 
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 	"github.com/sanbei101/im/internal/db"
 )
+
+// protoToDBMessageType maps the proto MessageType enum back to the sqlc
+// string enum used by the DB layer.
+func protoToDBMessageType(t imv1.MessageType) db.MessageType {
+	switch t {
+	case imv1.MessageType_MESSAGE_TYPE_TEXT:
+		return db.MessageTypeText
+	case imv1.MessageType_MESSAGE_TYPE_IMAGE:
+		return db.MessageTypeImage
+	case imv1.MessageType_MESSAGE_TYPE_VIDEO:
+		return db.MessageTypeVideo
+	case imv1.MessageType_MESSAGE_TYPE_FILE:
+		return db.MessageTypeFile
+	case imv1.MessageType_MESSAGE_TYPE_SYSTEM:
+		return db.MessageTypeSystem
+	}
+	return ""
+}
+
+// messagePushToDBParams extracts the DB insert params from a proto message.
+func messagePushToDBParams(p *imv1.MessagePush) (db.BatchCopyMessagesParams, error) {
+	msgID, err := uuid.Parse(p.GetMsgId())
+	if err != nil {
+		return db.BatchCopyMessagesParams{}, fmt.Errorf("invalid msg_id: %w", err)
+	}
+	clientMsgID, err := uuid.Parse(p.GetClientMsgId())
+	if err != nil {
+		return db.BatchCopyMessagesParams{}, fmt.Errorf("invalid client_msg_id: %w", err)
+	}
+	senderID, err := uuid.Parse(p.GetSenderId())
+	if err != nil {
+		return db.BatchCopyMessagesParams{}, fmt.Errorf("invalid sender_id: %w", err)
+	}
+	roomID, err := uuid.Parse(p.GetRoomId())
+	if err != nil {
+		return db.BatchCopyMessagesParams{}, fmt.Errorf("invalid room_id: %w", err)
+	}
+
+	var replyTo *uuid.UUID
+	if s := p.GetReplyToMsgId(); s != "" {
+		u, err := uuid.Parse(s)
+		if err != nil {
+			return db.BatchCopyMessagesParams{}, fmt.Errorf("invalid reply_to_msg_id: %w", err)
+		}
+		replyTo = &u
+	}
+
+	return db.BatchCopyMessagesParams{
+		MsgID:        msgID,
+		ClientMsgID:  clientMsgID,
+		SenderID:     senderID,
+		RoomID:       roomID,
+		MsgType:      protoToDBMessageType(p.GetMsgType()),
+		ServerTime:   p.GetServerTime(),
+		ReplyToMsgID: replyTo,
+		Payload:      p.GetPayload(),
+		Ext:          p.GetExt(),
+	}, nil
+}
 
 func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 	streamMsgs, err := s.mq.WorkerPullMessage(ctx, batchSize)
@@ -27,25 +87,18 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 	params := make([]db.BatchCopyMessagesParams, 0, batchSize)
 	msgIDs := make([]string, 0, batchSize)
 
-	roomToMsgs := make(map[uuid.UUID][]*db.Message)
+	roomToMsgs := make(map[uuid.UUID][]*imv1.MessagePush)
 
 	for _, sm := range streamMsgs {
 		msgIDs = append(msgIDs, sm.ID)
-		chatMsg := sm.Data
 
-		params = append(params, db.BatchCopyMessagesParams{
-			MsgID:        chatMsg.MsgID,
-			ClientMsgID:  chatMsg.ClientMsgID,
-			SenderID:     chatMsg.SenderID,
-			RoomID:       chatMsg.RoomID,
-			MsgType:      chatMsg.MsgType,
-			ServerTime:   chatMsg.ServerTime,
-			ReplyToMsgID: chatMsg.ReplyToMsgID,
-			Payload:      chatMsg.Payload,
-			Ext:          chatMsg.Ext,
-		})
-
-		roomToMsgs[chatMsg.RoomID] = append(roomToMsgs[chatMsg.RoomID], chatMsg)
+		p, err := messagePushToDBParams(sm.Data)
+		if err != nil {
+			log.Error().Err(err).Str("stream_id", sm.ID).Msg("invalid message payload, dropping")
+			continue
+		}
+		params = append(params, p)
+		roomToMsgs[p.RoomID] = append(roomToMsgs[p.RoomID], sm.Data)
 	}
 
 	rowsInserted, err := s.queries.BatchCopyMessages(ctx, params)

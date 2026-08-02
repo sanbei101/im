@@ -11,7 +11,7 @@ import (
 	"github.com/phuslu/log"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/sanbei101/im/internal/db"
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 	"github.com/sanbei101/im/pkg/config"
 )
 
@@ -85,11 +85,13 @@ func (r *RedisMQ) WorkerPushGatewayTask(ctx context.Context, tasks []*GatewayPus
 			log.Error().Msg("Skipping nil task pointer")
 			continue
 		}
-		bin, err := task.Marshal()
+		p := task.Proto()
+		bin, err := p.MarshalVT()
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal task for stream")
+			log.Error().Err(err).Msg("Failed to marshal GatewayPushTask")
 			continue
 		}
+		p.Reset()
 		pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: streamDeliver,
 			MaxLen: streamMaxLen,
@@ -132,21 +134,28 @@ func (r *RedisMQ) GatewayPullTask(ctx context.Context, batch int64) ([]*GatewayP
 			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
 			continue
 		}
+		p := &imv1.GatewayPushTask{}
+		if err := p.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal GatewayPushTask")
+			continue
+		}
 		task := AcquireGatewayPushTask()
-		if err := task.Unmarshal(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
-			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal task")
+		if err := task.FromProto(p); err != nil {
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to convert GatewayPushTask")
 			ReleaseGatewayPushTask(task)
+			p.Reset()
 			continue
 		}
 		task.StreamID = msg.ID
 		tasks = append(tasks, task)
+		p.Reset()
 	}
 	return tasks, nil
 }
 
 // GatewayPushMessage publishes inbound messages from clients into the
 // inbound stream.
-func (r *RedisMQ) GatewayPushMessage(ctx context.Context, messages []*db.Message) error {
+func (r *RedisMQ) GatewayPushMessage(ctx context.Context, messages []*imv1.MessagePush) error {
 	return r.pushMessageToStream(ctx, streamInbound, messages)
 }
 
@@ -181,20 +190,19 @@ func (r *RedisMQ) pullFromStream(ctx context.Context, stream, group, consumer st
 			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
 			continue
 		}
-		m := db.AcquireMessage()
-		if err := m.Unmarshal(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
-			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal message")
-			db.ReleaseMessage(m)
+		p := &imv1.MessagePush{}
+		if err := p.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal MessagePush")
 			continue
 		}
-		messages = append(messages, &StreamMessage{ID: msg.ID, Data: m})
+		messages = append(messages, &StreamMessage{ID: msg.ID, Data: p})
 	}
 	return messages, nil
 }
 
 // pushMessageToStream pipelines an XAdd for each message into the given
 // stream.
-func (r *RedisMQ) pushMessageToStream(ctx context.Context, stream string, messages []*db.Message) error {
+func (r *RedisMQ) pushMessageToStream(ctx context.Context, stream string, messages []*imv1.MessagePush) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -205,9 +213,9 @@ func (r *RedisMQ) pushMessageToStream(ctx context.Context, stream string, messag
 			log.Error().Msg("Skipping nil message pointer")
 			continue
 		}
-		bin, err := msg.Marshal()
+		bin, err := msg.MarshalVT()
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal message for stream")
+			log.Error().Err(err).Msg("Failed to marshal MessagePush for stream")
 			continue
 		}
 		pipe.XAdd(ctx, &redis.XAddArgs{

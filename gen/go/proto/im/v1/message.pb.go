@@ -485,6 +485,41 @@ func (x *SendMessageResp) GetErrMsg() string {
 	return ""
 }
 
+// Worker -> MQ -> Gateway 的投递任务
+type GatewayPushTask struct {
+	unknownFields []byte
+	RoomId        *string      `protobuf:"bytes,1,opt,name=room_id,json=roomId" json:"roomId,omitempty"`                       // 目标房间 UUID
+	TargetUserIds []string     `protobuf:"bytes,2,rep,name=target_user_ids,json=targetUserIds" json:"targetUserIds,omitempty"` // 需要推送的在线用户 UUID 列表
+	Message       *MessagePush `protobuf:"bytes,3,opt,name=message" json:"message,omitempty"`                                  // 投递的消息内容
+}
+
+func (x *GatewayPushTask) Reset() {
+	*x = GatewayPushTask{}
+}
+
+func (*GatewayPushTask) ProtoMessage() {}
+
+func (x *GatewayPushTask) GetRoomId() string {
+	if x != nil && x.RoomId != nil {
+		return *x.RoomId
+	}
+	return ""
+}
+
+func (x *GatewayPushTask) GetTargetUserIds() []string {
+	if x != nil {
+		return x.TargetUserIds
+	}
+	return nil
+}
+
+func (x *GatewayPushTask) GetMessage() *MessagePush {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
 // -----------------------------------------------------------------
 // 下行:服务端推送给房间内其他成员的实时消息
 // -----------------------------------------------------------------
@@ -813,6 +848,24 @@ func (m *SendMessageResp) CloneVT() *SendMessageResp {
 }
 
 func (m *SendMessageResp) CloneMessageVT() protobuf_go_lite.CloneMessage {
+	return m.CloneVT()
+}
+
+func (m *GatewayPushTask) CloneVT() *GatewayPushTask {
+	if m == nil {
+		return (*GatewayPushTask)(nil)
+	}
+	r := new(GatewayPushTask)
+	r.RoomId = protobuf_go_lite.ClonePtr(m.RoomId)
+	r.TargetUserIds = protobuf_go_lite.CloneSlice(m.TargetUserIds)
+	r.Message = protobuf_go_lite.CloneVTValue(m.Message)
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = slices.Clone(m.unknownFields)
+	}
+	return r
+}
+
+func (m *GatewayPushTask) CloneMessageVT() protobuf_go_lite.CloneMessage {
 	return m.CloneVT()
 }
 
@@ -1156,6 +1209,31 @@ func (this *SendMessageResp) EqualVT(that *SendMessageResp) bool {
 
 func (this *SendMessageResp) EqualMessageVT(thatMsg any) bool {
 	that, ok := thatMsg.(*SendMessageResp)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *GatewayPushTask) EqualVT(that *GatewayPushTask) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.RoomId, that.RoomId) {
+		return false
+	}
+	if !protobuf_go_lite.EqualSlice(this.TargetUserIds, that.TargetUserIds) {
+		return false
+	}
+	if !protobuf_go_lite.IsEqualVT(this.Message, that.Message) {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *GatewayPushTask) EqualMessageVT(thatMsg any) bool {
+	that, ok := thatMsg.(*GatewayPushTask)
 	if !ok {
 		return false
 	}
@@ -1756,6 +1834,60 @@ func (m *SendMessageResp) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *GatewayPushTask) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GatewayPushTask) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *GatewayPushTask) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i = protobuf_go_lite.EncodeRawBytes(dAtA, i, m.unknownFields)
+	}
+	if m.Message != nil {
+		size, err := m.Message.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protobuf_go_lite.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.TargetUserIds) > 0 {
+		for iNdEx := len(m.TargetUserIds) - 1; iNdEx >= 0; iNdEx-- {
+			i = protobuf_go_lite.EncodeString(dAtA, i, m.TargetUserIds[iNdEx])
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if m.RoomId != nil {
+		i = protobuf_go_lite.EncodeString(dAtA, i, *m.RoomId)
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *MessagePush) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -2019,6 +2151,22 @@ func (m *SendMessageResp) SizeVT() (n int) {
 	n += protobuf_go_lite.SizeVarintPtr(1, m.ServerTime)
 	n += protobuf_go_lite.SizeVarintPtr(1, m.Code)
 	n += protobuf_go_lite.SizeStringPtr(1, m.ErrMsg)
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *GatewayPushTask) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	n += protobuf_go_lite.SizeStringPtr(1, m.RoomId)
+	n += protobuf_go_lite.SizeStringSlice(1, m.TargetUserIds)
+	if m.Message != nil {
+		l = m.Message.SizeVT()
+		n += protobuf_go_lite.SizeMessage(1, l)
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -2863,6 +3011,89 @@ func (m *SendMessageResp) UnmarshalVT(dAtA []byte) error {
 				return fmt.Errorf("proto: field proto.im.v1.SendMessageResp.err_msg contains invalid UTF-8")
 			}
 			m.ErrMsg = &v
+		default:
+			iNdEx = preIndex
+			skippy, err := protobuf_go_lite.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protobuf_go_lite.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GatewayPushTask) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	var err error
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		wire, iNdEx, err = protobuf_go_lite.DecodeVarint(dAtA, iNdEx)
+		if err != nil {
+			return err
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GatewayPushTask: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GatewayPushTask: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoomId", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.GatewayPushTask.room_id contains invalid UTF-8")
+			}
+			m.RoomId = &v
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TargetUserIds", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.GatewayPushTask.target_user_ids contains invalid UTF-8")
+			}
+			m.TargetUserIds = append(m.TargetUserIds, v)
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Message", wireType)
+			}
+			msgStart, postIndex, err := protobuf_go_lite.DecodeLengthDelimited(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if m.Message == nil {
+				m.Message = &MessagePush{}
+			}
+			if err := m.Message.UnmarshalVT(dAtA[msgStart:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protobuf_go_lite.Skip(dAtA[iNdEx:])

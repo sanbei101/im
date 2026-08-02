@@ -7,7 +7,7 @@ package mq
 import (
 	"context"
 
-	"github.com/sanbei101/im/internal/db"
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 )
 
 // MQ is the message queue boundary between gateway and worker.
@@ -15,9 +15,10 @@ import (
 // Messages flow in two directions:
 //   - client -> gateway -> MQ -> worker -> MQ -> gateway -> client
 //
-// The interface is intentionally transport-agnostic. Stream IDs are opaque
-// tokens returned by the broker and are only meaningful to the same
-// implementation that produced them.
+// Wire payloads are protobuf (imv1.MessagePush, imv1.GatewayPushTask)
+// marshaled with vtproto. The interface is intentionally transport-agnostic.
+// Stream IDs are opaque tokens returned by the broker and are only
+// meaningful to the same implementation that produced them.
 type MQ interface {
 	// InitStreamGroups prepares any broker-side resources (consumer groups,
 	// topics, etc.). It must be idempotent.
@@ -41,7 +42,7 @@ type MQ interface {
 
 	// GatewayPushMessage publishes inbound messages from clients. Gateway is
 	// the producer.
-	GatewayPushMessage(ctx context.Context, messages []*db.Message) error
+	GatewayPushMessage(ctx context.Context, messages []*imv1.MessagePush) error
 
 	// GatewayAckMessage confirms that the gateway has successfully delivered
 	// the given deliver stream IDs.

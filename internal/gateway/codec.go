@@ -1,0 +1,94 @@
+package gateway
+
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
+	"github.com/sanbei101/im/internal/db"
+)
+
+// protoMsgTypeToDB maps the proto MessageType enum to the sqlc string enum
+// used by the DB layer.
+func protoMsgTypeToDB(t imv1.MessageType) db.MessageType {
+	switch t {
+	case imv1.MessageType_MESSAGE_TYPE_TEXT:
+		return db.MessageTypeText
+	case imv1.MessageType_MESSAGE_TYPE_IMAGE:
+		return db.MessageTypeImage
+	case imv1.MessageType_MESSAGE_TYPE_VIDEO:
+		return db.MessageTypeVideo
+	case imv1.MessageType_MESSAGE_TYPE_FILE:
+		return db.MessageTypeFile
+	case imv1.MessageType_MESSAGE_TYPE_SYSTEM:
+		return db.MessageTypeSystem
+	}
+	return ""
+}
+
+// dbMsgTypeToProto maps the sqlc string enum back to the proto MessageType.
+func dbMsgTypeToProto(t db.MessageType) imv1.MessageType {
+	switch t {
+	case db.MessageTypeText:
+		return imv1.MessageType_MESSAGE_TYPE_TEXT
+	case db.MessageTypeImage:
+		return imv1.MessageType_MESSAGE_TYPE_IMAGE
+	case db.MessageTypeVideo:
+		return imv1.MessageType_MESSAGE_TYPE_VIDEO
+	case db.MessageTypeFile:
+		return imv1.MessageType_MESSAGE_TYPE_FILE
+	case db.MessageTypeSystem:
+		return imv1.MessageType_MESSAGE_TYPE_SYSTEM
+	}
+	return imv1.MessageType_MESSAGE_TYPE_UNSPECIFIED
+}
+
+// sendMessageReqToMessagePush converts an inbound client request into a
+// fully populated MessagePush ready for the MQ inbound stream. Server-side
+// fields (msg_id, sender_id, server_time) are filled here.
+func sendMessageReqToMessagePush(req *imv1.SendMessageReq, senderID uuid.UUID, msgID uuid.UUID, serverTime int64) (*imv1.MessagePush, error) {
+	if req == nil {
+		return nil, fmt.Errorf("nil request")
+	}
+	clientMsgID, err := uuid.Parse(req.GetClientMsgId())
+	if err != nil {
+		return nil, fmt.Errorf("invalid client_msg_id: %w", err)
+	}
+	roomID, err := uuid.Parse(req.GetRoomId())
+	if err != nil {
+		return nil, fmt.Errorf("invalid room_id: %w", err)
+	}
+	msgType := protoMsgTypeToDB(req.GetMsgType())
+	if msgType == "" {
+		return nil, fmt.Errorf("invalid msg_type: %v", req.GetMsgType())
+	}
+
+	// protobuf-go-lite represents proto3 scalar fields as *T; bind to local
+	// variables so the proto takes ownership of the values.
+	msgIDStr := msgID.String()
+	clientMsgIDStr := clientMsgID.String()
+	senderIDStr := senderID.String()
+	roomIDStr := roomID.String()
+	protoType := dbMsgTypeToProto(msgType)
+	serverTimeVal := serverTime
+
+	push := &imv1.MessagePush{
+		MsgId:       &msgIDStr,
+		ClientMsgId: &clientMsgIDStr,
+		SenderId:    &senderIDStr,
+		RoomId:      &roomIDStr,
+		ServerTime:  &serverTimeVal,
+		MsgType:     &protoType,
+		Payload:     req.GetPayload(),
+		Ext:         req.GetExt(),
+	}
+	if s := req.GetReplyToMsgId(); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return nil, fmt.Errorf("invalid reply_to_msg_id: %w", err)
+		}
+		reply := s
+		push.ReplyToMsgId = &reply
+	}
+	return push, nil
+}
