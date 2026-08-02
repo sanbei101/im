@@ -5,3 +5,7 @@ plugins:
     opt:
       - paths=source_relative
       - features=marshal+unmarshal+size+equal+clone
+  - local: protoc-gen-es
+    out: gen/ts
+    opt:
+      - target=ts

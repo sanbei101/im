@@ -3,3 +3,5 @@ sdk/dist
 im-frontend/node_modules
 im-frontend/dist
 im-frontend/.vscode
+bench/node_modules/
+bench/dist/
