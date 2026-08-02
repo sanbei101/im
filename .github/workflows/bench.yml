@@ -153,6 +153,11 @@ jobs:
           hostname: ${{ env.K6_HOST }}
           ping: ${{ env.SERVER_HOST }}
 
+      - name: set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
       - uses: grafana/setup-k6-action@v1
 
       - name: 等待 Server 就绪
@@ -161,9 +166,10 @@ jobs:
       - name: Run k6 and collect pprof
         working-directory: bench
         run: |
+          pnpm build
           touch k6.log
 
-          k6 --quiet run k6.js -e TARGET_HOST=${{ env.SERVER_HOST }} &> >(tee k6.log) &
+          k6 --quiet run dist/bundle.js -e TARGET_HOST=${{ env.SERVER_HOST }} &> >(tee k6.log) &
           K6_PID=$!
           echo $K6_PID > /tmp/k6.pid
 
