@@ -7,6 +7,7 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/pkg/config"
 )
 
@@ -15,11 +16,11 @@ const (
 )
 
 type Service struct {
-	redis   *db.Redis
+	mq      mq.MQ
 	queries *db.Queries
 }
 
-func New(cfg *config.Config) *Service {
+func New(cfg *config.Config, m mq.MQ) *Service {
 	pool, err := pgxpool.New(context.Background(), cfg.Postgres.DSN)
 	if err != nil {
 		log.Fatal().Err(err).Msg("worker connect postgres failed")
@@ -28,13 +29,13 @@ func New(cfg *config.Config) *Service {
 		log.Fatal().Err(err).Msg("worker ping postgres failed")
 	}
 	return &Service{
-		redis:   db.NewRedis(cfg),
+		mq:      m,
 		queries: db.New(pool),
 	}
 }
 
 func (s *Service) Run(ctx context.Context) {
-	if err := s.redis.InitStreamGroups(ctx); err != nil {
+	if err := s.mq.InitStreamGroups(ctx); err != nil {
 		log.Panic().Err(err).Msg("worker consume group init failed")
 	}
 	for {

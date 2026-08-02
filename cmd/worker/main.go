@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/internal/worker"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
@@ -15,7 +16,8 @@ import (
 func main() {
 	logger.InitLogger()
 	cfg := config.New()
-	svc := worker.New(cfg)
+	redisMQ := mq.NewRedisMQ(cfg)
+	svc := worker.New(cfg, redisMQ)
 
 	go func() {
 		http.ListenAndServe(":6063", nil)

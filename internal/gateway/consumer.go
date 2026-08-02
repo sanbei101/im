@@ -6,11 +6,11 @@ import (
 
 	"github.com/phuslu/log"
 
-	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/mq"
 )
 
 func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
-	err := gateway.Redis.InitStreamGroups(context.Background())
+	err := gateway.MQ.InitStreamGroups(context.Background())
 	if err != nil {
 		log.Panic().Err(err).Msg("gateway init stream groups failed")
 		return
@@ -26,7 +26,7 @@ func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
 }
 
 func (gateway *Gateway) pollAndProcess(ctx context.Context) {
-	tasks, err := gateway.Redis.GatewayPullTask(ctx, 1000)
+	tasks, err := gateway.MQ.GatewayPullTask(ctx, 1000)
 	if err != nil {
 		if ctx.Err() != nil {
 			return
@@ -42,7 +42,7 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 	gateway.processTasks(ctx, tasks)
 }
 
-func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPushTask) {
+func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.GatewayPushTask) {
 	streamIDs := make([]string, 0, len(tasks))
 
 	// 按用户分组,收集每个用户的消息
@@ -69,7 +69,7 @@ func (gateway *Gateway) processTasks(ctx context.Context, tasks []*db.GatewayPus
 		}
 	}
 
-	err := gateway.Redis.GatewayAckMessage(ctx, streamIDs...)
+	err := gateway.MQ.GatewayAckMessage(ctx, streamIDs...)
 	if err != nil {
 		log.Error().Err(err).Msg("gateway ack messages failed")
 	}

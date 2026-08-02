@@ -1,20 +1,20 @@
 package gateway
 
 import (
-	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/pkg/config"
 )
 
 type Gateway struct {
 	UserSessionManager *UserSessionManager
-	Redis              *db.Redis
+	MQ                 mq.MQ
 	Config             *config.Config
 }
 
-func NewGateway(cfg *config.Config) *Gateway {
+func NewGateway(cfg *config.Config, m mq.MQ) *Gateway {
 	return &Gateway{
 		UserSessionManager: NewSessionManager(),
-		Redis:              db.NewRedis(cfg),
+		MQ:                 m,
 		Config:             cfg,
 	}
 }

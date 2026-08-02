@@ -1,4 +1,4 @@
-package db
+package mq
 
 import (
 	"encoding/binary"
@@ -7,16 +7,29 @@ import (
 	"unsafe"
 
 	"github.com/google/uuid"
+
+	"github.com/sanbei101/im/internal/db"
 )
 
-type GatewayPushTask struct {
-	StreamID       string
-	RoomID         uuid.UUID
-	TargetUserIDs  []uuid.UUID
-	Message        Message
+// StreamMessage pairs a broker-assigned stream ID with the decoded message
+// payload. The ID is opaque to callers and must be passed back to the same
+// MQ implementation via the corresponding Ack method.
+type StreamMessage struct {
+	ID   string
+	Data *db.Message
 }
 
-var GatewayPushTaskPool = sync.Pool{
+// GatewayPushTask is the worker's instruction to the gateway: deliver
+// `Message` to every user in `TargetUserIDs`. StreamID is set by the broker
+// on read and only the streaming protocol needs to interpret it.
+type GatewayPushTask struct {
+	StreamID      string
+	RoomID        uuid.UUID
+	TargetUserIDs []uuid.UUID
+	Message       db.Message
+}
+
+var gatewayPushTaskPool = sync.Pool{
 	New: func() any {
 		return &GatewayPushTask{
 			TargetUserIDs: make([]uuid.UUID, 0, 16),
@@ -24,15 +37,21 @@ var GatewayPushTaskPool = sync.Pool{
 	},
 }
 
+// AcquireGatewayPushTask pulls a zeroed task from the pool. Callers must
+// release it via ReleaseGatewayPushTask once they are done.
 func AcquireGatewayPushTask() *GatewayPushTask {
-	return GatewayPushTaskPool.Get().(*GatewayPushTask)
+	return gatewayPushTaskPool.Get().(*GatewayPushTask)
 }
 
+// ReleaseGatewayPushTask returns the task to the pool after clearing its
+// fields.
 func ReleaseGatewayPushTask(t *GatewayPushTask) {
 	t.Reset()
-	GatewayPushTaskPool.Put(t)
+	gatewayPushTaskPool.Put(t)
 }
 
+// Reset clears the task so it can be reused. The TargetUserIDs slice keeps
+// its backing array.
 func (t *GatewayPushTask) Reset() {
 	t.RoomID = uuid.UUID{}
 	if t.TargetUserIDs != nil {
@@ -41,6 +60,8 @@ func (t *GatewayPushTask) Reset() {
 	t.Message.Reset()
 }
 
+// Marshal serializes the task to a length-prefixed binary blob. The encoding
+// is MQ-implementation-private; it is not part of the MQ interface contract.
 func (t *GatewayPushTask) Marshal() ([]byte, error) {
 	msgSize := t.Message.Size()
 	totalSize := 16 + 4 + (len(t.TargetUserIDs) * 16) + msgSize
@@ -66,6 +87,8 @@ func (t *GatewayPushTask) Marshal() ([]byte, error) {
 	return buf, nil
 }
 
+// Unmarshal populates the task from a length-prefixed binary blob produced
+// by Marshal.
 func (t *GatewayPushTask) Unmarshal(data []byte) error {
 	if len(data) < 20 {
 		return errors.New("data too short for GatewayPushTask")

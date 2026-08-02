@@ -105,7 +105,7 @@ func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 	message.SenderID = c.UserID
 	message.ServerTime = time.Now().UnixMicro()
 
-	if err := c.gateway.Redis.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
+	if err := c.gateway.MQ.GatewayPushMessage(ctx, []*db.Message{&message}); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client push message failed")
 	}
 }
