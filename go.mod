@@ -4,12 +4,13 @@ go 1.26.1
 
 require (
 	github.com/coder/websocket v1.8.14
+	github.com/cristalhq/jwt/v5 v5.4.0
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/validator/v10 v10.30.2
-	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/kamalyes/go-argus v0.3.1
 	github.com/phuslu/log v1.0.124
 	github.com/phuslu/lru v1.0.19
 	github.com/redis/go-redis/v9 v9.19.0

@@ -5,7 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sanbei101/im/internal/api/handler"
-	"github.com/sanbei101/im/internal/api/middleware"
+	"github.com/sanbei101/im/pkg/jwt"
 )
 
 func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.MessageHandler, roomHandler *handler.RoomHandler, benchHandler *handler.BenchMockHandler) *gin.Engine {
@@ -26,7 +26,7 @@ func SetupRouter(userHandler *handler.UserHandler, messageHandler *handler.Messa
 
 		messages := v1.Group("/messages")
 		{
-			messages.Use(middleware.AuthMiddleware())
+			messages.Use(jwt.AuthMiddleware)
 			messages.GET("/history", messageHandler.GetHistory)
 		}
 
