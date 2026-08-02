@@ -1,0 +1,82 @@
+edition = "2024";
+package proto.im.v1;
+option go_package = "im/gen/go/im/v1;imv1";
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_TEXT        = 1; // 文本
+  MESSAGE_TYPE_IMAGE       = 2; // 图片
+  MESSAGE_TYPE_VIDEO       = 3; // 视频
+  MESSAGE_TYPE_FILE        = 4; // 文件
+  MESSAGE_TYPE_SYSTEM      = 5; // 系统通知/广播
+}
+
+// 文本消息 Payload
+message TextMessagePayload {
+  string text = 1;                 // 文本内容
+  repeated string at_user_ids = 2; // @ 的用户 ID 列表
+}
+
+// 图片消息 Payload
+message ImageMessagePayload {
+  string url = 1;           // 原图 URL
+  string thumbnail_url = 2; // 缩略图 URL
+  uint32 width = 3;         // 宽度 (px)
+  uint32 height = 4;        // 高度 (px)
+  uint64 size_bytes = 5;    // 文件大小 (字节)
+  string mime_type = 6;     // 如 "image/jpeg"
+}
+
+// 视频消息 Payload
+message VideoMessagePayload {
+  string url = 1;           // 视频 URL
+  string cover_url = 2;     // 封面图 URL
+  uint32 duration_sec = 3;  // 视频时长 (秒)
+  uint32 width = 4;         // 宽度
+  uint32 height = 5;        // 高度
+  uint64 size_bytes = 6;    // 文件大小
+}
+
+// 文件消息 Payload
+message FileMessagePayload {
+  string url = 1;           // 文件下载 URL
+  string file_name = 2;     // 文件原名
+  string extension = 3;     // 后缀名 (如 "pdf", "docx")
+  uint64 size_bytes = 4;    // 文件大小
+}
+
+// 系统通知 Payload
+message SystemMessagePayload {
+  int32 event_code = 1;     // 系统事件编号 (例如: 1001-入群通知,1002-踢出群聊)
+  string content = 2;       // 提示文案
+  map<string, string> extra_params = 3; // 模版参数/扩展数据
+}
+
+message MessagePayload {
+  oneof body {
+    TextMessagePayload text = 1;
+    ImageMessagePayload image = 2;
+    VideoMessagePayload video = 3;
+    FileMessagePayload file = 4;
+    SystemMessagePayload system = 5;
+  }
+}
+
+// 客户端上行发消息请求
+message MessageDTO {
+  string client_msg_id      = 1; // 客户端消息去重 UUID
+  string room_id            = 2; // 接收目标房间 UUID
+  MessageType msg_type      = 3; // 消息类型
+  string reply_to_msg_id    = 5; // 引用/回复消息 ID
+  bytes  payload            = 4; // 消息 Payload
+  bytes  ext                = 6; // 扩展属性
+}
+
+// 服务端下行返回的消息发送结果
+message MessageVO {
+  string client_msg_id = 1; // 对应的客户端去重 ID
+  string msg_id        = 2; // 服务端生成的真实 msg_id
+  int64  server_time   = 3; // 落盘时间戳
+  int32  code          = 4; // 状态码:0-成功,非0-失败
+  string err_msg       = 5; // 错误说明
+}

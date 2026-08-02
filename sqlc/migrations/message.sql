@@ -33,7 +33,7 @@ CREATE TABLE room_members (
     role member_role NOT NULL DEFAULT 'member',
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
     is_muted BOOLEAN NOT NULL DEFAULT FALSE,
-    
+
     PRIMARY KEY (room_id, user_id)
 );
 
@@ -45,8 +45,8 @@ CREATE TABLE messages (
     server_time BIGINT NOT NULL,
     reply_to_msg_id uuid DEFAULT NULL,
     msg_type message_type NOT NULL,
-    payload JSONB NOT NULL,
-    ext JSONB DEFAULT NULL
+    payload BYTEA NOT NULL,
+    ext BYTEA DEFAULT NULL
 );
 -- 用于查询"某个 Room 的所有成员"
 CREATE INDEX idx_room_members_user_id ON room_members (user_id);
@@ -57,6 +57,6 @@ CREATE INDEX idx_messages_room_time ON messages (room_id, server_time DESC);
 CREATE INDEX idx_messages_sender_id ON messages (sender_id);
 
 -- 单聊房间 hash(user_id1, user_id2) 唯一
-CREATE UNIQUE INDEX idx_rooms_single_chat_hash 
-ON rooms (single_chat_hash) 
+CREATE UNIQUE INDEX idx_rooms_single_chat_hash
+ON rooms (single_chat_hash)
 WHERE single_chat_hash IS NOT NULL;

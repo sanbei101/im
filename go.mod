@@ -3,6 +3,7 @@ module github.com/sanbei101/im
 go 1.26.1
 
 require (
+	github.com/aperturerobotics/protobuf-go-lite v0.16.0
 	github.com/coder/websocket v1.8.14
 	github.com/cristalhq/jwt/v5 v5.4.0
 	github.com/go-chi/chi/v5 v5.3.1

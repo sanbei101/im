@@ -8,7 +8,6 @@ package db
 import (
 	"context"
 
-	"encoding/json/jsontext"
 	"github.com/google/uuid"
 )
 
@@ -47,15 +46,15 @@ func (q *Queries) AddRoomMembers(ctx context.Context, arg AddRoomMembersParams) 
 }
 
 type BatchCopyMessagesParams struct {
-	MsgID        uuid.UUID      `json:"msg_id"`
-	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
-	SenderID     uuid.UUID      `json:"sender_id"`
-	RoomID       uuid.UUID      `json:"room_id"`
-	MsgType      MessageType    `json:"msg_type"`
-	ServerTime   int64          `json:"server_time"`
-	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
-	Payload      jsontext.Value `json:"payload"`
-	Ext          jsontext.Value `json:"ext"`
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	MsgType      MessageType `json:"msg_type"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
 }
 
 const createGroupRoom = `-- name: CreateGroupRoom :one
@@ -215,15 +214,15 @@ type ListMessagesByRoomParams struct {
 }
 
 type ListMessagesByRoomRow struct {
-	MsgID        uuid.UUID      `json:"msg_id"`
-	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
-	SenderID     uuid.UUID      `json:"sender_id"`
-	RoomID       uuid.UUID      `json:"room_id"`
-	MsgType      MessageType    `json:"msg_type"`
-	ServerTime   int64          `json:"server_time"`
-	ReplyToMsgID *uuid.UUID     `json:"reply_to_msg_id"`
-	Payload      jsontext.Value `json:"payload"`
-	Ext          jsontext.Value `json:"ext"`
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	MsgType      MessageType `json:"msg_type"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
 }
 
 func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoomParams) ([]*ListMessagesByRoomRow, error) {
