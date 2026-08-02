@@ -8,6 +8,19 @@ import (
 	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 )
 
+type Envelope[T any] struct {
+	StreamID string
+	Payload  T
+}
+
+// 1. 上行消息信封 (Client -> Gateway -> MQ -> Worker)
+// 代表客户端发送、网关接收并投递给 Worker 的上行消息
+type InboundMsgEnvelope = Envelope[*imv1.MessagePush]
+
+// 2. 下行投递任务信封 (Worker -> MQ -> Gateway -> Client)
+// 代表 Worker 计算完成后，指令网关进行批量下行分发的投递任务
+type DeliverTaskEnvelope = Envelope[*imv1.GatewayPushTask]
+
 // StreamMessage pairs a broker-assigned stream ID with the decoded message
 // payload. The ID is opaque to callers and must be passed back to the same
 // MQ implementation via the corresponding Ack method.
