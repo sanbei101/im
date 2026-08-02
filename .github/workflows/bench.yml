@@ -37,7 +37,7 @@ jobs:
           GOEXPERIMENT: jsonv2
           CGO_ENABLED: 0
           GOOS: linux
-    
+
       - name: Connect to Tailscale network
         uses: tailscale/github-action@v4
         with:
@@ -57,17 +57,17 @@ jobs:
           nohup ./worker >> server.log 2>&1 &
           WORKER_PID=$!
           echo $WORKER_PID > worker.pid
-          
+
           nohup ./gateway >> server.log 2>&1 &
           GATEWAY_PID=$!
           echo $GATEWAY_PID > gateway.pid
-          
+
           nohup ./api >> server.log 2>&1 &
           API_PID=$!
           echo $API_PID > api.pid
-          
+
           sleep 3
-          
+
           for pid in $WORKER_PID $GATEWAY_PID $API_PID; do
             if ! kill -0 $pid 2>/dev/null; then
               echo "❌ 进程 $pid 已退出!"
@@ -76,14 +76,14 @@ jobs:
               exit 1
             fi
           done
-          
+
           echo "✅ 所有服务已启动"
         env:
           POSTGRES_DSN: "host=localhost port=5432 user=myuser password=mypassword dbname=database sslmode=disable"
           REDIS_ADDR: "localhost:6379"
           REDIS_PASSWORD: "123456"
           REDIS_DB: "0"
-      
+
       - name: 触发k6压测
         run: |
           echo "通知 k6 节点开始压测..."
@@ -119,7 +119,7 @@ jobs:
           nc -l 9999
           echo "🎉 收到 k6 结束信号,准备生成报告!"
           kill -9 "$MONITOR_PID" || true
-      
+
       - name: see log
         if: always()
         run: tail -n 100 server.log
@@ -154,7 +154,7 @@ jobs:
           ping: ${{ env.SERVER_HOST }}
 
       - uses: grafana/setup-k6-action@v1
-    
+
       - name: 等待 Server 就绪
         run: nc -l 9999
 
@@ -202,7 +202,7 @@ jobs:
             sleep 1
           done
           echo "K6 压测已结束!"
-          
+
       - name: 通知 Server 压测结束
         run: |
           echo "通知 Server 压测已结束..."
@@ -225,7 +225,7 @@ jobs:
         with:
           go-version: stable
           cache: true
-          
+
       - name: Publish K6 and Profiling Summary
         working-directory: bench
         if: always()
