@@ -376,58 +376,58 @@ func (*MessagePayload_File) isMessagePayload_Body() {}
 func (*MessagePayload_System) isMessagePayload_Body() {}
 
 // 客户端上行发消息请求
-type MessageDTO struct {
+type SendMessageReq struct {
 	unknownFields []byte
 	ClientMsgId   *string      `protobuf:"bytes,1,opt,name=client_msg_id,json=clientMsgId" json:"clientMsgId,omitempty"`     // 客户端消息去重 UUID
 	RoomId        *string      `protobuf:"bytes,2,opt,name=room_id,json=roomId" json:"roomId,omitempty"`                     // 接收目标房间 UUID
 	MsgType       *MessageType `protobuf:"varint,3,opt,name=msg_type,json=msgType" json:"msgType,omitempty"`                 // 消息类型
-	ReplyToMsgId  *string      `protobuf:"bytes,5,opt,name=reply_to_msg_id,json=replyToMsgId" json:"replyToMsgId,omitempty"` // 引用/回复消息 ID
 	Payload       []byte       `protobuf:"bytes,4,opt,name=payload" json:"payload,omitempty"`                                // 消息 Payload
+	ReplyToMsgId  *string      `protobuf:"bytes,5,opt,name=reply_to_msg_id,json=replyToMsgId" json:"replyToMsgId,omitempty"` // 引用/回复消息 ID
 	Ext           []byte       `protobuf:"bytes,6,opt,name=ext" json:"ext,omitempty"`                                        // 扩展属性
 }
 
-func (x *MessageDTO) Reset() {
-	*x = MessageDTO{}
+func (x *SendMessageReq) Reset() {
+	*x = SendMessageReq{}
 }
 
-func (*MessageDTO) ProtoMessage() {}
+func (*SendMessageReq) ProtoMessage() {}
 
-func (x *MessageDTO) GetClientMsgId() string {
+func (x *SendMessageReq) GetClientMsgId() string {
 	if x != nil && x.ClientMsgId != nil {
 		return *x.ClientMsgId
 	}
 	return ""
 }
 
-func (x *MessageDTO) GetRoomId() string {
+func (x *SendMessageReq) GetRoomId() string {
 	if x != nil && x.RoomId != nil {
 		return *x.RoomId
 	}
 	return ""
 }
 
-func (x *MessageDTO) GetMsgType() MessageType {
+func (x *SendMessageReq) GetMsgType() MessageType {
 	if x != nil && x.MsgType != nil {
 		return *x.MsgType
 	}
 	return MessageType_MESSAGE_TYPE_UNSPECIFIED
 }
 
-func (x *MessageDTO) GetReplyToMsgId() string {
-	if x != nil && x.ReplyToMsgId != nil {
-		return *x.ReplyToMsgId
-	}
-	return ""
-}
-
-func (x *MessageDTO) GetPayload() []byte {
+func (x *SendMessageReq) GetPayload() []byte {
 	if x != nil {
 		return x.Payload
 	}
 	return nil
 }
 
-func (x *MessageDTO) GetExt() []byte {
+func (x *SendMessageReq) GetReplyToMsgId() string {
+	if x != nil && x.ReplyToMsgId != nil {
+		return *x.ReplyToMsgId
+	}
+	return ""
+}
+
+func (x *SendMessageReq) GetExt() []byte {
 	if x != nil {
 		return x.Ext
 	}
@@ -435,52 +435,137 @@ func (x *MessageDTO) GetExt() []byte {
 }
 
 // 服务端下行返回的消息发送结果
-type MessageVO struct {
+type SendMessageResp struct {
 	unknownFields []byte
 	ClientMsgId   *string `protobuf:"bytes,1,opt,name=client_msg_id,json=clientMsgId" json:"clientMsgId,omitempty"` // 对应的客户端去重 ID
 	MsgId         *string `protobuf:"bytes,2,opt,name=msg_id,json=msgId" json:"msgId,omitempty"`                    // 服务端生成的真实 msg_id
 	ServerTime    *int64  `protobuf:"varint,3,opt,name=server_time,json=serverTime" json:"serverTime,omitempty"`    // 落盘时间戳
-	Code          *int32  `protobuf:"varint,4,opt,name=code" json:"code,omitempty"`                                 // 状态码:0-成功,非0-失败
+	Code          *int32  `protobuf:"varint,4,opt,name=code" json:"code,omitempty"`                                 // 状态码: 0-成功, 非0-失败
 	ErrMsg        *string `protobuf:"bytes,5,opt,name=err_msg,json=errMsg" json:"errMsg,omitempty"`                 // 错误说明
 }
 
-func (x *MessageVO) Reset() {
-	*x = MessageVO{}
+func (x *SendMessageResp) Reset() {
+	*x = SendMessageResp{}
 }
 
-func (*MessageVO) ProtoMessage() {}
+func (*SendMessageResp) ProtoMessage() {}
 
-func (x *MessageVO) GetClientMsgId() string {
+func (x *SendMessageResp) GetClientMsgId() string {
 	if x != nil && x.ClientMsgId != nil {
 		return *x.ClientMsgId
 	}
 	return ""
 }
 
-func (x *MessageVO) GetMsgId() string {
+func (x *SendMessageResp) GetMsgId() string {
 	if x != nil && x.MsgId != nil {
 		return *x.MsgId
 	}
 	return ""
 }
 
-func (x *MessageVO) GetServerTime() int64 {
+func (x *SendMessageResp) GetServerTime() int64 {
 	if x != nil && x.ServerTime != nil {
 		return *x.ServerTime
 	}
 	return 0
 }
 
-func (x *MessageVO) GetCode() int32 {
+func (x *SendMessageResp) GetCode() int32 {
 	if x != nil && x.Code != nil {
 		return *x.Code
 	}
 	return 0
 }
 
-func (x *MessageVO) GetErrMsg() string {
+func (x *SendMessageResp) GetErrMsg() string {
 	if x != nil && x.ErrMsg != nil {
 		return *x.ErrMsg
+	}
+	return ""
+}
+
+// -----------------------------------------------------------------
+// 下行:服务端推送给房间内其他成员的实时消息
+// -----------------------------------------------------------------
+type MessagePush struct {
+	unknownFields []byte
+	MsgId         *string      `protobuf:"bytes,1,opt,name=msg_id,json=msgId" json:"msgId,omitempty"`                        // 服务端生成的消息 ID
+	ClientMsgId   *string      `protobuf:"bytes,2,opt,name=client_msg_id,json=clientMsgId" json:"clientMsgId,omitempty"`     // 发送方客户端去重 ID
+	SenderId      *string      `protobuf:"bytes,3,opt,name=sender_id,json=senderId" json:"senderId,omitempty"`               // 发送人 UUID (服务端填充，防止伪造)
+	RoomId        *string      `protobuf:"bytes,4,opt,name=room_id,json=roomId" json:"roomId,omitempty"`                     // 房间 UUID
+	ServerTime    *int64       `protobuf:"varint,5,opt,name=server_time,json=serverTime" json:"serverTime,omitempty"`        // 落盘时间戳
+	MsgType       *MessageType `protobuf:"varint,6,opt,name=msg_type,json=msgType" json:"msgType,omitempty"`                 // 消息类型
+	Payload       []byte       `protobuf:"bytes,7,opt,name=payload" json:"payload,omitempty"`                                // 消息正文
+	Ext           []byte       `protobuf:"bytes,9,opt,name=ext" json:"ext,omitempty"`                                        // 扩展属性
+	ReplyToMsgId  *string      `protobuf:"bytes,8,opt,name=reply_to_msg_id,json=replyToMsgId" json:"replyToMsgId,omitempty"` // 引用的消息 ID
+}
+
+func (x *MessagePush) Reset() {
+	*x = MessagePush{}
+}
+
+func (*MessagePush) ProtoMessage() {}
+
+func (x *MessagePush) GetMsgId() string {
+	if x != nil && x.MsgId != nil {
+		return *x.MsgId
+	}
+	return ""
+}
+
+func (x *MessagePush) GetClientMsgId() string {
+	if x != nil && x.ClientMsgId != nil {
+		return *x.ClientMsgId
+	}
+	return ""
+}
+
+func (x *MessagePush) GetSenderId() string {
+	if x != nil && x.SenderId != nil {
+		return *x.SenderId
+	}
+	return ""
+}
+
+func (x *MessagePush) GetRoomId() string {
+	if x != nil && x.RoomId != nil {
+		return *x.RoomId
+	}
+	return ""
+}
+
+func (x *MessagePush) GetServerTime() int64 {
+	if x != nil && x.ServerTime != nil {
+		return *x.ServerTime
+	}
+	return 0
+}
+
+func (x *MessagePush) GetMsgType() MessageType {
+	if x != nil && x.MsgType != nil {
+		return *x.MsgType
+	}
+	return MessageType_MESSAGE_TYPE_UNSPECIFIED
+}
+
+func (x *MessagePush) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *MessagePush) GetExt() []byte {
+	if x != nil {
+		return x.Ext
+	}
+	return nil
+}
+
+func (x *MessagePush) GetReplyToMsgId() string {
+	if x != nil && x.ReplyToMsgId != nil {
+		return *x.ReplyToMsgId
 	}
 	return ""
 }
@@ -690,16 +775,16 @@ func (m *MessagePayload_System) CloneOneofVT() isMessagePayload_Body {
 	return m.CloneVT()
 }
 
-func (m *MessageDTO) CloneVT() *MessageDTO {
+func (m *SendMessageReq) CloneVT() *SendMessageReq {
 	if m == nil {
-		return (*MessageDTO)(nil)
+		return (*SendMessageReq)(nil)
 	}
-	r := new(MessageDTO)
+	r := new(SendMessageReq)
 	r.ClientMsgId = protobuf_go_lite.ClonePtr(m.ClientMsgId)
 	r.RoomId = protobuf_go_lite.ClonePtr(m.RoomId)
 	r.MsgType = protobuf_go_lite.ClonePtr(m.MsgType)
-	r.ReplyToMsgId = protobuf_go_lite.ClonePtr(m.ReplyToMsgId)
 	r.Payload = protobuf_go_lite.CloneBytes(m.Payload)
+	r.ReplyToMsgId = protobuf_go_lite.ClonePtr(m.ReplyToMsgId)
 	r.Ext = protobuf_go_lite.CloneBytes(m.Ext)
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = slices.Clone(m.unknownFields)
@@ -707,15 +792,15 @@ func (m *MessageDTO) CloneVT() *MessageDTO {
 	return r
 }
 
-func (m *MessageDTO) CloneMessageVT() protobuf_go_lite.CloneMessage {
+func (m *SendMessageReq) CloneMessageVT() protobuf_go_lite.CloneMessage {
 	return m.CloneVT()
 }
 
-func (m *MessageVO) CloneVT() *MessageVO {
+func (m *SendMessageResp) CloneVT() *SendMessageResp {
 	if m == nil {
-		return (*MessageVO)(nil)
+		return (*SendMessageResp)(nil)
 	}
-	r := new(MessageVO)
+	r := new(SendMessageResp)
 	r.ClientMsgId = protobuf_go_lite.ClonePtr(m.ClientMsgId)
 	r.MsgId = protobuf_go_lite.ClonePtr(m.MsgId)
 	r.ServerTime = protobuf_go_lite.ClonePtr(m.ServerTime)
@@ -727,7 +812,31 @@ func (m *MessageVO) CloneVT() *MessageVO {
 	return r
 }
 
-func (m *MessageVO) CloneMessageVT() protobuf_go_lite.CloneMessage {
+func (m *SendMessageResp) CloneMessageVT() protobuf_go_lite.CloneMessage {
+	return m.CloneVT()
+}
+
+func (m *MessagePush) CloneVT() *MessagePush {
+	if m == nil {
+		return (*MessagePush)(nil)
+	}
+	r := new(MessagePush)
+	r.MsgId = protobuf_go_lite.ClonePtr(m.MsgId)
+	r.ClientMsgId = protobuf_go_lite.ClonePtr(m.ClientMsgId)
+	r.SenderId = protobuf_go_lite.ClonePtr(m.SenderId)
+	r.RoomId = protobuf_go_lite.ClonePtr(m.RoomId)
+	r.ServerTime = protobuf_go_lite.ClonePtr(m.ServerTime)
+	r.MsgType = protobuf_go_lite.ClonePtr(m.MsgType)
+	r.Payload = protobuf_go_lite.CloneBytes(m.Payload)
+	r.Ext = protobuf_go_lite.CloneBytes(m.Ext)
+	r.ReplyToMsgId = protobuf_go_lite.ClonePtr(m.ReplyToMsgId)
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = slices.Clone(m.unknownFields)
+	}
+	return r
+}
+
+func (m *MessagePush) CloneMessageVT() protobuf_go_lite.CloneMessage {
 	return m.CloneVT()
 }
 
@@ -987,7 +1096,7 @@ func (this *MessagePayload_System) EqualVT(thatIface isMessagePayload_Body) bool
 	return true
 }
 
-func (this *MessageDTO) EqualVT(that *MessageDTO) bool {
+func (this *SendMessageReq) EqualVT(that *SendMessageReq) bool {
 	if this == that {
 		return true
 	} else if this == nil || that == nil {
@@ -1014,14 +1123,14 @@ func (this *MessageDTO) EqualVT(that *MessageDTO) bool {
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
-func (this *MessageDTO) EqualMessageVT(thatMsg any) bool {
-	that, ok := thatMsg.(*MessageDTO)
+func (this *SendMessageReq) EqualMessageVT(thatMsg any) bool {
+	that, ok := thatMsg.(*SendMessageReq)
 	if !ok {
 		return false
 	}
 	return this.EqualVT(that)
 }
-func (this *MessageVO) EqualVT(that *MessageVO) bool {
+func (this *SendMessageResp) EqualVT(that *SendMessageResp) bool {
 	if this == that {
 		return true
 	} else if this == nil || that == nil {
@@ -1045,8 +1154,51 @@ func (this *MessageVO) EqualVT(that *MessageVO) bool {
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
-func (this *MessageVO) EqualMessageVT(thatMsg any) bool {
-	that, ok := thatMsg.(*MessageVO)
+func (this *SendMessageResp) EqualMessageVT(thatMsg any) bool {
+	that, ok := thatMsg.(*SendMessageResp)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *MessagePush) EqualVT(that *MessagePush) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.MsgId, that.MsgId) {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.ClientMsgId, that.ClientMsgId) {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.SenderId, that.SenderId) {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.RoomId, that.RoomId) {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.ServerTime, that.ServerTime) {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.MsgType, that.MsgType) {
+		return false
+	}
+	if !protobuf_go_lite.EqualBytesPresent(this.Payload, that.Payload) {
+		return false
+	}
+	if !protobuf_go_lite.EqualPtr(this.ReplyToMsgId, that.ReplyToMsgId) {
+		return false
+	}
+	if !protobuf_go_lite.EqualBytesPresent(this.Ext, that.Ext) {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *MessagePush) EqualMessageVT(thatMsg any) bool {
+	that, ok := thatMsg.(*MessagePush)
 	if !ok {
 		return false
 	}
@@ -1485,7 +1637,7 @@ func (m *MessagePayload_System) MarshalToSizedBufferVT(dAtA []byte) (int, error)
 	}
 	return len(dAtA) - i, nil
 }
-func (m *MessageDTO) MarshalVT() (dAtA []byte, err error) {
+func (m *SendMessageReq) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -1498,12 +1650,12 @@ func (m *MessageDTO) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *MessageDTO) MarshalToVT(dAtA []byte) (int, error) {
+func (m *SendMessageReq) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *MessageDTO) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *SendMessageReq) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -1547,7 +1699,7 @@ func (m *MessageDTO) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *MessageVO) MarshalVT() (dAtA []byte, err error) {
+func (m *SendMessageResp) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -1560,12 +1712,12 @@ func (m *MessageVO) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *MessageVO) MarshalToVT(dAtA []byte) (int, error) {
+func (m *SendMessageResp) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *MessageVO) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *SendMessageResp) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -1598,6 +1750,83 @@ func (m *MessageVO) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	}
 	if m.ClientMsgId != nil {
 		i = protobuf_go_lite.EncodeString(dAtA, i, *m.ClientMsgId)
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MessagePush) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MessagePush) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *MessagePush) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i = protobuf_go_lite.EncodeRawBytes(dAtA, i, m.unknownFields)
+	}
+	if m.Ext != nil {
+		i = protobuf_go_lite.EncodeBytes(dAtA, i, m.Ext)
+		i--
+		dAtA[i] = 0x4a
+	}
+	if m.ReplyToMsgId != nil {
+		i = protobuf_go_lite.EncodeString(dAtA, i, *m.ReplyToMsgId)
+		i--
+		dAtA[i] = 0x42
+	}
+	if m.Payload != nil {
+		i = protobuf_go_lite.EncodeBytes(dAtA, i, m.Payload)
+		i--
+		dAtA[i] = 0x3a
+	}
+	if m.MsgType != nil {
+		i = protobuf_go_lite.EncodeVarint(dAtA, i, uint64(*m.MsgType))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.ServerTime != nil {
+		i = protobuf_go_lite.EncodeVarint(dAtA, i, uint64(*m.ServerTime))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.RoomId != nil {
+		i = protobuf_go_lite.EncodeString(dAtA, i, *m.RoomId)
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.SenderId != nil {
+		i = protobuf_go_lite.EncodeString(dAtA, i, *m.SenderId)
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.ClientMsgId != nil {
+		i = protobuf_go_lite.EncodeString(dAtA, i, *m.ClientMsgId)
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.MsgId != nil {
+		i = protobuf_go_lite.EncodeString(dAtA, i, *m.MsgId)
 		i--
 		dAtA[i] = 0xa
 	}
@@ -1763,7 +1992,7 @@ func (m *MessagePayload_System) SizeVT() (n int) {
 	}
 	return n
 }
-func (m *MessageDTO) SizeVT() (n int) {
+func (m *SendMessageReq) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1779,7 +2008,7 @@ func (m *MessageDTO) SizeVT() (n int) {
 	return n
 }
 
-func (m *MessageVO) SizeVT() (n int) {
+func (m *SendMessageResp) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1790,6 +2019,25 @@ func (m *MessageVO) SizeVT() (n int) {
 	n += protobuf_go_lite.SizeVarintPtr(1, m.ServerTime)
 	n += protobuf_go_lite.SizeVarintPtr(1, m.Code)
 	n += protobuf_go_lite.SizeStringPtr(1, m.ErrMsg)
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *MessagePush) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	n += protobuf_go_lite.SizeStringPtr(1, m.MsgId)
+	n += protobuf_go_lite.SizeStringPtr(1, m.ClientMsgId)
+	n += protobuf_go_lite.SizeStringPtr(1, m.SenderId)
+	n += protobuf_go_lite.SizeStringPtr(1, m.RoomId)
+	n += protobuf_go_lite.SizeVarintPtr(1, m.ServerTime)
+	n += protobuf_go_lite.SizeVarintPtr(1, m.MsgType)
+	n += protobuf_go_lite.SizeBytesPresent(1, m.Payload)
+	n += protobuf_go_lite.SizeStringPtr(1, m.ReplyToMsgId)
+	n += protobuf_go_lite.SizeBytesPresent(1, m.Ext)
 	n += len(m.unknownFields)
 	return n
 }
@@ -2427,7 +2675,7 @@ func (m *MessagePayload) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *MessageDTO) UnmarshalVT(dAtA []byte) error {
+func (m *SendMessageReq) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	var err error
@@ -2441,10 +2689,10 @@ func (m *MessageDTO) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: MessageDTO: wiretype end group for non-group")
+			return fmt.Errorf("proto: SendMessageReq: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: MessageDTO: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: SendMessageReq: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -2457,7 +2705,7 @@ func (m *MessageDTO) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			if !utf8.ValidString(v) {
-				return fmt.Errorf("proto: field proto.im.v1.MessageDTO.client_msg_id contains invalid UTF-8")
+				return fmt.Errorf("proto: field proto.im.v1.SendMessageReq.client_msg_id contains invalid UTF-8")
 			}
 			m.ClientMsgId = &v
 		case 2:
@@ -2470,7 +2718,7 @@ func (m *MessageDTO) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			if !utf8.ValidString(v) {
-				return fmt.Errorf("proto: field proto.im.v1.MessageDTO.room_id contains invalid UTF-8")
+				return fmt.Errorf("proto: field proto.im.v1.SendMessageReq.room_id contains invalid UTF-8")
 			}
 			m.RoomId = &v
 		case 3:
@@ -2503,7 +2751,7 @@ func (m *MessageDTO) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			if !utf8.ValidString(v) {
-				return fmt.Errorf("proto: field proto.im.v1.MessageDTO.reply_to_msg_id contains invalid UTF-8")
+				return fmt.Errorf("proto: field proto.im.v1.SendMessageReq.reply_to_msg_id contains invalid UTF-8")
 			}
 			m.ReplyToMsgId = &v
 		case 6:
@@ -2536,7 +2784,7 @@ func (m *MessageDTO) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *MessageVO) UnmarshalVT(dAtA []byte) error {
+func (m *SendMessageResp) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	var err error
@@ -2550,10 +2798,10 @@ func (m *MessageVO) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: MessageVO: wiretype end group for non-group")
+			return fmt.Errorf("proto: SendMessageResp: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: MessageVO: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: SendMessageResp: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -2566,7 +2814,7 @@ func (m *MessageVO) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			if !utf8.ValidString(v) {
-				return fmt.Errorf("proto: field proto.im.v1.MessageVO.client_msg_id contains invalid UTF-8")
+				return fmt.Errorf("proto: field proto.im.v1.SendMessageResp.client_msg_id contains invalid UTF-8")
 			}
 			m.ClientMsgId = &v
 		case 2:
@@ -2579,7 +2827,7 @@ func (m *MessageVO) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			if !utf8.ValidString(v) {
-				return fmt.Errorf("proto: field proto.im.v1.MessageVO.msg_id contains invalid UTF-8")
+				return fmt.Errorf("proto: field proto.im.v1.SendMessageResp.msg_id contains invalid UTF-8")
 			}
 			m.MsgId = &v
 		case 3:
@@ -2612,9 +2860,154 @@ func (m *MessageVO) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			if !utf8.ValidString(v) {
-				return fmt.Errorf("proto: field proto.im.v1.MessageVO.err_msg contains invalid UTF-8")
+				return fmt.Errorf("proto: field proto.im.v1.SendMessageResp.err_msg contains invalid UTF-8")
 			}
 			m.ErrMsg = &v
+		default:
+			iNdEx = preIndex
+			skippy, err := protobuf_go_lite.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protobuf_go_lite.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MessagePush) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	var err error
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		wire, iNdEx, err = protobuf_go_lite.DecodeVarint(dAtA, iNdEx)
+		if err != nil {
+			return err
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MessagePush: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MessagePush: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MsgId", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.MessagePush.msg_id contains invalid UTF-8")
+			}
+			m.MsgId = &v
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientMsgId", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.MessagePush.client_msg_id contains invalid UTF-8")
+			}
+			m.ClientMsgId = &v
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SenderId", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.MessagePush.sender_id contains invalid UTF-8")
+			}
+			m.SenderId = &v
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoomId", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.MessagePush.room_id contains invalid UTF-8")
+			}
+			m.RoomId = &v
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ServerTime", wireType)
+			}
+			var v int64
+			v, iNdEx, err = protobuf_go_lite.DecodeVarintInt64(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			m.ServerTime = &v
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MsgType", wireType)
+			}
+			var v MessageType
+			var _v uint64
+			_v, iNdEx, err = protobuf_go_lite.DecodeVarint(dAtA, iNdEx)
+			v = MessageType(_v)
+			if err != nil {
+				return err
+			}
+			m.MsgType = &v
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Payload", wireType)
+			}
+			m.Payload, iNdEx, err = protobuf_go_lite.DecodeBytesAppend(m.Payload, dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReplyToMsgId", wireType)
+			}
+			var v string
+			v, iNdEx, err = protobuf_go_lite.DecodeString(dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
+			if !utf8.ValidString(v) {
+				return fmt.Errorf("proto: field proto.im.v1.MessagePush.reply_to_msg_id contains invalid UTF-8")
+			}
+			m.ReplyToMsgId = &v
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Ext", wireType)
+			}
+			m.Ext, iNdEx, err = protobuf_go_lite.DecodeBytesAppend(m.Ext, dAtA, iNdEx)
+			if err != nil {
+				return err
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protobuf_go_lite.Skip(dAtA[iNdEx:])

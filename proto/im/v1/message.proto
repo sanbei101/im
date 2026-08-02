@@ -63,20 +63,38 @@ message MessagePayload {
 }
 
 // 客户端上行发消息请求
-message MessageDTO {
-  string client_msg_id      = 1; // 客户端消息去重 UUID
-  string room_id            = 2; // 接收目标房间 UUID
-  MessageType msg_type      = 3; // 消息类型
-  string reply_to_msg_id    = 5; // 引用/回复消息 ID
-  bytes  payload            = 4; // 消息 Payload
-  bytes  ext                = 6; // 扩展属性
+message SendMessageReq {
+  string client_msg_id   = 1; // 客户端消息去重 UUID
+  string room_id         = 2; // 接收目标房间 UUID
+  MessageType msg_type   = 3; // 消息类型
+  bytes  payload         = 4; // 消息 Payload
+  string reply_to_msg_id = 5; // 引用/回复消息 ID
+  bytes  ext             = 6; // 扩展属性
 }
 
+
+
 // 服务端下行返回的消息发送结果
-message MessageVO {
+message SendMessageResp {
   string client_msg_id = 1; // 对应的客户端去重 ID
   string msg_id        = 2; // 服务端生成的真实 msg_id
   int64  server_time   = 3; // 落盘时间戳
-  int32  code          = 4; // 状态码:0-成功,非0-失败
+  int32  code          = 4; // 状态码: 0-成功, 非0-失败
   string err_msg       = 5; // 错误说明
+}
+
+
+// -----------------------------------------------------------------
+// 下行:服务端推送给房间内其他成员的实时消息
+// -----------------------------------------------------------------
+message MessagePush {
+  string     msg_id         = 1;  // 服务端生成的消息 ID
+  string     client_msg_id  = 2;  // 发送方客户端去重 ID
+  string     sender_id      = 3;  // 发送人 UUID (服务端填充，防止伪造)
+  string     room_id        = 4;  // 房间 UUID
+  int64      server_time    = 5;  // 落盘时间戳
+  MessageType msg_type      = 6;  // 消息类型
+  bytes      payload        = 7;  // 消息正文
+  bytes      ext            = 9;  // 扩展属性
+  string     reply_to_msg_id = 8; // 引用的消息 ID
 }
