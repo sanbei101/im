@@ -17,7 +17,7 @@ func InitLogger() {
 }
 
 func NewPgxLogger() tracelog.Logger {
-	return tracelog.LoggerFunc(func(ctx context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
+	return tracelog.LoggerFunc(func(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
 		var entry *log.Entry
 		switch level {
 		case tracelog.LogLevelTrace:

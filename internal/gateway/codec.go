@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -47,9 +48,13 @@ func dbMsgTypeToProto(t db.MessageType) imv1.MessageType {
 // sendMessageReqToMessage converts an inbound client request into a
 // fully populated Message ready for the MQ inbound stream. Server-side
 // fields (msg_id, sender_id, server_time) are filled here.
-func sendMessageReqToMessage(req *imv1.SendMessageReq, senderID uuid.UUID, msgID uuid.UUID, serverTime int64) (*imv1.Message, error) {
+func sendMessageReqToMessage(
+	req *imv1.SendMessageReq,
+	senderID, msgID uuid.UUID,
+	serverTime int64,
+) (*imv1.Message, error) {
 	if req == nil {
-		return nil, fmt.Errorf("nil request")
+		return nil, errors.New("nil request")
 	}
 	clientMsgID, err := uuid.Parse(req.GetClientMsgId())
 	if err != nil {

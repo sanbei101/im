@@ -8,15 +8,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/phuslu/log"
+
 	"github.com/sanbei101/im/internal/api"
 	"github.com/sanbei101/im/internal/api/handler"
 	"github.com/sanbei101/im/internal/api/service"
 	"github.com/sanbei101/im/internal/db"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {

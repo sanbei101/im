@@ -50,7 +50,10 @@ func (s *Service) getRoomMembersWithCache(ctx context.Context, roomIDs []uuid.UU
 
 // buildDeliveryTasks 为每个 room 内的消息生成一条 DeliveryTask,目标用户
 // 已剔除发送者本人 (sender 通过 SendMessageAck 同步拿到自己的消息,无需重复推送).
-func (s *Service) buildDeliveryTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*imv1.Message) ([]*mq.DeliverTaskEnvelope, error) {
+func (s *Service) buildDeliveryTasks(
+	ctx context.Context,
+	roomToMsgs map[uuid.UUID][]*imv1.Message,
+) ([]*mq.DeliverTaskEnvelope, error) {
 	var totalMsgs int
 	roomIDs := make([]uuid.UUID, 0, len(roomToMsgs))
 	for roomID, msgs := range roomToMsgs {

@@ -156,7 +156,11 @@ func (r *RedisMQ) GatewayAckMessage(ctx context.Context, ids ...string) error {
 }
 
 // pullFromStream is the shared read path used by the worker consumer.
-func (r *RedisMQ) pullFromStream(ctx context.Context, stream, group, consumer string, batch int64) ([]*InboundMsgEnvelope, error) {
+func (r *RedisMQ) pullFromStream(
+	ctx context.Context,
+	stream, group, consumer string,
+	batch int64,
+) ([]*InboundMsgEnvelope, error) {
 	result, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,

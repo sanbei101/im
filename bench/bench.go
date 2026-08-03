@@ -27,6 +27,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+
 	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 )
 
@@ -101,7 +102,7 @@ func (t *trend) summary() (count int, min, avg, p50, p95, p99, max time.Duration
 	defer t.mu.Unlock()
 	count = len(t.samples)
 	if count == 0 {
-		return
+		return count, min, avg, p50, p95, p99, max
 	}
 	clone := make([]time.Duration, count)
 	copy(clone, t.samples)
@@ -120,7 +121,7 @@ func (t *trend) summary() (count int, min, avg, p50, p95, p99, max time.Duration
 	p50 = pick(0.50)
 	p95 = pick(0.95)
 	p99 = pick(0.99)
-	return
+	return count, min, avg, p50, p95, p99, max
 }
 
 // ===================== 4. Setup:拉取 mock 数据 =====================
@@ -250,7 +251,7 @@ func runVU(ctx context.Context, vuIndex int, cfg VuConfig, latency *trend, unmat
 			return
 		case <-ticker.C:
 			id := uuid.Must(uuid.NewV7()).String()
-			text := fmt.Sprintf("%shello", vuLabel)
+			text := vuLabel + "hello"
 			now := time.Now()
 			pending.Store(id, now)
 
