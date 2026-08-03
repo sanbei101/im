@@ -25,7 +25,7 @@ func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
 }
 
 func (gateway *Gateway) pollAndProcess(ctx context.Context) {
-	tasks, err := gateway.MQ.GatewayPullTask(ctx, 1000)
+	tasks, err := gateway.MQ.GatewayPullDeliveryTask(ctx, 1000)
 	if err != nil {
 		if ctx.Err() != nil {
 			return
@@ -41,33 +41,32 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 	gateway.processTasks(ctx, tasks)
 }
 
-func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.GatewayPushTask) {
+func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.DeliverTaskEnvelope) {
 	streamIDs := make([]string, 0, len(tasks))
 	userMessages := make(map[string][][]byte)
 
 	for _, task := range tasks {
-		if task.Message == nil {
-			log.Error().Str("stream_id", task.StreamID).Msg("nil Message in push task")
-			mq.ReleaseGatewayPushTask(task)
+		if task.Payload == nil || task.Payload.Message == nil {
+			log.Error().Str("stream_id", task.StreamID).Msg("nil Message in delivery task")
+			mq.ReleaseDeliveryTask(task)
 			continue
 		}
 		streamIDs = append(streamIDs, task.StreamID)
 
-		push := task.Message
+		push := task.Payload.Message
 		bin := make([]byte, push.SizeVT())
 		n, err := push.MarshalToVT(bin)
 		if err != nil {
-			log.Error().Err(err).Str("stream_id", task.StreamID).Msg("marshal MessagePush failed")
+			log.Error().Err(err).Str("stream_id", task.StreamID).Msg("marshal Message failed")
 			continue
 		}
 		bin = bin[:n]
 
-		for _, userID := range task.TargetUserIDs {
-			uid := userID.String()
+		for _, uid := range task.Payload.GetTargetUserIds() {
 			userMessages[uid] = append(userMessages[uid], bin)
 		}
 
-		mq.ReleaseGatewayPushTask(task)
+		mq.ReleaseDeliveryTask(task)
 	}
 
 	for uid, msgs := range userMessages {

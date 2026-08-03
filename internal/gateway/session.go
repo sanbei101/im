@@ -46,11 +46,11 @@ func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 	req := &imv1.SendMessageReq{}
 	if err := req.UnmarshalVT(payload); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal SendMessageReq failed")
-		c.sendError("invalid proto")
+		c.sendAck(-1, "", "", 0, "invalid proto")
 		return
 	}
 
-	// Ping convention: msg_type == UNSPECIFIED is a keepalive — drop silently.
+	// Ping convention: msg_type == UNSPECIFIED is a keepalive - drop silently.
 	if req.GetMsgType() == imv1.MessageType_MESSAGE_TYPE_UNSPECIFIED {
 		return
 	}
@@ -58,34 +58,52 @@ func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 	msgID, err := uuid.NewV7()
 	if err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client generate msg_id failed")
-		c.sendError("failed to generate msg_id")
+		c.sendAck(-1, req.GetClientMsgId(), "", 0, "failed to generate msg_id")
 		return
 	}
 
-	push, err := sendMessageReqToMessagePush(req, c.UserID, msgID, time.Now().UnixMicro())
+	serverTime := time.Now().UnixMicro()
+
+	msg, err := sendMessageReqToMessage(req, c.UserID, msgID, serverTime)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client send message invalid")
-		c.sendError(err.Error())
+		c.sendAck(-1, req.GetClientMsgId(), msgID.String(), serverTime, err.Error())
 		return
 	}
 
-	if err := c.gateway.MQ.GatewayPushMessage(ctx, []*imv1.MessagePush{push}); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client push message failed")
-		c.sendError("push failed")
+	// 立即同步 ack: 客户端拿到 msg_id 即可信任, 不必等异步广播.
+	c.sendAck(0, req.GetClientMsgId(), msgID.String(), serverTime, "")
+
+	if err := c.gateway.MQ.GatewayEnqueueMessage(ctx, []*imv1.Message{msg}); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client enqueue message failed")
+		c.sendAck(-1, req.GetClientMsgId(), msgID.String(), serverTime, "enqueue failed")
 	}
 }
 
-func (c *UserClient) sendError(errMsg string) {
-	code := int32(-1)
-	msg := errMsg
-	resp := &imv1.SendMessageResp{
+// sendAck 把 SendMessageAck 写入 client.Send. code=0 即成功 ack (msg_id 必填);
+// code!=0 即错误响应 (msg_id 可能为空, err_msg 必填).
+func (c *UserClient) sendAck(code int32, clientMsgID, msgID string, serverTime int64, errMsg string) {
+	ack := &imv1.SendMessageAck{
 		Code:   &code,
-		ErrMsg: &msg,
+		ErrMsg: &errMsg,
 	}
-	bin := make([]byte, resp.SizeVT())
-	n, err := resp.MarshalToVT(bin)
+	if clientMsgID != "" {
+		ack.ClientMsgId = &clientMsgID
+	}
+	if msgID != "" {
+		ack.MsgId = &msgID
+	}
+	if serverTime != 0 {
+		st := serverTime
+		ack.ServerTime = &st
+	}
+	bin := make([]byte, ack.SizeVT())
+	n, err := ack.MarshalToVT(bin)
 	if err != nil {
-		log.Error().Err(err).Str("err_msg", errMsg).Msg("marshal SendMessageResp failed")
+		log.Error().Err(err).
+			Int32("code", code).
+			Str("err_msg", errMsg).
+			Msg("marshal SendMessageAck failed")
 		return
 	}
 	bin = bin[:n]
@@ -93,8 +111,9 @@ func (c *UserClient) sendError(errMsg string) {
 	case c.Send <- [][]byte{bin}:
 	default:
 		log.Warn().
-			Str("error_msg", errMsg).
-			Msg("client send error message failed, send channel is full")
+			Int32("code", code).
+			Str("err_msg", errMsg).
+			Msg("client send ack failed, send channel is full")
 	}
 }
 

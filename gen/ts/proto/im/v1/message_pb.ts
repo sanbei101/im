@@ -4,20 +4,20 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Message } from "@bufbuild/protobuf";
+import type { Message as Message$1 } from "@bufbuild/protobuf";
 
 /**
  * Describes the file proto/im/v1/message.proto.
  */
 export const file_proto_im_v1_message: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9pbS92MS9tZXNzYWdlLnByb3RvEgtwcm90by5pbS52MSI3ChJUZXh0TWVzc2FnZVBheWxvYWQSDAoEdGV4dBgBIAEoCRITCgthdF91c2VyX2lkcxgCIAMoCSJ/ChNJbWFnZU1lc3NhZ2VQYXlsb2FkEgsKA3VybBgBIAEoCRIVCg10aHVtYm5haWxfdXJsGAIgASgJEg0KBXdpZHRoGAMgASgNEg4KBmhlaWdodBgEIAEoDRISCgpzaXplX2J5dGVzGAUgASgEEhEKCW1pbWVfdHlwZRgGIAEoCSJ+ChNWaWRlb01lc3NhZ2VQYXlsb2FkEgsKA3VybBgBIAEoCRIRCgljb3Zlcl91cmwYAiABKAkSFAoMZHVyYXRpb25fc2VjGAMgASgNEg0KBXdpZHRoGAQgASgNEg4KBmhlaWdodBgFIAEoDRISCgpzaXplX2J5dGVzGAYgASgEIlsKEkZpbGVNZXNzYWdlUGF5bG9hZBILCgN1cmwYASABKAkSEQoJZmlsZV9uYW1lGAIgASgJEhEKCWV4dGVuc2lvbhgDIAEoCRISCgpzaXplX2J5dGVzGAQgASgEIrkBChRTeXN0ZW1NZXNzYWdlUGF5bG9hZBISCgpldmVudF9jb2RlGAEgASgFEg8KB2NvbnRlbnQYAiABKAkSSAoMZXh0cmFfcGFyYW1zGAMgAygLMjIucHJvdG8uaW0udjEuU3lzdGVtTWVzc2FnZVBheWxvYWQuRXh0cmFQYXJhbXNFbnRyeRoyChBFeHRyYVBhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEilQIKDk1lc3NhZ2VQYXlsb2FkEi8KBHRleHQYASABKAsyHy5wcm90by5pbS52MS5UZXh0TWVzc2FnZVBheWxvYWRIABIxCgVpbWFnZRgCIAEoCzIgLnByb3RvLmltLnYxLkltYWdlTWVzc2FnZVBheWxvYWRIABIxCgV2aWRlbxgDIAEoCzIgLnByb3RvLmltLnYxLlZpZGVvTWVzc2FnZVBheWxvYWRIABIvCgRmaWxlGAQgASgLMh8ucHJvdG8uaW0udjEuRmlsZU1lc3NhZ2VQYXlsb2FkSAASMwoGc3lzdGVtGAUgASgLMiEucHJvdG8uaW0udjEuU3lzdGVtTWVzc2FnZVBheWxvYWRIAEIGCgRib2R5IpsBCg5TZW5kTWVzc2FnZVJlcRIVCg1jbGllbnRfbXNnX2lkGAEgASgJEg8KB3Jvb21faWQYAiABKAkSKgoIbXNnX3R5cGUYAyABKA4yGC5wcm90by5pbS52MS5NZXNzYWdlVHlwZRIPCgdwYXlsb2FkGAQgASgMEhcKD3JlcGx5X3RvX21zZ19pZBgFIAEoCRILCgNleHQYBiABKAwibAoPU2VuZE1lc3NhZ2VSZXNwEhUKDWNsaWVudF9tc2dfaWQYASABKAkSDgoGbXNnX2lkGAIgASgJEhMKC3NlcnZlcl90aW1lGAMgASgDEgwKBGNvZGUYBCABKAUSDwoHZXJyX21zZxgFIAEoCSJmCg9HYXRld2F5UHVzaFRhc2sSDwoHcm9vbV9pZBgBIAEoCRIXCg90YXJnZXRfdXNlcl9pZHMYAiADKAkSKQoHbWVzc2FnZRgDIAEoCzIYLnByb3RvLmltLnYxLk1lc3NhZ2VQdXNoItABCgtNZXNzYWdlUHVzaBIOCgZtc2dfaWQYASABKAkSFQoNY2xpZW50X21zZ19pZBgCIAEoCRIRCglzZW5kZXJfaWQYAyABKAkSDwoHcm9vbV9pZBgEIAEoCRITCgtzZXJ2ZXJfdGltZRgFIAEoAxIqCghtc2dfdHlwZRgGIAEoDjIYLnByb3RvLmltLnYxLk1lc3NhZ2VUeXBlEg8KB3BheWxvYWQYByABKAwSCwoDZXh0GAkgASgMEhcKD3JlcGx5X3RvX21zZ19pZBgIIAEoCSqiAQoLTWVzc2FnZVR5cGUSHAoYTUVTU0FHRV9UWVBFX1VOU1BFQ0lGSUVEEAASFQoRTUVTU0FHRV9UWVBFX1RFWFQQARIWChJNRVNTQUdFX1RZUEVfSU1BR0UQAhIWChJNRVNTQUdFX1RZUEVfVklERU8QAxIVChFNRVNTQUdFX1RZUEVfRklMRRAEEhcKE01FU1NBR0VfVFlQRV9TWVNURU0QBUIWWhRpbS9nZW4vZ28vaW0vdjE7aW12MWIIZWRpdGlvbnNw6Qc");
+  fileDesc("Chlwcm90by9pbS92MS9tZXNzYWdlLnByb3RvEgtwcm90by5pbS52MSI3ChJUZXh0TWVzc2FnZVBheWxvYWQSDAoEdGV4dBgBIAEoCRITCgthdF91c2VyX2lkcxgCIAMoCSJ/ChNJbWFnZU1lc3NhZ2VQYXlsb2FkEgsKA3VybBgBIAEoCRIVCg10aHVtYm5haWxfdXJsGAIgASgJEg0KBXdpZHRoGAMgASgNEg4KBmhlaWdodBgEIAEoDRISCgpzaXplX2J5dGVzGAUgASgEEhEKCW1pbWVfdHlwZRgGIAEoCSJ+ChNWaWRlb01lc3NhZ2VQYXlsb2FkEgsKA3VybBgBIAEoCRIRCgljb3Zlcl91cmwYAiABKAkSFAoMZHVyYXRpb25fc2VjGAMgASgNEg0KBXdpZHRoGAQgASgNEg4KBmhlaWdodBgFIAEoDRISCgpzaXplX2J5dGVzGAYgASgEIlsKEkZpbGVNZXNzYWdlUGF5bG9hZBILCgN1cmwYASABKAkSEQoJZmlsZV9uYW1lGAIgASgJEhEKCWV4dGVuc2lvbhgDIAEoCRISCgpzaXplX2J5dGVzGAQgASgEIrkBChRTeXN0ZW1NZXNzYWdlUGF5bG9hZBISCgpldmVudF9jb2RlGAEgASgFEg8KB2NvbnRlbnQYAiABKAkSSAoMZXh0cmFfcGFyYW1zGAMgAygLMjIucHJvdG8uaW0udjEuU3lzdGVtTWVzc2FnZVBheWxvYWQuRXh0cmFQYXJhbXNFbnRyeRoyChBFeHRyYVBhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEilQIKC01lc3NhZ2VCb2R5Ei8KBHRleHQYASABKAsyHy5wcm90by5pbS52MS5UZXh0TWVzc2FnZVBheWxvYWRIABIxCgVpbWFnZRgCIAEoCzIgLnByb3RvLmltLnYxLkltYWdlTWVzc2FnZVBheWxvYWRIABIxCgV2aWRlbxgDIAEoCzIgLnByb3RvLmltLnYxLlZpZGVvTWVzc2FnZVBheWxvYWRIABIvCgRmaWxlGAQgASgLMh8ucHJvdG8uaW0udjEuRmlsZU1lc3NhZ2VQYXlsb2FkSAASMwoGc3lzdGVtGAUgASgLMiEucHJvdG8uaW0udjEuU3lzdGVtTWVzc2FnZVBheWxvYWRIAEIJCgdjb250ZW50IpsBCg5TZW5kTWVzc2FnZVJlcRIVCg1jbGllbnRfbXNnX2lkGAEgASgJEg8KB3Jvb21faWQYAiABKAkSKgoIbXNnX3R5cGUYAyABKA4yGC5wcm90by5pbS52MS5NZXNzYWdlVHlwZRIPCgdwYXlsb2FkGAQgASgMEhcKD3JlcGx5X3RvX21zZ19pZBgFIAEoCRILCgNleHQYBiABKAwiawoOU2VuZE1lc3NhZ2VBY2sSFQoNY2xpZW50X21zZ19pZBgBIAEoCRIOCgZtc2dfaWQYAiABKAkSEwoLc2VydmVyX3RpbWUYAyABKAMSDAoEY29kZRgEIAEoBRIPCgdlcnJfbXNnGAUgASgJImYKE0dhdGV3YXlEZWxpdmVyeVRhc2sSDwoHcm9vbV9pZBgBIAEoCRIXCg90YXJnZXRfdXNlcl9pZHMYAiADKAkSJQoHbWVzc2FnZRgDIAEoCzIULnByb3RvLmltLnYxLk1lc3NhZ2UizAEKB01lc3NhZ2USDgoGbXNnX2lkGAEgASgJEhUKDWNsaWVudF9tc2dfaWQYAiABKAkSEQoJc2VuZGVyX2lkGAMgASgJEg8KB3Jvb21faWQYBCABKAkSEwoLc2VydmVyX3RpbWUYBSABKAMSKgoIbXNnX3R5cGUYBiABKA4yGC5wcm90by5pbS52MS5NZXNzYWdlVHlwZRIPCgdwYXlsb2FkGAcgASgMEhcKD3JlcGx5X3RvX21zZ19pZBgIIAEoCRILCgNleHQYCSABKAwqogEKC01lc3NhZ2VUeXBlEhwKGE1FU1NBR0VfVFlQRV9VTlNQRUNJRklFRBAAEhUKEU1FU1NBR0VfVFlQRV9URVhUEAESFgoSTUVTU0FHRV9UWVBFX0lNQUdFEAISFgoSTUVTU0FHRV9UWVBFX1ZJREVPEAMSFQoRTUVTU0FHRV9UWVBFX0ZJTEUQBBIXChNNRVNTQUdFX1RZUEVfU1lTVEVNEAVCFloUaW0vZ2VuL2dvL2ltL3YxO2ltdjFiCGVkaXRpb25zcOkH");
 
 /**
  * 文本消息 Payload
  *
  * @generated from message proto.im.v1.TextMessagePayload
  */
-export type TextMessagePayload = Message<"proto.im.v1.TextMessagePayload"> & {
+export type TextMessagePayload = Message$1<"proto.im.v1.TextMessagePayload"> & {
   /**
    * 文本内容
    *
@@ -45,7 +45,7 @@ export const TextMessagePayloadSchema: GenMessage<TextMessagePayload> = /*@__PUR
  *
  * @generated from message proto.im.v1.ImageMessagePayload
  */
-export type ImageMessagePayload = Message<"proto.im.v1.ImageMessagePayload"> & {
+export type ImageMessagePayload = Message$1<"proto.im.v1.ImageMessagePayload"> & {
   /**
    * 原图 URL
    *
@@ -101,7 +101,7 @@ export const ImageMessagePayloadSchema: GenMessage<ImageMessagePayload> = /*@__P
  *
  * @generated from message proto.im.v1.VideoMessagePayload
  */
-export type VideoMessagePayload = Message<"proto.im.v1.VideoMessagePayload"> & {
+export type VideoMessagePayload = Message$1<"proto.im.v1.VideoMessagePayload"> & {
   /**
    * 视频 URL
    *
@@ -138,7 +138,7 @@ export type VideoMessagePayload = Message<"proto.im.v1.VideoMessagePayload"> & {
   height: number;
 
   /**
-   * 文件大小
+   * 文件大小 (字节)
    *
    * @generated from field: uint64 size_bytes = 6;
    */
@@ -157,7 +157,7 @@ export const VideoMessagePayloadSchema: GenMessage<VideoMessagePayload> = /*@__P
  *
  * @generated from message proto.im.v1.FileMessagePayload
  */
-export type FileMessagePayload = Message<"proto.im.v1.FileMessagePayload"> & {
+export type FileMessagePayload = Message$1<"proto.im.v1.FileMessagePayload"> & {
   /**
    * 文件下载 URL
    *
@@ -180,7 +180,7 @@ export type FileMessagePayload = Message<"proto.im.v1.FileMessagePayload"> & {
   extension: string;
 
   /**
-   * 文件大小
+   * 文件大小 (字节)
    *
    * @generated from field: uint64 size_bytes = 4;
    */
@@ -199,7 +199,7 @@ export const FileMessagePayloadSchema: GenMessage<FileMessagePayload> = /*@__PUR
  *
  * @generated from message proto.im.v1.SystemMessagePayload
  */
-export type SystemMessagePayload = Message<"proto.im.v1.SystemMessagePayload"> & {
+export type SystemMessagePayload = Message$1<"proto.im.v1.SystemMessagePayload"> & {
   /**
    * 系统事件编号 (例如: 1001-入群通知,1002-踢出群聊)
    *
@@ -230,13 +230,15 @@ export const SystemMessagePayloadSchema: GenMessage<SystemMessagePayload> = /*@_
   messageDesc(file_proto_im_v1_message, 4);
 
 /**
- * @generated from message proto.im.v1.MessagePayload
+ * 消息内容体,序列化后通过 Message.payload 字节嵌入到 Message.
+ *
+ * @generated from message proto.im.v1.MessageBody
  */
-export type MessagePayload = Message<"proto.im.v1.MessagePayload"> & {
+export type MessageBody = Message$1<"proto.im.v1.MessageBody"> & {
   /**
-   * @generated from oneof proto.im.v1.MessagePayload.body
+   * @generated from oneof proto.im.v1.MessageBody.content
    */
-  body: {
+  content: {
     /**
      * @generated from field: proto.im.v1.TextMessagePayload text = 1;
      */
@@ -270,10 +272,10 @@ export type MessagePayload = Message<"proto.im.v1.MessagePayload"> & {
 };
 
 /**
- * Describes the message proto.im.v1.MessagePayload.
- * Use `create(MessagePayloadSchema)` to create a new message.
+ * Describes the message proto.im.v1.MessageBody.
+ * Use `create(MessageBodySchema)` to create a new message.
  */
-export const MessagePayloadSchema: GenMessage<MessagePayload> = /*@__PURE__*/
+export const MessageBodySchema: GenMessage<MessageBody> = /*@__PURE__*/
   messageDesc(file_proto_im_v1_message, 5);
 
 /**
@@ -281,7 +283,7 @@ export const MessagePayloadSchema: GenMessage<MessagePayload> = /*@__PURE__*/
  *
  * @generated from message proto.im.v1.SendMessageReq
  */
-export type SendMessageReq = Message<"proto.im.v1.SendMessageReq"> & {
+export type SendMessageReq = Message$1<"proto.im.v1.SendMessageReq"> & {
   /**
    * 客户端消息去重 UUID
    *
@@ -304,7 +306,7 @@ export type SendMessageReq = Message<"proto.im.v1.SendMessageReq"> & {
   msgType: MessageType;
 
   /**
-   * 消息 Payload
+   * 消息内容体 (序列化的 MessageBody)
    *
    * @generated from field: bytes payload = 4;
    */
@@ -333,11 +335,13 @@ export const SendMessageReqSchema: GenMessage<SendMessageReq> = /*@__PURE__*/
   messageDesc(file_proto_im_v1_message, 6);
 
 /**
- * 服务端下行返回的消息发送结果
+ * 网关下行同步 ack -- 客户端收到后即可信任 msg_id,无需再等异步分发.
+ * code=0 表示已接受并落库排队;非 0 见 err_msg.
+ * 原名 SendMessageResp -- 改名为 SendMessageAck,强调只是 ack 不带内容.
  *
- * @generated from message proto.im.v1.SendMessageResp
+ * @generated from message proto.im.v1.SendMessageAck
  */
-export type SendMessageResp = Message<"proto.im.v1.SendMessageResp"> & {
+export type SendMessageAck = Message$1<"proto.im.v1.SendMessageAck"> & {
   /**
    * 对应的客户端去重 ID
    *
@@ -375,18 +379,19 @@ export type SendMessageResp = Message<"proto.im.v1.SendMessageResp"> & {
 };
 
 /**
- * Describes the message proto.im.v1.SendMessageResp.
- * Use `create(SendMessageRespSchema)` to create a new message.
+ * Describes the message proto.im.v1.SendMessageAck.
+ * Use `create(SendMessageAckSchema)` to create a new message.
  */
-export const SendMessageRespSchema: GenMessage<SendMessageResp> = /*@__PURE__*/
+export const SendMessageAckSchema: GenMessage<SendMessageAck> = /*@__PURE__*/
   messageDesc(file_proto_im_v1_message, 7);
 
 /**
  * Worker -> MQ -> Gateway 的投递任务
+ * 原名 GatewayPushTask -- 改名为 GatewayDeliveryTask,避免和旧 MessagePush 撞名.
  *
- * @generated from message proto.im.v1.GatewayPushTask
+ * @generated from message proto.im.v1.GatewayDeliveryTask
  */
-export type GatewayPushTask = Message<"proto.im.v1.GatewayPushTask"> & {
+export type GatewayDeliveryTask = Message$1<"proto.im.v1.GatewayDeliveryTask"> & {
   /**
    * 目标房间 UUID
    *
@@ -395,7 +400,7 @@ export type GatewayPushTask = Message<"proto.im.v1.GatewayPushTask"> & {
   roomId: string;
 
   /**
-   * 需要推送的在线用户 UUID 列表
+   * 需要推送的在线用户 UUID 列表 (发送者已剔除)
    *
    * @generated from field: repeated string target_user_ids = 2;
    */
@@ -404,26 +409,22 @@ export type GatewayPushTask = Message<"proto.im.v1.GatewayPushTask"> & {
   /**
    * 投递的消息内容
    *
-   * @generated from field: proto.im.v1.MessagePush message = 3;
+   * @generated from field: proto.im.v1.Message message = 3;
    */
-  message?: MessagePush | undefined;
+  message?: Message | undefined;
 };
 
 /**
- * Describes the message proto.im.v1.GatewayPushTask.
- * Use `create(GatewayPushTaskSchema)` to create a new message.
+ * Describes the message proto.im.v1.GatewayDeliveryTask.
+ * Use `create(GatewayDeliveryTaskSchema)` to create a new message.
  */
-export const GatewayPushTaskSchema: GenMessage<GatewayPushTask> = /*@__PURE__*/
+export const GatewayDeliveryTaskSchema: GenMessage<GatewayDeliveryTask> = /*@__PURE__*/
   messageDesc(file_proto_im_v1_message, 8);
 
 /**
- * -----------------------------------------------------------------
- * 下行:服务端推送给房间内其他成员的实时消息
- * -----------------------------------------------------------------
- *
- * @generated from message proto.im.v1.MessagePush
+ * @generated from message proto.im.v1.Message
  */
-export type MessagePush = Message<"proto.im.v1.MessagePush"> & {
+export type Message = Message$1<"proto.im.v1.Message"> & {
   /**
    * 服务端生成的消息 ID
    *
@@ -439,7 +440,7 @@ export type MessagePush = Message<"proto.im.v1.MessagePush"> & {
   clientMsgId: string;
 
   /**
-   * 发送人 UUID (服务端填充，防止伪造)
+   * 发送人 UUID (服务端填充,防止伪造)
    *
    * @generated from field: string sender_id = 3;
    */
@@ -467,18 +468,11 @@ export type MessagePush = Message<"proto.im.v1.MessagePush"> & {
   msgType: MessageType;
 
   /**
-   * 消息正文
+   * 消息内容体 (序列化的 MessageBody)
    *
    * @generated from field: bytes payload = 7;
    */
   payload: Uint8Array;
-
-  /**
-   * 扩展属性
-   *
-   * @generated from field: bytes ext = 9;
-   */
-  ext: Uint8Array;
 
   /**
    * 引用的消息 ID
@@ -486,13 +480,20 @@ export type MessagePush = Message<"proto.im.v1.MessagePush"> & {
    * @generated from field: string reply_to_msg_id = 8;
    */
   replyToMsgId: string;
+
+  /**
+   * 扩展属性
+   *
+   * @generated from field: bytes ext = 9;
+   */
+  ext: Uint8Array;
 };
 
 /**
- * Describes the message proto.im.v1.MessagePush.
- * Use `create(MessagePushSchema)` to create a new message.
+ * Describes the message proto.im.v1.Message.
+ * Use `create(MessageSchema)` to create a new message.
  */
-export const MessagePushSchema: GenMessage<MessagePush> = /*@__PURE__*/
+export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
   messageDesc(file_proto_im_v1_message, 9);
 
 /**

@@ -44,10 +44,10 @@ func dbMsgTypeToProto(t db.MessageType) imv1.MessageType {
 	return imv1.MessageType_MESSAGE_TYPE_UNSPECIFIED
 }
 
-// sendMessageReqToMessagePush converts an inbound client request into a
-// fully populated MessagePush ready for the MQ inbound stream. Server-side
+// sendMessageReqToMessage converts an inbound client request into a
+// fully populated Message ready for the MQ inbound stream. Server-side
 // fields (msg_id, sender_id, server_time) are filled here.
-func sendMessageReqToMessagePush(req *imv1.SendMessageReq, senderID uuid.UUID, msgID uuid.UUID, serverTime int64) (*imv1.MessagePush, error) {
+func sendMessageReqToMessage(req *imv1.SendMessageReq, senderID uuid.UUID, msgID uuid.UUID, serverTime int64) (*imv1.Message, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil request")
 	}
@@ -73,7 +73,7 @@ func sendMessageReqToMessagePush(req *imv1.SendMessageReq, senderID uuid.UUID, m
 	protoType := dbMsgTypeToProto(msgType)
 	serverTimeVal := serverTime
 
-	push := &imv1.MessagePush{
+	msg := &imv1.Message{
 		MsgId:       &msgIDStr,
 		ClientMsgId: &clientMsgIDStr,
 		SenderId:    &senderIDStr,
@@ -88,7 +88,7 @@ func sendMessageReqToMessagePush(req *imv1.SendMessageReq, senderID uuid.UUID, m
 			return nil, fmt.Errorf("invalid reply_to_msg_id: %w", err)
 		}
 		reply := s
-		push.ReplyToMsgId = &reply
+		msg.ReplyToMsgId = &reply
 	}
-	return push, nil
+	return msg, nil
 }

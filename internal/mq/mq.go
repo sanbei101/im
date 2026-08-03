@@ -15,7 +15,7 @@ import (
 // Messages flow in two directions:
 //   - client -> gateway -> MQ -> worker -> MQ -> gateway -> client
 //
-// Wire payloads are protobuf (imv1.MessagePush, imv1.GatewayPushTask)
+// Wire payloads are protobuf (imv1.Message, imv1.GatewayDeliveryTask)
 // marshaled with vtproto. The interface is intentionally transport-agnostic.
 // Stream IDs are opaque tokens returned by the broker and are only
 // meaningful to the same implementation that produced them.
@@ -26,23 +26,23 @@ type MQ interface {
 
 	// WorkerPullMessage reads up to `batch` inbound messages produced by
 	// gateway clients. Worker is the consumer.
-	WorkerPullMessage(ctx context.Context, batch int64) ([]*StreamMessage, error)
+	WorkerPullMessage(ctx context.Context, batch int64) ([]*InboundMsgEnvelope, error)
 
-	// WorkerPushGatewayTask publishes deliver tasks that the gateway will
+	// WorkerEnqueueDeliveryTask publishes delivery tasks that the gateway will
 	// fan out to online clients. Worker is the producer.
-	WorkerPushGatewayTask(ctx context.Context, tasks []*GatewayPushTask) error
+	WorkerEnqueueDeliveryTask(ctx context.Context, tasks []*DeliverTaskEnvelope) error
 
 	// WorkerAckMessage confirms that the worker has successfully processed
 	// the given inbound stream IDs.
 	WorkerAckMessage(ctx context.Context, ids ...string) error
 
-	// GatewayPullTask reads up to `batch` deliver tasks produced by the
-	// worker. Gateway is the consumer.
-	GatewayPullTask(ctx context.Context, batch int64) ([]*GatewayPushTask, error)
+	// GatewayPullDeliveryTask reads up to `batch` delivery tasks produced by
+	// the worker. Gateway is the consumer.
+	GatewayPullDeliveryTask(ctx context.Context, batch int64) ([]*DeliverTaskEnvelope, error)
 
-	// GatewayPushMessage publishes inbound messages from clients. Gateway is
+	// GatewayEnqueueMessage publishes inbound messages from clients. Gateway is
 	// the producer.
-	GatewayPushMessage(ctx context.Context, messages []*imv1.MessagePush) error
+	GatewayEnqueueMessage(ctx context.Context, messages []*imv1.Message) error
 
 	// GatewayAckMessage confirms that the gateway has successfully delivered
 	// the given deliver stream IDs.

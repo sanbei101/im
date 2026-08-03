@@ -48,7 +48,9 @@ func (s *Service) getRoomMembersWithCache(ctx context.Context, roomIDs []uuid.UU
 	return result, nil
 }
 
-func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*imv1.MessagePush) ([]*mq.GatewayPushTask, error) {
+// buildDeliveryTasks 为每个 room 内的消息生成一条 DeliveryTask,目标用户
+// 已剔除发送者本人 (sender 通过 SendMessageAck 同步拿到自己的消息,无需重复推送).
+func (s *Service) buildDeliveryTasks(ctx context.Context, roomToMsgs map[uuid.UUID][]*imv1.Message) ([]*mq.DeliverTaskEnvelope, error) {
 	var totalMsgs int
 	roomIDs := make([]uuid.UUID, 0, len(roomToMsgs))
 	for roomID, msgs := range roomToMsgs {
@@ -68,7 +70,7 @@ func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid
 		return nil, err
 	}
 
-	tasks := make([]*mq.GatewayPushTask, 0, totalMsgs)
+	tasks := make([]*mq.DeliverTaskEnvelope, 0, totalMsgs)
 
 	for _, roomID := range roomIDs {
 		msgs := roomToMsgs[roomID]
@@ -79,16 +81,28 @@ func (s *Service) buildGatewayPushTasks(ctx context.Context, roomToMsgs map[uuid
 		}
 
 		for _, msg := range msgs {
-			task := mq.AcquireGatewayPushTask()
-			task.RoomID = roomID
-
-			if cap(task.TargetUserIDs) < len(memberIDs) {
-				task.TargetUserIDs = make([]uuid.UUID, 0, len(memberIDs))
-			} else {
-				task.TargetUserIDs = task.TargetUserIDs[:0]
+			senderID, err := uuid.Parse(msg.GetSenderId())
+			if err != nil {
+				log.Warn().Err(err).Str("msg_id", msg.GetMsgId()).Msg("skip message with invalid sender_id")
+				continue
 			}
-			task.TargetUserIDs = append(task.TargetUserIDs, memberIDs...)
-			task.Message = msg
+
+			// 剔除 sender
+			targets := make([]string, 0, len(memberIDs))
+			for _, mid := range memberIDs {
+				if mid != senderID {
+					targets = append(targets, mid.String())
+				}
+			}
+			if len(targets) == 0 {
+				continue
+			}
+
+			roomIDStr := roomID.String()
+			task := mq.AcquireDeliveryTask()
+			task.Payload.RoomId = &roomIDStr
+			task.Payload.TargetUserIds = targets
+			task.Payload.Message = msg
 
 			tasks = append(tasks, task)
 		}

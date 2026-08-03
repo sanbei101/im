@@ -1,4 +1,4 @@
-// bench.go — single-file Go benchmark for im
+// bench.go - single-file Go benchmark for im
 //
 // Usage:
 //
@@ -217,11 +217,13 @@ func runVU(ctx context.Context, vuIndex int, cfg VuConfig, latency *trend, unmat
 			if mt != websocket.MessageBinary {
 				continue
 			}
-			var resp imv1.SendMessageResp
-			if err := resp.UnmarshalVT(data); err != nil {
+			// 服务端 ack 走 SendMessageAck (字段 1 是 client_msg_id);
+			// 错误路径也用 SendMessageAck, code!=0 时 err_msg 有值.
+			var ack imv1.SendMessageAck
+			if err := ack.UnmarshalVT(data); err != nil {
 				continue
 			}
-			id := resp.GetClientMsgId()
+			id := ack.GetClientMsgId()
 			if id == "" {
 				continue
 			}

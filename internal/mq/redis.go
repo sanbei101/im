@@ -68,30 +68,28 @@ func (r *RedisMQ) InitStreamGroups(ctx context.Context) error {
 
 // WorkerPullMessage reads up to `batch` inbound messages from the worker
 // group. Returns nil, nil if there is nothing to read.
-func (r *RedisMQ) WorkerPullMessage(ctx context.Context, batch int64) ([]*StreamMessage, error) {
+func (r *RedisMQ) WorkerPullMessage(ctx context.Context, batch int64) ([]*InboundMsgEnvelope, error) {
 	return r.pullFromStream(ctx, streamInbound, workerGroup, WorkerName, batch)
 }
 
-// WorkerPushGatewayTask pipelines each task into the deliver stream with an
+// WorkerEnqueueDeliveryTask pipelines each task into the deliver stream with an
 // approximate max length cap.
-func (r *RedisMQ) WorkerPushGatewayTask(ctx context.Context, tasks []*GatewayPushTask) error {
+func (r *RedisMQ) WorkerEnqueueDeliveryTask(ctx context.Context, tasks []*DeliverTaskEnvelope) error {
 	if len(tasks) == 0 {
 		return nil
 	}
 
 	pipe := r.client.Pipeline()
 	for _, task := range tasks {
-		if task == nil {
-			log.Error().Msg("Skipping nil task pointer")
+		if task == nil || task.Payload == nil {
+			log.Error().Msg("Skipping nil delivery task or payload")
 			continue
 		}
-		p := task.Proto()
-		bin, err := p.MarshalVT()
+		bin, err := task.Payload.MarshalVT()
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal GatewayPushTask")
+			log.Error().Err(err).Msg("Failed to marshal GatewayDeliveryTask")
 			continue
 		}
-		p.Reset()
 		pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: streamDeliver,
 			MaxLen: streamMaxLen,
@@ -108,8 +106,8 @@ func (r *RedisMQ) WorkerAckMessage(ctx context.Context, ids ...string) error {
 	return r.ack(ctx, streamInbound, workerGroup, ids...)
 }
 
-// GatewayPullTask reads up to `batch` deliver tasks for the gateway.
-func (r *RedisMQ) GatewayPullTask(ctx context.Context, batch int64) ([]*GatewayPushTask, error) {
+// GatewayPullDeliveryTask reads up to `batch` delivery tasks for the gateway.
+func (r *RedisMQ) GatewayPullDeliveryTask(ctx context.Context, batch int64) ([]*DeliverTaskEnvelope, error) {
 	result, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    gatewayGroup,
 		Consumer: GatewayName,
@@ -127,35 +125,28 @@ func (r *RedisMQ) GatewayPullTask(ctx context.Context, batch int64) ([]*GatewayP
 		return nil, nil
 	}
 
-	tasks := make([]*GatewayPushTask, 0, len(result[0].Messages))
+	tasks := make([]*DeliverTaskEnvelope, 0, len(result[0].Messages))
 	for _, msg := range result[0].Messages {
 		data, ok := msg.Values["data"].(string)
 		if !ok {
 			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
 			continue
 		}
-		p := &imv1.GatewayPushTask{}
-		if err := p.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
-			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal GatewayPushTask")
-			continue
-		}
-		task := AcquireGatewayPushTask()
-		if err := task.FromProto(p); err != nil {
-			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to convert GatewayPushTask")
-			ReleaseGatewayPushTask(task)
-			p.Reset()
+		task := AcquireDeliveryTask()
+		if err := task.Payload.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal GatewayDeliveryTask")
+			ReleaseDeliveryTask(task)
 			continue
 		}
 		task.StreamID = msg.ID
 		tasks = append(tasks, task)
-		p.Reset()
 	}
 	return tasks, nil
 }
 
-// GatewayPushMessage publishes inbound messages from clients into the
+// GatewayEnqueueMessage publishes inbound messages from clients into the
 // inbound stream.
-func (r *RedisMQ) GatewayPushMessage(ctx context.Context, messages []*imv1.MessagePush) error {
+func (r *RedisMQ) GatewayEnqueueMessage(ctx context.Context, messages []*imv1.Message) error {
 	return r.pushMessageToStream(ctx, streamInbound, messages)
 }
 
@@ -165,7 +156,7 @@ func (r *RedisMQ) GatewayAckMessage(ctx context.Context, ids ...string) error {
 }
 
 // pullFromStream is the shared read path used by the worker consumer.
-func (r *RedisMQ) pullFromStream(ctx context.Context, stream, group, consumer string, batch int64) ([]*StreamMessage, error) {
+func (r *RedisMQ) pullFromStream(ctx context.Context, stream, group, consumer string, batch int64) ([]*InboundMsgEnvelope, error) {
 	result, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,
@@ -183,26 +174,26 @@ func (r *RedisMQ) pullFromStream(ctx context.Context, stream, group, consumer st
 		return nil, nil
 	}
 
-	messages := make([]*StreamMessage, 0, len(result[0].Messages))
+	messages := make([]*InboundMsgEnvelope, 0, len(result[0].Messages))
 	for _, msg := range result[0].Messages {
 		data, ok := msg.Values["data"].(string)
 		if !ok {
 			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
 			continue
 		}
-		p := &imv1.MessagePush{}
+		p := &imv1.Message{}
 		if err := p.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
-			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal MessagePush")
+			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal Message")
 			continue
 		}
-		messages = append(messages, &StreamMessage{ID: msg.ID, Data: p})
+		messages = append(messages, &InboundMsgEnvelope{StreamID: msg.ID, Payload: p})
 	}
 	return messages, nil
 }
 
 // pushMessageToStream pipelines an XAdd for each message into the given
 // stream.
-func (r *RedisMQ) pushMessageToStream(ctx context.Context, stream string, messages []*imv1.MessagePush) error {
+func (r *RedisMQ) pushMessageToStream(ctx context.Context, stream string, messages []*imv1.Message) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -215,7 +206,7 @@ func (r *RedisMQ) pushMessageToStream(ctx context.Context, stream string, messag
 		}
 		bin, err := msg.MarshalVT()
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal MessagePush for stream")
+			log.Error().Err(err).Msg("Failed to marshal Message for stream")
 			continue
 		}
 		pipe.XAdd(ctx, &redis.XAddArgs{
