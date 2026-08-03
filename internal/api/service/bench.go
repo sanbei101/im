@@ -117,7 +117,7 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 		}}
 		br := s.query.BatchCreateRoom(ctx, roomParams)
 		var roomErr error
-		br.Exec(func(i int, e error) {
+		br.Exec(func(_ int, e error) {
 			if e != nil && roomErr == nil {
 				log.Error().
 					Err(e).
@@ -170,7 +170,7 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 		}}
 		br := s.query.BatchCreateRoom(ctx, roomParams)
 		var roomErr error
-		br.Exec(func(i int, e error) {
+		br.Exec(func(_ int, e error) {
 			if e != nil && roomErr == nil {
 				roomErr = e
 			}

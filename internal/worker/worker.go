@@ -23,15 +23,15 @@ type Service struct {
 }
 
 func New(cfg *config.Config, m mq.MQ) *Service {
-	config, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
+	pgxCfg, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
 	if err != nil {
 		log.Fatal().Err(err).Msg("postgres parse config failed")
 	}
-	config.ConnConfig.Tracer = &tracelog.TraceLog{
+	pgxCfg.ConnConfig.Tracer = &tracelog.TraceLog{
 		Logger:   logger.NewPgxLogger(),
 		LogLevel: tracelog.LogLevelDebug,
 	}
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	pool, err := pgxpool.NewWithConfig(context.Background(), pgxCfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("worker connect postgres failed")
 	}

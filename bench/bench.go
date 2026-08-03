@@ -97,12 +97,12 @@ func (t *trend) add(d time.Duration) {
 	t.mu.Unlock()
 }
 
-func (t *trend) summary() (count int, min, avg, p50, p95, p99, max time.Duration) {
+func (t *trend) summary() (count int, minVal, avg, p50, p95, p99, maxVal time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	count = len(t.samples)
 	if count == 0 {
-		return count, min, avg, p50, p95, p99, max
+		return count, minVal, avg, p50, p95, p99, maxVal
 	}
 	clone := make([]time.Duration, count)
 	copy(clone, t.samples)
@@ -117,11 +117,11 @@ func (t *trend) summary() (count int, min, avg, p50, p95, p99, max time.Duration
 		idx := int(float64(count-1) * q)
 		return clone[idx]
 	}
-	min, max = clone[0], clone[count-1]
+	minVal, maxVal = clone[0], clone[count-1]
 	p50 = pick(0.50)
 	p95 = pick(0.95)
 	p99 = pick(0.99)
-	return count, min, avg, p50, p95, p99, max
+	return count, minVal, avg, p50, p95, p99, maxVal
 }
 
 // ===================== 4. Setup:拉取 mock 数据 =====================
@@ -188,16 +188,17 @@ func flattenMockData(b *BatchMockResp) []VuConfig {
 
 // runVU 模拟单个 VU: 建立 WebSocket, 每 500ms 发一条 SendMessageReq,
 // 解析回包并匹配 client_msg_id 记录延迟, 关闭时把未匹配的累积到计数器.
-func runVU(ctx context.Context, vuIndex int, cfg VuConfig, latency *trend, unmatched *atomic.Int64) {
+func runVU(ctx context.Context, vuIndex int, cfg *VuConfig, latency *trend, unmatched *atomic.Int64) {
 	dialCtx, cancel := context.WithTimeout(ctx, DialTimeout)
 	defer cancel()
 
 	url := wsURL() + "?token=" + cfg.User.Token
-	conn, _, err := websocket.Dial(dialCtx, url, nil)
+	conn, resp, err := websocket.Dial(dialCtx, url, nil)
 	if err != nil {
 		log.Printf("[VU%04d] dial: %v", vuIndex+1, err)
 		return
 	}
+	defer resp.Body.Close()
 	defer conn.Close(websocket.StatusNormalClosure, "bye")
 
 	conn.SetReadLimit(1 << 20) // 1 MiB
@@ -336,12 +337,12 @@ func main() {
 	defer runCancel()
 
 	var wg sync.WaitGroup
-	for i, cfg := range allVUs {
+	for i := range allVUs {
 		wg.Add(1)
-		go func(i int, cfg VuConfig) {
+		go func(i int, cfg *VuConfig) {
 			defer wg.Done()
 			runVU(runCtx, i, cfg, latency, unmatched)
-		}(i, cfg)
+		}(i, &allVUs[i])
 	}
 
 	// 等待:ctx 到期后 VU 也会退出
@@ -349,10 +350,10 @@ func main() {
 	wg.Wait()
 
 	// 汇总
-	count, min, avg, p50, p95, p99, max := latency.summary()
+	count, minVal, avg, p50, p95, p99, maxVal := latency.summary()
 	fmt.Println("================ bench result ================")
 	fmt.Printf("ws_msg_unmatched : %d\n", unmatched.Load())
 	fmt.Printf("ws_msg_latency   : count=%d min=%s avg=%s max=%s p50=%s p95=%s p99=%s\n",
-		count, min, avg, max, p50, p95, p99)
+		count, minVal, avg, maxVal, p50, p95, p99)
 	fmt.Println("==============================================")
 }

@@ -21,9 +21,9 @@ var wg sync.WaitGroup
 
 func main() {
 	logger.InitLogger()
-	config := config.New()
-	redisMQ := mq.NewRedisMQ(config)
-	g := gateway.NewGateway(config, redisMQ)
+	cfg := config.New()
+	redisMQ := mq.NewRedisMQ(cfg)
+	g := gateway.NewGateway(cfg, redisMQ)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

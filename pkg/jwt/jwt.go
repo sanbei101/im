@@ -16,8 +16,13 @@ import (
 )
 
 const (
-	jwtExpiration        = 7 * 24 * time.Hour
-	userIDKey     string = "user_id"
+	jwtExpiration = 7 * 24 * time.Hour
+)
+
+type contextKey string
+
+const (
+	userIDKey contextKey = "user_id"
 )
 
 var (
