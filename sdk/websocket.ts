@@ -1,12 +1,17 @@
 import type {
   ChatSDKOptions,
   ConnectionState,
-  Message,
   SendMessageRequest,
   MessageReceivedData,
+  MessageSentData,
 } from './types';
 import { ChatEventType, ConnectionState as State } from './types';
 import { EventEmitter, createError, createStateChange } from './utils';
+import {
+  decodeServerFrame,
+  encodeHeartbeat,
+  encodeSendMessage,
+} from './protobuf';
 
 /**
  * WebSocket 连接管理器
@@ -102,6 +107,7 @@ export class WebSocketManager {
         const wsUrl = new URL(this.options.gatewayURL);
         wsUrl.searchParams.append('token', this.token!);
         this.ws = new WebSocket(wsUrl.toString());
+        this.ws.binaryType = 'arraybuffer';
         await this.setupWebSocketHandlers();
       } catch (error) {
         this.setState(State.Error);
@@ -143,11 +149,12 @@ export class WebSocketManager {
   }
 
   /**
-   * 发送消息
+   * 发送 Protobuf 二进制消息
    */
   sendMessage(req: SendMessageRequest): void {
+    const encoded = encodeSendMessage(req);
+
     if (!this.isConnected()) {
-      // 如果未连接,将消息加入队列
       this.messageQueue.push(req);
       this.emitter.emit(
         ChatEventType.Error,
@@ -156,22 +163,7 @@ export class WebSocketManager {
       return;
     }
 
-    const message = this.buildMessage(req);
-    this.ws!.send(JSON.stringify(message));
-  }
-
-  /**
-   * 构建发送的消息对象
-   */
-  private buildMessage(req: SendMessageRequest): Record<string, unknown> {
-    return {
-      client_msg_id: req.client_msg_id,
-      room_id: req.room_id,
-      msg_type: req.msg_type,
-      payload: req.payload,
-      ...(req.reply_to_msg_id && { reply_to_msg_id: req.reply_to_msg_id }),
-      ...(req.ext && { ext: req.ext }),
-    };
+    this.ws!.send(encoded as unknown as BufferSource);
   }
 
   /**
@@ -195,8 +187,16 @@ export class WebSocketManager {
       };
 
       this.ws.onmessage = (event: MessageEvent) => {
-        const data = typeof event.data === 'string' ? event.data : String(event.data);
-        this.handleMessage(data);
+        this.handleMessage(event.data).catch((error: unknown) => {
+          this.emitter.emit(
+            ChatEventType.Error,
+            createError(
+              'MESSAGE_PARSE_ERROR',
+              error instanceof Error ? error.message : String(error),
+              error instanceof Error ? error : undefined
+            )
+          );
+        });
       };
 
       this.ws.onclose = (event: CloseEvent) => {
@@ -225,52 +225,62 @@ export class WebSocketManager {
   }
 
   /**
-   * 处理接收到的消息
+   * 处理服务端 Protobuf 二进制帧
    */
-  private handleMessage(data: string): void {
-    try {
-      const messages = JSON.parse(data) as Message[];
+  private async handleMessage(data: unknown): Promise<void> {
+    const bytes = await this.toBytes(data);
+    const frame = decodeServerFrame(bytes);
 
-      if (!Array.isArray(messages)) {
-        this.emitter.emit(
-          ChatEventType.Error,
-          createError('INVALID_MESSAGE', 'Received non-array message format')
-        );
-        return;
-      }
-
-      for (const message of messages) {
-        if (!message.msg_id || !message.sender_id) {
-          this.emitter.emit(
-            ChatEventType.Error,
-            createError('INVALID_MESSAGE', 'Received invalid message format')
-          );
-          continue;
-        }
-
-        this.emitter.emit(ChatEventType.MessageReceived, {
-          message,
-        } as MessageReceivedData);
-      }
-    } catch (error) {
-      this.emitter.emit(
-        ChatEventType.Error,
-        createError(
-          'MESSAGE_PARSE_ERROR',
-          data,
-          error instanceof Error ? error : undefined
-        )
-      );
+    if (frame.kind === 'message') {
+      this.emitter.emit(ChatEventType.MessageReceived, {
+        message: frame.message,
+      } as MessageReceivedData);
+      return;
     }
+
+    const ack = frame.ack;
+    const serverTime = Number(ack.serverTime);
+    if (ack.code === 0) {
+      this.emitter.emit(ChatEventType.MessageSent, {
+        client_msg_id: ack.clientMsgId,
+        server_msg_id: ack.msgId || undefined,
+        server_time: Number.isSafeInteger(serverTime) ? serverTime : undefined,
+      } as MessageSentData);
+      return;
+    }
+
+    this.emitter.emit(
+      ChatEventType.Error,
+      createError(
+        'SEND_FAILED',
+        ack.errMsg || `Message send failed with code ${ack.code}`
+      )
+    );
+  }
+
+  private async toBytes(data: unknown): Promise<Uint8Array> {
+    if (data instanceof ArrayBuffer) {
+      return new Uint8Array(data);
+    }
+
+    if (ArrayBuffer.isView(data)) {
+      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    }
+
+    if (typeof Blob !== 'undefined' && data instanceof Blob) {
+      return new Uint8Array(await data.arrayBuffer());
+    }
+
+    throw new Error(`Unsupported WebSocket data type: ${Object.prototype.toString.call(data)}`);
   }
 
   /**
-   * 启动心跳
+   * 启动 Protobuf 心跳
    */
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected()) {
-        this.ws!.send(JSON.stringify({ type: 'ping' }));
+        this.ws!.send(encodeHeartbeat() as unknown as BufferSource);
       }
     }, this.options.heartbeatInterval);
   }

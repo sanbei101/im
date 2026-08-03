@@ -32,5 +32,8 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.13.0"
   }
 }

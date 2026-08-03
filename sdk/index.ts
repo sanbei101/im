@@ -11,7 +11,6 @@ import {
   HistoryMessagesResponse,
   ChatEventType,
   EventListener,
-  MessageSentData,
   TextPayload,
   ImagePayload,
   VideoPayload,
@@ -224,11 +223,6 @@ export class ChatSDK {
       req.client_msg_id = generateUUID();
     }
     this.wsManager.sendMessage(req);
-
-    // 触发发送事件
-    this.emitter.emit(ChatEventType.MessageSent, {
-      client_msg_id: req.client_msg_id,
-    } as MessageSentData);
   }
 
   /**
@@ -238,14 +232,14 @@ export class ChatSDK {
     params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & { text: string }
   ): string {
     const { text, ...rest } = params;
-    const clientMsgId = generateUUID()
+    const clientMsgId = generateUUID();
     this.sendMessage({
       ...rest,
       client_msg_id: clientMsgId,
       msg_type: MessageType.Text,
       payload: { text } as TextPayload,
     });
-    return clientMsgId
+    return clientMsgId;
   }
 
   /**
@@ -268,8 +262,7 @@ export class ChatSDK {
   sendVideoMessage(
     params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & VideoPayload
   ): void {
-    const { url, duration, width, height, size, thumbnail_url, ...rest } =
-      params;
+    const { url, duration, width, height, size, thumbnail_url, ...rest } = params;
     this.sendMessage({
       ...rest,
       msg_type: MessageType.Video,
@@ -283,11 +276,11 @@ export class ChatSDK {
   sendFileMessage(
     params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & FilePayload
   ): void {
-    const { url, name, size, mime_type, ...rest } = params;
+    const { url, name, size, extension, mime_type, ...rest } = params;
     this.sendMessage({
       ...rest,
       msg_type: MessageType.File,
-      payload: { url, name, size, mime_type } as FilePayload,
+      payload: { url, name, size, extension, mime_type } as FilePayload,
     });
   }
 

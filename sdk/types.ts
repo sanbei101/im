@@ -10,6 +10,7 @@ export enum MessageType {
   Image = 'image',
   Video = 'video',
   File = 'file',
+  System = 'system',
 }
 
 // 消息数据结构
@@ -31,7 +32,7 @@ export interface Message {
   /** 消息内容负载 */
   payload: unknown;
   /** 扩展字段 */
-  ext?: Record<string, unknown>;
+  ext?: Record<string, unknown> | Uint8Array;
   /** 创建时间 */
   created_at?: string;
 }
@@ -48,8 +49,8 @@ export interface SendMessageRequest {
   payload: unknown;
   /** 回复的消息ID(可选) */
   reply_to_msg_id?: string;
-  /** 扩展字段(可选) */
-  ext?: Record<string, unknown>;
+  /** 扩展字段(可传 JSON 对象或原始 Protobuf bytes) */
+  ext?: Record<string, unknown> | Uint8Array;
 }
 
 // 文本消息负载
@@ -60,9 +61,11 @@ export interface TextPayload {
 // 图片消息负载
 export interface ImagePayload {
   url: string;
+  thumbnail_url?: string;
   width?: number;
   height?: number;
   size?: number;
+  mime_type?: string;
 }
 
 // 视频消息负载
@@ -80,7 +83,15 @@ export interface FilePayload {
   url: string;
   name: string;
   size: number;
+  extension?: string;
   mime_type?: string;
+}
+
+// 系统消息负载
+export interface SystemPayload {
+  event_code: number;
+  content: string;
+  extra_params?: Record<string, string>;
 }
 
 // 用户注册请求

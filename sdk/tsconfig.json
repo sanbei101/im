@@ -17,10 +17,17 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "outDir": "./dist",
-    "rootDir": "."
+    "rootDir": "..",
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@bufbuild/protobuf": ["node_modules/@bufbuild/protobuf/dist/esm/index.d.ts"],
+      "@bufbuild/protobuf/codegenv2": ["node_modules/@bufbuild/protobuf/dist/esm/codegenv2/index.d.ts"]
+    }
   },
   "include": [
-    "**/*.ts"
+    "**/*.ts",
+    "../gen/ts/**/*.ts"
   ],
   "exclude": [
     "node_modules",
