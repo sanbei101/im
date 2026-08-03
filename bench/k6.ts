@@ -8,6 +8,8 @@ import {
   SendMessageReqSchema,
   SendMessageResp,
   SendMessageRespSchema,
+  MessageType,
+  TextMessagePayloadSchema,
 } from "../gen/ts/proto/im/v1/message_pb";
 import http, { RefinedResponse, ResponseType } from "k6/http";
 
@@ -175,14 +177,16 @@ export default function (data: SetupData): void {
       socket.setInterval(() => {
         const clientMsgId = uuidv7();
         const now = Date.now();
-
+        const textPayload = create(TextMessagePayloadSchema, {
+          text: `[VU${__VU}] hello`,
+          atUserIds: [],
+        });
+        const payloadBytes = toBinary(TextMessagePayloadSchema, textPayload);
         const msg = create(SendMessageReqSchema, {
           clientMsgId: clientMsgId,
           roomId: myConfig.room_id,
-          msgType: "text",
-          payload: {
-            content: `[VU${__VU}] hello`,
-          },
+          msgType: MessageType.TEXT,
+          payload: payloadBytes,
         });
 
         const binaryData = toBinary(SendMessageReqSchema, msg);
