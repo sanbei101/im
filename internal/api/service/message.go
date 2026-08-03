@@ -18,9 +18,9 @@ func NewMessageService(query *db.Queries) *MessageService {
 }
 
 type HistoryReq struct {
-	RoomID           string `query:"room_id" validate:"required"`
+	RoomID           string `query:"room_id"            validate:"required"`
 	BeforeServerTime int64  `query:"before_server_time" validate:"required"`
-	PageSize         int    `query:"page_size" default:"20" validate:"min=1,max=100"`
+	PageSize         int    `query:"page_size"          validate:"min=1,max=100" default:"20"`
 }
 
 type HistoryResp struct {

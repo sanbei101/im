@@ -28,17 +28,17 @@ type BenchMockUserInfo struct {
 
 type BenchMockReq struct {
 	SingleRoomNum int   `json:"single_room_num" validate:"min=0,max=10000"`
-	GroupRoom     []int `json:"group_room" validate:"dive,min=3,max=10000"`
+	GroupRoom     []int `json:"group_room"      validate:"dive,min=3,max=10000"`
 }
 
 type BatchMockResp struct {
 	SingleRooms []struct {
-		RoomID string               `json:"room_id"`
-		Users []BenchMockUserInfo `json:"users"`
+		RoomID string              `json:"room_id"`
+		Users  []BenchMockUserInfo `json:"users"`
 	} `json:"single_rooms"`
 
 	GroupRooms []struct {
-		RoomID   string               `json:"room_id"`
+		RoomID   string              `json:"room_id"`
 		RoomSize int                 `json:"room_size"`
 		Users    []BenchMockUserInfo `json:"users"`
 	} `json:"group_rooms"`
@@ -136,11 +136,11 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 
 		resp.SingleRooms = append(
 			resp.SingleRooms, struct {
-				RoomID string               `json:"room_id"`
-				Users []BenchMockUserInfo `json:"users"`
+				RoomID string              `json:"room_id"`
+				Users  []BenchMockUserInfo `json:"users"`
 			}{
 				RoomID: roomID.String(),
-				Users: []BenchMockUserInfo{u1, u2},
+				Users:  []BenchMockUserInfo{u1, u2},
 			},
 		)
 	}
@@ -188,11 +188,11 @@ func (s *BenchMockService) CreateMock(ctx context.Context, req BenchMockReq) (*B
 		}
 
 		g := struct {
-			RoomID   string               `json:"room_id"`
+			RoomID   string              `json:"room_id"`
 			RoomSize int                 `json:"room_size"`
 			Users    []BenchMockUserInfo `json:"users"`
 		}{
-			RoomID: roomID.String(),
+			RoomID:   roomID.String(),
 			RoomSize: sz,
 			Users:    members,
 		}

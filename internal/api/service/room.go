@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 
@@ -72,7 +73,11 @@ func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsR
 	return &ListRoomsResp{Rooms: result}, nil
 }
 
-func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 string, req CreateRoomReq) (*RoomResp, error) {
+func (s *RoomService) CreateOrGetSingleChatRoom(
+	ctx context.Context,
+	userID1 string,
+	req CreateRoomReq,
+) (*RoomResp, error) {
 	user1, err := uuid.Parse(userID1)
 	if err != nil {
 		return nil, err
@@ -83,7 +88,7 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 str
 	}
 
 	if user1 == user2 {
-		return nil, fmt.Errorf("cannot create chat room with same user")
+		return nil, errors.New("cannot create chat room with same user")
 	}
 
 	hash := computeSingleChatHash(user1, user2)
@@ -138,7 +143,7 @@ func (s *RoomService) CreateOrGetSingleChatRoom(ctx context.Context, userID1 str
 
 func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomReq) (*RoomResp, error) {
 	if len(req.MemberIDs) < 2 {
-		return nil, fmt.Errorf("group room requires at least 2 members")
+		return nil, errors.New("group room requires at least 2 members")
 	}
 
 	memberUUIDs := make([]uuid.UUID, 0, len(req.MemberIDs))
@@ -181,12 +186,12 @@ var (
 	nouns      = []string{"会议室", "小屋", "角落", "广场", "花园", "沙龙", "茶馆", "驿站"}
 )
 
-func generateRoomInfo(roomID uuid.UUID) (name string, avatarURL string) {
+func generateRoomInfo(roomID uuid.UUID) (name, avatarURL string) {
 	adj := adjectives[rand.IntN(len(adjectives))]
 	noun := nouns[rand.IntN(len(nouns))]
 	name = adj + noun
 
-	avatarURL = fmt.Sprintf("https://api.dicebear.com/7.x/identicon/svg?seed=%s", roomID.String())
+	avatarURL = "https://api.dicebear.com/7.x/identicon/svg?seed=" + roomID.String()
 	return name, avatarURL
 }
 

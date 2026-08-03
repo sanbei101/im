@@ -9,10 +9,10 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/phuslu/log"
-	"github.com/sanbei101/im/pkg/render"
-
 	"github.com/cristalhq/jwt/v5"
+	"github.com/phuslu/log"
+
+	"github.com/sanbei101/im/pkg/render"
 )
 
 const (
