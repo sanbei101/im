@@ -3,16 +3,35 @@ package logger
 import (
 	"context"
 	"os"
+	"strconv"
 
 	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/phuslu/log"
 )
 
 func InitLogger() {
+	isProd, _ := strconv.ParseBool(os.Getenv("PRODUCTION"))
+
+	var writer log.Writer
+
+	if isProd {
+		writer = &log.AsyncWriter{
+			ChannelSize:   4096,
+			DiscardOnFull: false,
+			Writer:        &log.IOWriter{Writer: os.Stderr},
+		}
+	} else {
+		writer = &log.ConsoleWriter{
+			ColorOutput:    true,
+			QuoteString:    true,
+			EndWithMessage: true,
+		}
+	}
+
 	log.DefaultLogger = log.Logger{
 		Level:  log.InfoLevel,
 		Caller: 0,
-		Writer: &log.IOWriter{Writer: os.Stderr},
+		Writer: writer,
 	}
 }
 

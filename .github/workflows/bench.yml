@@ -84,6 +84,7 @@ jobs:
           REDIS_ADDR: "localhost:6379"
           REDIS_PASSWORD: "123456"
           REDIS_DB: "0"
+          PRODUCTION: true
 
       - name: 触发压测
         run: |
@@ -133,6 +134,13 @@ jobs:
           echo '```log' >> $GITHUB_STEP_SUMMARY
           tail -n 100 monitor.log >> $GITHUB_STEP_SUMMARY || echo "No monitor.log found" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Server Log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-log
+          path: server.log
 
       - name: Cleanup
         if: always()

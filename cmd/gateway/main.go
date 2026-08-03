@@ -65,5 +65,6 @@ func main() {
 		log.Error().Err(err).Msg("server forced to shutdown")
 	}
 	wg.Wait()
+	logger.Close()
 	log.Info().Msg("gateway exited completely")
 }

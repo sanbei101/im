@@ -81,5 +81,6 @@ func main() {
 		log.Error().Err(err).Msg("API server forced to shutdown")
 	}
 	pool.Close()
+	logger.Close()
 	log.Info().Msg("API server exited")
 }

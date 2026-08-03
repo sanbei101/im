@@ -31,4 +31,5 @@ func main() {
 	defer stop()
 
 	svc.Run(ctx)
+	logger.Close()
 }
