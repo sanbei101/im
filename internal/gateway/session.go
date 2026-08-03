@@ -15,15 +15,32 @@ import (
 type UserClient struct {
 	gateway *Gateway
 	Conn    *websocket.Conn
-	Send    chan [][]byte
+	Send    chan []byte
 	UserID  uuid.UUID
 }
 
 func (c *UserClient) writePump(ctx context.Context) {
-	for frames := range c.Send {
-		for _, frame := range frames {
-			if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case firstMsg, ok := <-c.Send:
+			if !ok {
 				return
+			}
+			if err := c.Conn.Write(ctx, websocket.MessageBinary, firstMsg); err != nil {
+				return
+			}
+		BatchLoop:
+			for len(c.Send) > 0 {
+				select {
+				case nextMsg := <-c.Send:
+					if err := c.Conn.Write(ctx, websocket.MessageBinary, nextMsg); err != nil {
+						return
+					}
+				default:
+					break BatchLoop
+				}
 			}
 		}
 	}
@@ -108,7 +125,7 @@ func (c *UserClient) sendAck(code int32, clientMsgID, msgID string, serverTime i
 	}
 	bin = bin[:n]
 	select {
-	case c.Send <- [][]byte{bin}:
+	case c.Send <- bin:
 	default:
 		log.Warn().
 			Int32("code", code).
@@ -208,7 +225,7 @@ func (s *UserSession) Remove(c *UserClient) bool {
 	return len(s.clients) == 0
 }
 
-func (s *UserSession) Broadcast(payloads [][]byte) {
+func (s *UserSession) Broadcast(payloads []byte) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for c := range s.clients {

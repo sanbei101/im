@@ -58,7 +58,7 @@ func (gateway *Gateway) setupUserClient(userID uuid.UUID, conn *websocket.Conn) 
 	userClient := &UserClient{
 		gateway: gateway,
 		Conn:    conn,
-		Send:    make(chan [][]byte, 100),
+		Send:    make(chan []byte, 100),
 		UserID:  userID,
 	}
 	userSession := gateway.UserSessionManager.LoadOrCreate(userID.String(), NewUserSession)

@@ -43,7 +43,7 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 
 func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.DeliverTaskEnvelope) {
 	streamIDs := make([]string, 0, len(tasks))
-	userMessages := make(map[string][][]byte)
+	userMessages := make(map[string][]byte)
 
 	for _, task := range tasks {
 		if task.Payload == nil || task.Payload.Message == nil {
@@ -63,7 +63,9 @@ func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.DeliverTas
 		bin = bin[:n]
 
 		for _, uid := range task.Payload.GetTargetUserIds() {
-			userMessages[uid] = append(userMessages[uid], bin)
+			if userSession, ok := gateway.UserSessionManager.Load(uid); ok {
+				userSession.Broadcast(bin)
+			}
 		}
 
 		mq.ReleaseDeliveryTask(task)
