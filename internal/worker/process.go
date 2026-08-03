@@ -30,8 +30,8 @@ func protoToDBMessageType(t imv1.MessageType) db.MessageType {
 	return ""
 }
 
-// messagePushToDBParams extracts the DB insert params from a proto message.
-func messagePushToDBParams(p *imv1.MessagePush) (db.BatchCopyMessagesParams, error) {
+// messageToDBParams extracts the DB insert params from a proto message.
+func messageToDBParams(p *imv1.Message) (db.BatchCopyMessagesParams, error) {
 	msgID, err := uuid.Parse(p.GetMsgId())
 	if err != nil {
 		return db.BatchCopyMessagesParams{}, fmt.Errorf("invalid msg_id: %w", err)
@@ -87,18 +87,18 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 	params := make([]db.BatchCopyMessagesParams, 0, batchSize)
 	msgIDs := make([]string, 0, batchSize)
 
-	roomToMsgs := make(map[uuid.UUID][]*imv1.MessagePush)
+	roomToMsgs := make(map[uuid.UUID][]*imv1.Message)
 
 	for _, sm := range streamMsgs {
-		msgIDs = append(msgIDs, sm.ID)
+		msgIDs = append(msgIDs, sm.StreamID)
 
-		p, err := messagePushToDBParams(sm.Data)
+		p, err := messageToDBParams(sm.Payload)
 		if err != nil {
-			log.Error().Err(err).Str("stream_id", sm.ID).Msg("invalid message payload, dropping")
+			log.Error().Err(err).Str("stream_id", sm.StreamID).Msg("invalid message payload, dropping")
 			continue
 		}
 		params = append(params, p)
-		roomToMsgs[p.RoomID] = append(roomToMsgs[p.RoomID], sm.Data)
+		roomToMsgs[p.RoomID] = append(roomToMsgs[p.RoomID], sm.Payload)
 	}
 
 	rowsInserted, err := s.queries.BatchCopyMessages(ctx, params)
@@ -114,12 +114,12 @@ func (s *Service) ProcessInbound(ctx context.Context, batchSize int64) error {
 			Msg("批量插入消息行数与参数长度不匹配")
 	}
 
-	tasks, err := s.buildGatewayPushTasks(ctx, roomToMsgs)
+	tasks, err := s.buildDeliveryTasks(ctx, roomToMsgs)
 	if err != nil {
-		return fmt.Errorf("build gateway push tasks failed: %w", err)
+		return fmt.Errorf("build delivery tasks failed: %w", err)
 	}
 
-	if err := s.mq.WorkerPushGatewayTask(ctx, tasks); err != nil {
+	if err := s.mq.WorkerEnqueueDeliveryTask(ctx, tasks); err != nil {
 		return fmt.Errorf("worker publish deliver batch failed: %w", err)
 	}
 
