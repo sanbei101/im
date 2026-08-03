@@ -196,6 +196,16 @@ func runVU(ctx context.Context, vuIndex int, cfg *VuConfig, latency *trend, unma
 	conn, resp, err := websocket.Dial(dialCtx, url, nil)
 	if err != nil {
 		log.Printf("[VU%04d] dial: %v", vuIndex+1, err)
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		return
+	}
+	if conn == nil {
+		log.Printf("[VU%04d] dial: conn is nil", vuIndex+1)
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
 		return
 	}
 	defer resp.Body.Close()
