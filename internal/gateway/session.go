@@ -2,6 +2,9 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -50,6 +53,10 @@ func (c *UserClient) readPump(ctx context.Context) {
 	for {
 		_, payload, err := c.Conn.Read(ctx)
 		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+				log.Info().Str("user_id", c.UserID.String()).Msg("client disconnected")
+				return
+			}
 			if websocket.CloseStatus(err) == -1 {
 				log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client read message failed")
 			}
