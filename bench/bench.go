@@ -194,11 +194,13 @@ func runVU(ctx context.Context, vuIndex int, cfg *VuConfig, latency *trend, unma
 
 	url := wsURL() + "?token=" + cfg.User.Token
 	conn, resp, err := websocket.Dial(dialCtx, url, nil)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		log.Printf("[VU%04d] dial: %v", vuIndex+1, err)
 		return
 	}
-	defer resp.Body.Close()
 	defer conn.Close(websocket.StatusNormalClosure, "bye")
 
 	conn.SetReadLimit(1 << 20) // 1 MiB
