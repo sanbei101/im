@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: setup go
         uses: actions/setup-go@v6
@@ -142,7 +142,7 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Connect to Tailscale network
         uses: tailscale/github-action@v4
@@ -166,6 +166,7 @@ jobs:
       - name: Run k6 and collect pprof
         working-directory: bench
         run: |
+          pnpm install
           pnpm build
           touch k6.log
 
