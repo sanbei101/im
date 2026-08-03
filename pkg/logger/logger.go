@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"io"
 	"os"
 	"strconv"
 
@@ -32,6 +33,12 @@ func InitLogger() {
 		Level:  log.InfoLevel,
 		Caller: 0,
 		Writer: writer,
+	}
+}
+
+func Close() {
+	if closer, ok := log.DefaultLogger.Writer.(io.Closer); ok {
+		closer.Close()
 	}
 }
 
