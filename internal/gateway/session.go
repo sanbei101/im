@@ -95,13 +95,16 @@ func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 		return
 	}
 
-	// 立即同步 ack: 客户端拿到 msg_id 即可信任, 不必等异步广播.
-	c.sendAck(0, req.GetClientMsgId(), msgID.String(), serverTime, "")
-
+	// 先写入 MQ,确认消息已被服务端接管后再返回成功 ACK.
+	// 如果入队失败,客户端只能收到失败 ACK,避免先收到成功再收到失败.
 	if err := c.gateway.MQ.GatewayEnqueueMessage(ctx, []*imv1.Message{msg}); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client enqueue message failed")
-		c.sendAck(-1, req.GetClientMsgId(), msgID.String(), serverTime, "enqueue failed")
+		c.sendAck(-1, req.GetClientMsgId(), "", 0, "enqueue failed")
+		return
 	}
+
+	// 入队成功后发送成功 ACK. 此时消息已进入异步处理链路.
+	c.sendAck(0, req.GetClientMsgId(), msgID.String(), serverTime, "")
 }
 
 // sendAck 把 SendMessageAck 写入 client.Send. code=0 即成功 ack (msg_id 必填);
