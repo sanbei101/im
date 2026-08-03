@@ -23,16 +23,17 @@ func main() {
 	logger.InitLogger()
 	cfg := config.New()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
 	pool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
 	if err != nil {
+		cancel()
 		log.Fatal().Err(err).Msg("failed to connect to postgres")
 	}
-	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		cancel()
 		log.Fatal().Err(err).Msg("failed to ping postgres")
 	}
 	log.Info().Msg("connected to postgres")
@@ -56,14 +57,19 @@ func main() {
 	}
 
 	go func() {
-		http.ListenAndServe(":6061", nil)
+		if err := http.ListenAndServe(":6061", nil); err != nil {
+			log.Error().Err(err).Msg("pprof server stopped")
+		}
 	}()
 
 	go func() {
 		log.Info().Msg("starting API server on :8801")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			pool.Close()
+			cancel()
 			log.Fatal().Err(err).Msg("failed to start API server")
 		}
+		log.Info().Msg("API server stopped")
 	}()
 
 	<-ctx.Done()
@@ -74,5 +80,6 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("API server forced to shutdown")
 	}
+	pool.Close()
 	log.Info().Msg("API server exited")
 }

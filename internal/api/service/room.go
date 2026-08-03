@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/db"
 )
@@ -17,8 +18,8 @@ type RoomService struct {
 	db    *pgxpool.Pool
 }
 
-func NewRoomService(query *db.Queries, db *pgxpool.Pool) *RoomService {
-	return &RoomService{query: query, db: db}
+func NewRoomService(query *db.Queries, dbPool *pgxpool.Pool) *RoomService {
+	return &RoomService{query: query, db: dbPool}
 }
 
 type CreateRoomReq struct {
@@ -101,7 +102,14 @@ func (s *RoomService) CreateOrGetSingleChatRoom(
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	committed := false
+	defer func() {
+		if !committed {
+			if err := tx.Rollback(ctx); err != nil {
+				log.Error().Err(err).Msg("failed to rollback transaction")
+			}
+		}
+	}()
 	txQuery := s.query.WithTx(tx)
 	roomUUID := uuid.Must(uuid.NewV7())
 	roomName, roomAvatar := generateRoomInfo(roomUUID)
@@ -137,6 +145,7 @@ func (s *RoomService) CreateOrGetSingleChatRoom(
 	if err = tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
+	committed = true
 
 	return &RoomResp{RoomID: roomUUID.String()}, nil
 }
@@ -156,7 +165,7 @@ func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomRe
 	}
 
 	roomUUID := uuid.Must(uuid.NewV7())
-	roomName, roomUrl := generateRoomInfo(roomUUID)
+	roomName, roomURL := generateRoomInfo(roomUUID)
 	if req.Name != "" {
 		roomName = req.Name
 	}
@@ -164,7 +173,7 @@ func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomRe
 	_, err := s.query.CreateGroupRoom(ctx, db.CreateGroupRoomParams{
 		RoomID:    roomUUID,
 		Name:      roomName,
-		AvatarUrl: roomUrl,
+		AvatarUrl: roomURL,
 	})
 	if err != nil {
 		return nil, err
