@@ -29,7 +29,7 @@ func New(cfg *config.Config, m mq.MQ) *Service {
 	}
 	pgxCfg.ConnConfig.Tracer = &tracelog.TraceLog{
 		Logger:   logger.NewPgxLogger(),
-		LogLevel: tracelog.LogLevelDebug,
+		LogLevel: tracelog.LogLevelWarn,
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), pgxCfg)
 	if err != nil {
