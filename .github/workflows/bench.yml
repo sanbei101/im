@@ -168,7 +168,7 @@ jobs:
         run: |
           touch bench.log
 
-          TARGET_HOST=${{ env.SERVER_HOST }} go run ./bench &> >(tee bench.log) &
+          TARGET_HOST=${{ env.SERVER_HOST }} go run . &> >(tee bench.log) &
           BENCH_PID=$!
           echo $BENCH_PID > /tmp/bench.pid
 
