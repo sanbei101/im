@@ -1,3 +1,4 @@
+import "fast-text-encoding";
 import ws, { Socket } from "k6/ws";
 import { check } from "k6";
 import { Trend, Counter } from "k6/metrics";
