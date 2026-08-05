@@ -3,12 +3,14 @@ package worker
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/db"
 	"github.com/sanbei101/im/internal/mq"
+	"github.com/sanbei101/im/internal/pgxuuid"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
 )
@@ -30,6 +32,10 @@ func New(cfg *config.Config, m mq.MQ) *Service {
 	pgxCfg.ConnConfig.Tracer = &tracelog.TraceLog{
 		Logger:   logger.NewPgxLogger(),
 		LogLevel: tracelog.LogLevelWarn,
+	}
+	pgxCfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+		pgxuuid.Register(conn.TypeMap())
+		return nil
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), pgxCfg)
 	if err != nil {

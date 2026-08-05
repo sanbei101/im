@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/phuslu/log"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/sanbei101/im/internal/api/handler"
 	"github.com/sanbei101/im/internal/api/service"
 	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/pgxuuid"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
 )
@@ -25,7 +27,17 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
-	pool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
+	pgxCfg, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
+	if err != nil {
+		cancel()
+		log.Fatal().Err(err).Msg("failed to parse postgres config")
+	}
+	pgxCfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+		pgxuuid.Register(conn.TypeMap())
+		return nil
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, pgxCfg)
 	if err != nil {
 		cancel()
 		log.Fatal().Err(err).Msg("failed to connect to postgres")
