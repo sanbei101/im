@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ChatType string
@@ -52,6 +53,49 @@ func (ns NullChatType) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.ChatType), nil
+}
+
+type FriendRequestStatus string
+
+const (
+	FriendRequestStatusPending  FriendRequestStatus = "pending"
+	FriendRequestStatusAccepted FriendRequestStatus = "accepted"
+	FriendRequestStatusRejected FriendRequestStatus = "rejected"
+)
+
+func (e *FriendRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = FriendRequestStatus(s)
+	case string:
+		*e = FriendRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for FriendRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullFriendRequestStatus struct {
+	FriendRequestStatus FriendRequestStatus `json:"friend_request_status"`
+	Valid               bool                `json:"valid"` // Valid is true if FriendRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullFriendRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.FriendRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.FriendRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullFriendRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.FriendRequestStatus), nil
 }
 
 type MemberRole string
@@ -142,16 +186,47 @@ func (ns NullMessageType) Value() (driver.Value, error) {
 	return string(ns.MessageType), nil
 }
 
+type Block struct {
+	BlockerID uuid.UUID `json:"blocker_id"`
+	BlockedID uuid.UUID `json:"blocked_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type FriendRequest struct {
+	RequestID  uuid.UUID           `json:"request_id"`
+	SenderID   uuid.UUID           `json:"sender_id"`
+	ReceiverID uuid.UUID           `json:"receiver_id"`
+	Status     FriendRequestStatus `json:"status"`
+	CreatedAt  time.Time           `json:"created_at"`
+	UpdatedAt  time.Time           `json:"updated_at"`
+}
+
+type Friendship struct {
+	UserIDLow  uuid.UUID `json:"user_id_low"`
+	UserIDHigh uuid.UUID `json:"user_id_high"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Message struct {
-	MsgID        uuid.UUID   `json:"msg_id"`
-	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
-	SenderID     uuid.UUID   `json:"sender_id"`
-	RoomID       uuid.UUID   `json:"room_id"`
-	ServerTime   int64       `json:"server_time"`
-	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
-	MsgType      MessageType `json:"msg_type"`
-	Payload      []byte      `json:"payload"`
-	Ext          []byte      `json:"ext"`
+	MsgID        uuid.UUID          `json:"msg_id"`
+	ClientMsgID  uuid.UUID          `json:"client_msg_id"`
+	SenderID     uuid.UUID          `json:"sender_id"`
+	RoomID       uuid.UUID          `json:"room_id"`
+	ServerTime   int64              `json:"server_time"`
+	ReplyToMsgID *uuid.UUID         `json:"reply_to_msg_id"`
+	MsgType      MessageType        `json:"msg_type"`
+	Payload      []byte             `json:"payload"`
+	Ext          []byte             `json:"ext"`
+	RecalledAt   pgtype.Timestamptz `json:"recalled_at"`
+}
+
+type RefreshSession struct {
+	SessionID uuid.UUID          `json:"session_id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash []byte             `json:"token_hash"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt time.Time          `json:"created_at"`
 }
 
 type Room struct {
@@ -165,16 +240,21 @@ type Room struct {
 }
 
 type RoomMember struct {
-	RoomID   uuid.UUID  `json:"room_id"`
-	UserID   uuid.UUID  `json:"user_id"`
-	Role     MemberRole `json:"role"`
-	IsHidden bool       `json:"is_hidden"`
-	IsMuted  bool       `json:"is_muted"`
+	RoomID             uuid.UUID  `json:"room_id"`
+	UserID             uuid.UUID  `json:"user_id"`
+	Role               MemberRole `json:"role"`
+	IsHidden           bool       `json:"is_hidden"`
+	IsMuted            bool       `json:"is_muted"`
+	LastReadServerTime int64      `json:"last_read_server_time"`
 }
 
 type User struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"password"`
-	CreatedAt time.Time `json:"created_at"`
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	Password    string    `json:"password"`
+	CreatedAt   time.Time `json:"created_at"`
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

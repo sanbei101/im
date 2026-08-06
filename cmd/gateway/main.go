@@ -14,6 +14,7 @@ import (
 	"github.com/sanbei101/im/internal/gateway"
 	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
 )
 
@@ -22,6 +23,9 @@ var wg sync.WaitGroup
 func main() {
 	logger.InitLogger()
 	cfg := config.New()
+	if err := jwt.Configure(cfg.Auth.JWTSecret); err != nil {
+		log.Fatal().Err(err).Msg("failed to configure JWT")
+	}
 	redisMQ := mq.NewRedisMQ(cfg)
 	g := gateway.NewGateway(cfg, redisMQ)
 

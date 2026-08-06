@@ -11,8 +11,9 @@ import (
 // to callers and must be passed back to the same MQ implementation via
 // the corresponding Ack method.
 type Envelope[T any] struct {
-	StreamID string
-	Payload  T
+	StreamID   string
+	RetryCount int64
+	Payload    T
 }
 
 // resettable is the optional contract for T that lets Envelope.Reset() release
@@ -30,6 +31,7 @@ type DeliverTaskEnvelope = Envelope[*imv1.GatewayDeliveryTask]
 
 func (t *Envelope[T]) Reset() {
 	t.StreamID = ""
+	t.RetryCount = 0
 	// 任何实现了 Reset() 的 payload 都会在这里被回收底层数组 (protobuf-go-lite 生成的消息全部满足).
 	// 注意: 如果 T 是指针类型且 Payload 为 typed nil,调用 r.Reset() 会 panic —— 调用方需保证
 	// Payload 非 nil (本包的 pool 永远预分配非空 proto,正常路径下不会触发).

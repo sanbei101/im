@@ -28,8 +28,8 @@ CREATE TABLE rooms (
 );
 
 CREATE TABLE room_members (
-    room_id uuid NOT NULL,
-    user_id uuid NOT NULL,
+    room_id uuid NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     role member_role NOT NULL DEFAULT 'member',
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
     is_muted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -40,18 +40,20 @@ CREATE TABLE room_members (
 CREATE TABLE messages (
     msg_id uuid PRIMARY KEY DEFAULT uuidv7(),
     client_msg_id uuid NOT NULL,
-    sender_id uuid NOT NULL,
-    room_id uuid NOT NULL,
+    sender_id uuid NOT NULL REFERENCES users(user_id),
+    room_id uuid NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
     server_time BIGINT NOT NULL,
     reply_to_msg_id uuid DEFAULT NULL,
     msg_type message_type NOT NULL,
     payload BYTEA NOT NULL,
-    ext BYTEA DEFAULT NULL
+    ext BYTEA DEFAULT NULL,
+    UNIQUE (sender_id, client_msg_id),
+    FOREIGN KEY (reply_to_msg_id) REFERENCES messages(msg_id) ON DELETE SET NULL
 );
 -- 用于查询"某个 Room 的所有成员"
 CREATE INDEX idx_room_members_user_id ON room_members (user_id);
 -- 客户端进入某个 Room 时,按时间倒序拉取历史消息
-CREATE INDEX idx_messages_room_time ON messages (room_id, server_time DESC);
+CREATE INDEX idx_messages_room_time ON messages (room_id, server_time DESC, msg_id DESC);
 
 -- 用于查询"某个人发过的所有消息"
 CREATE INDEX idx_messages_sender_id ON messages (sender_id);

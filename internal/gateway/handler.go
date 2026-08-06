@@ -14,22 +14,24 @@ import (
 func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request) {
 	userID, err := gateway.authenticate(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
+		OriginPatterns: gateway.Config.Gateway.AllowedOrigins,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("gateway accept connection failed")
 		return
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(int64(gateway.Config.Gateway.MaxFrameBytes))
 
 	userClient, userSession := gateway.setupUserClient(userID, conn)
 	defer gateway.cleanUserClient(userID, userClient, userSession)
 
+	userClient.sendReady(uuid.NewString())
 	go userClient.writePump(r.Context())
 
 	userClient.readPump(r.Context())

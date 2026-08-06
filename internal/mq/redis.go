@@ -24,11 +24,12 @@ var (
 )
 
 const (
-	streamInbound = "message:inbound"
-	streamDeliver = "message:deliver"
-	workerGroup   = "worker_group"
-	gatewayGroup  = "gateway_group"
-	streamMaxLen  = 1_000_000
+	streamInbound    = "message:inbound"
+	streamDeliver    = "message:deliver"
+	streamDeadLetter = "message:dead-letter"
+	workerGroup      = "worker_group"
+	gatewayGroup     = "gateway_group"
+	streamMaxLen     = 1_000_000
 )
 
 // RedisMQ is the Redis Streams implementation of MQ.
@@ -69,7 +70,18 @@ func (r *RedisMQ) InitStreamGroups(ctx context.Context) error {
 // WorkerPullMessage reads up to `batch` inbound messages from the worker
 // group. Returns nil, nil if there is nothing to read.
 func (r *RedisMQ) WorkerPullMessage(ctx context.Context, batch int64) ([]*InboundMsgEnvelope, error) {
-	return r.pullFromStream(ctx, streamInbound, workerGroup, WorkerName, batch)
+	if pending, err := r.pullFromStream(
+		ctx,
+		streamInbound,
+		workerGroup,
+		WorkerName,
+		"0",
+		batch,
+	); err != nil ||
+		len(pending) > 0 {
+		return pending, err
+	}
+	return r.pullFromStream(ctx, streamInbound, workerGroup, WorkerName, ">", batch)
 }
 
 // WorkerEnqueueDeliveryTask pipelines each task into the deliver stream with an
@@ -87,8 +99,7 @@ func (r *RedisMQ) WorkerEnqueueDeliveryTask(ctx context.Context, tasks []*Delive
 		}
 		bin, err := task.Payload.MarshalVT()
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal GatewayDeliveryTask")
-			continue
+			return fmt.Errorf("marshal GatewayDeliveryTask: %w", err)
 		}
 		pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: streamDeliver,
@@ -106,20 +117,56 @@ func (r *RedisMQ) WorkerAckMessage(ctx context.Context, ids ...string) error {
 	return r.ack(ctx, streamInbound, workerGroup, ids...)
 }
 
+func (r *RedisMQ) WorkerEnqueueDeadLetter(ctx context.Context, msg *InboundMsgEnvelope, reason string) error {
+	if msg == nil {
+		return errors.New("nil dead-letter message")
+	}
+	values := map[string]any{
+		"stream_id":   msg.StreamID,
+		"reason":      reason,
+		"retry_count": msg.RetryCount,
+	}
+	if msg.Payload != nil {
+		bin, err := msg.Payload.MarshalVT()
+		if err != nil {
+			return fmt.Errorf("marshal dead-letter payload: %w", err)
+		}
+		values["data"] = unsafe.String(unsafe.SliceData(bin), len(bin))
+	}
+	if err := r.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: streamDeadLetter,
+		MaxLen: streamMaxLen,
+		Approx: true,
+		Values: values,
+	}).Err(); err != nil {
+		return fmt.Errorf("xadd dead-letter failed: %w", err)
+	}
+	return nil
+}
+
 // GatewayPullDeliveryTask reads up to `batch` delivery tasks for the gateway.
 func (r *RedisMQ) GatewayPullDeliveryTask(ctx context.Context, batch int64) ([]*DeliverTaskEnvelope, error) {
+	pending, err := r.pullDeliveryTasks(ctx, "0", batch)
+	if err != nil || len(pending) > 0 {
+		return pending, err
+	}
+	return r.pullDeliveryTasks(ctx, ">", batch)
+}
+
+func (r *RedisMQ) pullDeliveryTasks(ctx context.Context, startID string, batch int64) ([]*DeliverTaskEnvelope, error) {
+	block := 5 * time.Second
+	if startID == "0" {
+		block = 0
+	}
 	result, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    gatewayGroup,
-		Consumer: GatewayName,
-		Streams:  []string{streamDeliver, ">"},
-		Count:    batch,
-		Block:    5 * time.Second,
+		Group: gatewayGroup, Consumer: GatewayName,
+		Streams: []string{streamDeliver, startID}, Count: batch, Block: block,
 	}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("xread group failed: %w", err)
+		return nil, fmt.Errorf("xread delivery group failed: %w", err)
 	}
 	if len(result) == 0 {
 		return nil, nil
@@ -129,12 +176,12 @@ func (r *RedisMQ) GatewayPullDeliveryTask(ctx context.Context, batch int64) ([]*
 	for _, msg := range result[0].Messages {
 		data, ok := msg.Values["data"].(string)
 		if !ok {
-			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
+			log.Error().Str("stream_id", msg.ID).Msg("missing delivery data field")
 			continue
 		}
 		task := AcquireDeliveryTask()
 		if err := task.Payload.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
-			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal GatewayDeliveryTask")
+			log.Error().Str("stream_id", msg.ID).Err(err).Msg("unmarshal GatewayDeliveryTask failed")
 			ReleaseDeliveryTask(task)
 			continue
 		}
@@ -158,15 +205,20 @@ func (r *RedisMQ) GatewayAckMessage(ctx context.Context, ids ...string) error {
 // pullFromStream is the shared read path used by the worker consumer.
 func (r *RedisMQ) pullFromStream(
 	ctx context.Context,
-	stream, group, consumer string,
+	stream, group, consumer, startID string,
 	batch int64,
 ) ([]*InboundMsgEnvelope, error) {
 	result, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,
-		Streams:  []string{stream, ">"},
+		Streams:  []string{stream, startID},
 		Count:    batch,
-		Block:    5 * time.Second,
+		Block: func() time.Duration {
+			if startID == "0" {
+				return 0
+			}
+			return 5 * time.Second
+		}(),
 	}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -178,19 +230,39 @@ func (r *RedisMQ) pullFromStream(
 		return nil, nil
 	}
 
+	counts := map[string]int64{}
+	if startID == "0" {
+		pending, pendingErr := r.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: stream, Group: group, Consumer: consumer, Start: "-", End: "+", Count: batch,
+		}).Result()
+		if pendingErr != nil && !errors.Is(pendingErr, redis.Nil) {
+			return nil, fmt.Errorf("read pending delivery counts: %w", pendingErr)
+		}
+		for _, item := range pending {
+			counts[item.ID] = item.RetryCount
+		}
+	}
+
 	messages := make([]*InboundMsgEnvelope, 0, len(result[0].Messages))
 	for _, msg := range result[0].Messages {
+		envelope := &InboundMsgEnvelope{StreamID: msg.ID, RetryCount: counts[msg.ID]}
+		if envelope.RetryCount == 0 {
+			envelope.RetryCount = 1
+		}
 		data, ok := msg.Values["data"].(string)
 		if !ok {
 			log.Error().Str("id", msg.ID).Msg("Missing 'data' field in stream message")
+			messages = append(messages, envelope)
 			continue
 		}
 		p := &imv1.Message{}
 		if err := p.UnmarshalVT(unsafe.Slice(unsafe.StringData(data), len(data))); err != nil {
 			log.Error().Str("id", msg.ID).Err(err).Msg("Failed to unmarshal Message")
+			messages = append(messages, envelope)
 			continue
 		}
-		messages = append(messages, &InboundMsgEnvelope{StreamID: msg.ID, Payload: p})
+		envelope.Payload = p
+		messages = append(messages, envelope)
 	}
 	return messages, nil
 }

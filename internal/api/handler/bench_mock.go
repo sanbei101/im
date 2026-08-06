@@ -23,7 +23,7 @@ func (h *BenchMockHandler) CreateMock(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.svc.CreateMock(r.Context(), req)
 	if err != nil {
-		render.Error(w, http.StatusInternalServerError, err.Error())
+		render.Error(w, http.StatusInternalServerError, "failed to create bench mock")
 		return
 	}
 

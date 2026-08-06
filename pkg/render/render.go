@@ -9,6 +9,8 @@ import (
 	"github.com/phuslu/log"
 )
 
+const maxBodyBytes = 1 << 20
+
 var validate = validator.New()
 
 func init() {
@@ -73,6 +75,7 @@ func Error(w http.ResponseWriter, code int, msg string) {
 
 func ReadBody[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	var body T
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 	if err := json.UnmarshalRead(r.Body, &body); err != nil {
 		log.Error().Err(err).Msg("Failed to read request body")

@@ -5,13 +5,14 @@ import (
 
 	"github.com/phuslu/log"
 
+	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
 	"github.com/sanbei101/im/internal/mq"
 )
 
 func (gateway *Gateway) HandleWorkerMessages(ctx context.Context) {
 	err := gateway.MQ.InitStreamGroups(context.Background())
 	if err != nil {
-		log.Panic().Err(err).Msg("gateway init stream groups failed")
+		log.Error().Err(err).Msg("gateway init stream groups failed")
 		return
 	}
 	for {
@@ -43,38 +44,52 @@ func (gateway *Gateway) pollAndProcess(ctx context.Context) {
 
 func (gateway *Gateway) processTasks(ctx context.Context, tasks []*mq.DeliverTaskEnvelope) {
 	streamIDs := make([]string, 0, len(tasks))
-	userMessages := make(map[string][]byte)
 
 	for _, task := range tasks {
-		if task.Payload == nil || task.Payload.Message == nil {
-			log.Error().Str("stream_id", task.StreamID).Msg("nil Message in delivery task")
-			mq.ReleaseDeliveryTask(task)
+		if task == nil {
 			continue
 		}
 		streamIDs = append(streamIDs, task.StreamID)
-
-		push := task.Payload.Message
-		bin := make([]byte, push.SizeVT())
-		n, err := push.MarshalToVT(bin)
-		if err != nil {
-			log.Error().Err(err).Str("stream_id", task.StreamID).Msg("marshal Message failed")
+		if task.Payload == nil {
+			log.Error().Str("stream_id", task.StreamID).Msg("nil delivery task payload")
+			mq.ReleaseDeliveryTask(task)
 			continue
 		}
-		bin = bin[:n]
 
+		var frame *imv1.ServerFrame
+		switch {
+		case task.Payload.GetMessage() != nil:
+			frame = &imv1.ServerFrame{Payload: &imv1.ServerFrame_Message{Message: task.Payload.GetMessage()}}
+		case task.Payload.GetFailed() != nil:
+			clientMsgID := task.Payload.GetClientMsgId()
+			frame = &imv1.ServerFrame{
+				ClientMsgId: &clientMsgID,
+				Payload:     &imv1.ServerFrame_Failed{Failed: task.Payload.GetFailed()},
+			}
+		case task.Payload.GetPersisted() != nil:
+			clientMsgID := task.Payload.GetClientMsgId()
+			frame = &imv1.ServerFrame{
+				ClientMsgId: &clientMsgID,
+				Payload:     &imv1.ServerFrame_Persisted{Persisted: task.Payload.GetPersisted()},
+			}
+		default:
+			log.Error().Str("stream_id", task.StreamID).Msg("delivery task has no payload")
+			mq.ReleaseDeliveryTask(task)
+			continue
+		}
+
+		bin, err := frame.MarshalVT()
+		if err != nil {
+			log.Error().Err(err).Str("stream_id", task.StreamID).Msg("marshal delivery ServerFrame failed")
+			mq.ReleaseDeliveryTask(task)
+			continue
+		}
 		for _, uid := range task.Payload.GetTargetUserIds() {
 			if userSession, ok := gateway.UserSessionManager.Load(uid); ok {
 				userSession.Broadcast(bin)
 			}
 		}
-
 		mq.ReleaseDeliveryTask(task)
-	}
-
-	for uid, msgs := range userMessages {
-		if userSession, ok := gateway.UserSessionManager.Load(uid); ok {
-			userSession.Broadcast(msgs)
-		}
 	}
 
 	if err := gateway.MQ.GatewayAckMessage(ctx, streamIDs...); err != nil {

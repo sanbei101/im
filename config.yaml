@@ -1,5 +1,15 @@
+auth:
+  jwt_secret: "" # required via JWT_SECRET in non-test environments
+
+api:
+  allowed_origins:
+    - http://localhost:3000
+
 gateway:
   max_timeout: 10
+  max_frame_bytes: 1048576
+  allowed_origins:
+    - http://localhost:3000
 
 postgres:
   dsn: "host=154.8.213.38 port=5433 user=myuser password=mypassword dbname=database sslmode=disable"

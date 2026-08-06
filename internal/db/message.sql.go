@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -103,6 +104,30 @@ func (q *Queries) CreateRoom(ctx context.Context, arg CreateRoomParams) (uuid.UU
 	return room_id, err
 }
 
+const deleteRoom = `-- name: DeleteRoom :exec
+DELETE FROM rooms WHERE room_id = $1
+`
+
+func (q *Queries) DeleteRoom(ctx context.Context, roomID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteRoom, roomID)
+	return err
+}
+
+const deleteRoomMember = `-- name: DeleteRoomMember :exec
+DELETE FROM room_members
+WHERE room_id = $1 AND user_id = $2
+`
+
+type DeleteRoomMemberParams struct {
+	RoomID uuid.UUID `json:"room_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteRoomMember(ctx context.Context, arg DeleteRoomMemberParams) error {
+	_, err := q.db.Exec(ctx, deleteRoomMember, arg.RoomID, arg.UserID)
+	return err
+}
+
 const getMembersByRoomIDs = `-- name: GetMembersByRoomIDs :many
 SELECT room_id, user_id FROM room_members WHERE room_id = ANY($1::uuid[])
 `
@@ -132,6 +157,51 @@ func (q *Queries) GetMembersByRoomIDs(ctx context.Context, roomIds []uuid.UUID) 
 	return items, nil
 }
 
+const getMessageByClientID = `-- name: GetMessageByClientID :one
+SELECT msg_id, client_msg_id, sender_id, room_id, msg_type, server_time, reply_to_msg_id, payload, ext,
+       (recalled_at IS NOT NULL)::boolean AS is_recalled
+FROM messages
+WHERE sender_id = $1
+  AND client_msg_id = $2
+LIMIT 1
+`
+
+type GetMessageByClientIDParams struct {
+	SenderID    uuid.UUID `json:"sender_id"`
+	ClientMsgID uuid.UUID `json:"client_msg_id"`
+}
+
+type GetMessageByClientIDRow struct {
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	MsgType      MessageType `json:"msg_type"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
+	IsRecalled   bool        `json:"is_recalled"`
+}
+
+func (q *Queries) GetMessageByClientID(ctx context.Context, arg GetMessageByClientIDParams) (*GetMessageByClientIDRow, error) {
+	row := q.db.QueryRow(ctx, getMessageByClientID, arg.SenderID, arg.ClientMsgID)
+	var i GetMessageByClientIDRow
+	err := row.Scan(
+		&i.MsgID,
+		&i.ClientMsgID,
+		&i.SenderID,
+		&i.RoomID,
+		&i.MsgType,
+		&i.ServerTime,
+		&i.ReplyToMsgID,
+		&i.Payload,
+		&i.Ext,
+		&i.IsRecalled,
+	)
+	return &i, err
+}
+
 const getRoomByHash = `-- name: GetRoomByHash :one
 SELECT room_id, chat_type, name, avatar_url, single_chat_hash, created_at, updated_at
 FROM rooms
@@ -154,22 +224,102 @@ func (q *Queries) GetRoomByHash(ctx context.Context, hash []byte) (*Room, error)
 	return &i, err
 }
 
+const getRoomByID = `-- name: GetRoomByID :one
+SELECT room_id, chat_type, name, avatar_url, single_chat_hash, created_at, updated_at
+FROM rooms
+WHERE room_id = $1
+`
+
+func (q *Queries) GetRoomByID(ctx context.Context, roomID uuid.UUID) (*Room, error) {
+	row := q.db.QueryRow(ctx, getRoomByID, roomID)
+	var i Room
+	err := row.Scan(
+		&i.RoomID,
+		&i.ChatType,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.SingleChatHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const getRoomMemberRole = `-- name: GetRoomMemberRole :one
+SELECT role
+FROM room_members
+WHERE room_id = $1 AND user_id = $2
+`
+
+type GetRoomMemberRoleParams struct {
+	RoomID uuid.UUID `json:"room_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetRoomMemberRole(ctx context.Context, arg GetRoomMemberRoleParams) (MemberRole, error) {
+	row := q.db.QueryRow(ctx, getRoomMemberRole, arg.RoomID, arg.UserID)
+	var role MemberRole
+	err := row.Scan(&role)
+	return role, err
+}
+
+const getRoomMemberSettings = `-- name: GetRoomMemberSettings :one
+SELECT is_hidden, is_muted
+FROM room_members
+WHERE room_id = $1 AND user_id = $2
+`
+
+type GetRoomMemberSettingsParams struct {
+	RoomID uuid.UUID `json:"room_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+type GetRoomMemberSettingsRow struct {
+	IsHidden bool `json:"is_hidden"`
+	IsMuted  bool `json:"is_muted"`
+}
+
+func (q *Queries) GetRoomMemberSettings(ctx context.Context, arg GetRoomMemberSettingsParams) (*GetRoomMemberSettingsRow, error) {
+	row := q.db.QueryRow(ctx, getRoomMemberSettings, arg.RoomID, arg.UserID)
+	var i GetRoomMemberSettingsRow
+	err := row.Scan(&i.IsHidden, &i.IsMuted)
+	return &i, err
+}
+
 const getUserRooms = `-- name: GetUserRooms :many
-SELECT r.room_id, r.chat_type, r.name, r.avatar_url, r.single_chat_hash, r.created_at, r.updated_at
+SELECT r.room_id, r.chat_type, r.name, r.avatar_url, r.single_chat_hash, r.created_at, r.updated_at,
+       rm.is_hidden, rm.is_muted,
+       COALESCE((SELECT m.server_time FROM messages m WHERE m.room_id = r.room_id ORDER BY m.server_time DESC, m.msg_id DESC LIMIT 1), 0)::bigint AS last_message_server_time,
+       (SELECT COUNT(*)::bigint FROM messages m2 WHERE m2.room_id = r.room_id AND m2.sender_id <> rm.user_id AND m2.server_time > rm.last_read_server_time AND m2.recalled_at IS NULL)::bigint AS unread_count
 FROM rooms r
 INNER JOIN room_members rm ON r.room_id = rm.room_id
 WHERE rm.user_id = $1
+ORDER BY last_message_server_time DESC, r.room_id
 `
 
-func (q *Queries) GetUserRooms(ctx context.Context, userID uuid.UUID) ([]*Room, error) {
+type GetUserRoomsRow struct {
+	RoomID                uuid.UUID `json:"room_id"`
+	ChatType              ChatType  `json:"chat_type"`
+	Name                  string    `json:"name"`
+	AvatarUrl             string    `json:"avatar_url"`
+	SingleChatHash        []byte    `json:"single_chat_hash"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
+	IsHidden              bool      `json:"is_hidden"`
+	IsMuted               bool      `json:"is_muted"`
+	LastMessageServerTime int64     `json:"last_message_server_time"`
+	UnreadCount           int64     `json:"unread_count"`
+}
+
+func (q *Queries) GetUserRooms(ctx context.Context, userID uuid.UUID) ([]*GetUserRoomsRow, error) {
 	rows, err := q.db.Query(ctx, getUserRooms, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []*Room{}
+	items := []*GetUserRoomsRow{}
 	for rows.Next() {
-		var i Room
+		var i GetUserRoomsRow
 		if err := rows.Scan(
 			&i.RoomID,
 			&i.ChatType,
@@ -178,6 +328,165 @@ func (q *Queries) GetUserRooms(ctx context.Context, userID uuid.UUID) ([]*Room, 
 			&i.SingleChatHash,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsHidden,
+			&i.IsMuted,
+			&i.LastMessageServerTime,
+			&i.UnreadCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertMessage = `-- name: InsertMessage :one
+INSERT INTO messages (
+    msg_id, client_msg_id, sender_id, room_id, msg_type, server_time,
+    reply_to_msg_id, payload, ext
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7,
+    $8, $9
+)
+ON CONFLICT (sender_id, client_msg_id) DO NOTHING
+RETURNING msg_id, client_msg_id, sender_id, room_id, msg_type, server_time, reply_to_msg_id, payload, ext
+`
+
+type InsertMessageParams struct {
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	MsgType      MessageType `json:"msg_type"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
+}
+
+type InsertMessageRow struct {
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	MsgType      MessageType `json:"msg_type"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
+}
+
+func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (*InsertMessageRow, error) {
+	row := q.db.QueryRow(ctx, insertMessage,
+		arg.MsgID,
+		arg.ClientMsgID,
+		arg.SenderID,
+		arg.RoomID,
+		arg.MsgType,
+		arg.ServerTime,
+		arg.ReplyToMsgID,
+		arg.Payload,
+		arg.Ext,
+	)
+	var i InsertMessageRow
+	err := row.Scan(
+		&i.MsgID,
+		&i.ClientMsgID,
+		&i.SenderID,
+		&i.RoomID,
+		&i.MsgType,
+		&i.ServerTime,
+		&i.ReplyToMsgID,
+		&i.Payload,
+		&i.Ext,
+	)
+	return &i, err
+}
+
+const isRoomMember = `-- name: IsRoomMember :one
+SELECT EXISTS (
+    SELECT 1
+    FROM room_members
+    WHERE room_id = $1
+      AND user_id = $2
+)
+`
+
+type IsRoomMemberParams struct {
+	RoomID uuid.UUID `json:"room_id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) IsRoomMember(ctx context.Context, arg IsRoomMemberParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isRoomMember, arg.RoomID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listMessagesAfterTime = `-- name: ListMessagesAfterTime :many
+SELECT
+    m.msg_id,
+    m.client_msg_id,
+    m.sender_id,
+    m.room_id,
+    m.msg_type,
+    m.server_time,
+    m.reply_to_msg_id,
+    m.payload,
+    m.ext,
+    (m.recalled_at IS NOT NULL)::boolean AS is_recalled
+FROM messages m
+INNER JOIN room_members rm ON rm.room_id = m.room_id
+WHERE rm.user_id = $1
+  AND m.server_time > $2
+ORDER BY m.server_time ASC, m.msg_id ASC
+LIMIT $3
+`
+
+type ListMessagesAfterTimeParams struct {
+	UserID          uuid.UUID `json:"user_id"`
+	AfterServerTime int64     `json:"after_server_time"`
+	PageSize        int32     `json:"page_size"`
+}
+
+type ListMessagesAfterTimeRow struct {
+	MsgID        uuid.UUID   `json:"msg_id"`
+	ClientMsgID  uuid.UUID   `json:"client_msg_id"`
+	SenderID     uuid.UUID   `json:"sender_id"`
+	RoomID       uuid.UUID   `json:"room_id"`
+	MsgType      MessageType `json:"msg_type"`
+	ServerTime   int64       `json:"server_time"`
+	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
+	Payload      []byte      `json:"payload"`
+	Ext          []byte      `json:"ext"`
+	IsRecalled   bool        `json:"is_recalled"`
+}
+
+func (q *Queries) ListMessagesAfterTime(ctx context.Context, arg ListMessagesAfterTimeParams) ([]*ListMessagesAfterTimeRow, error) {
+	rows, err := q.db.Query(ctx, listMessagesAfterTime, arg.UserID, arg.AfterServerTime, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ListMessagesAfterTimeRow{}
+	for rows.Next() {
+		var i ListMessagesAfterTimeRow
+		if err := rows.Scan(
+			&i.MsgID,
+			&i.ClientMsgID,
+			&i.SenderID,
+			&i.RoomID,
+			&i.MsgType,
+			&i.ServerTime,
+			&i.ReplyToMsgID,
+			&i.Payload,
+			&i.Ext,
+			&i.IsRecalled,
 		); err != nil {
 			return nil, err
 		}
@@ -199,11 +508,12 @@ SELECT
     server_time,
     reply_to_msg_id,
     payload,
-    ext
+    ext,
+    (recalled_at IS NOT NULL)::boolean AS is_recalled
 FROM messages
 WHERE room_id = $1
   AND server_time < $2
-ORDER BY server_time DESC
+ORDER BY server_time DESC, msg_id DESC
 LIMIT $3
 `
 
@@ -223,6 +533,7 @@ type ListMessagesByRoomRow struct {
 	ReplyToMsgID *uuid.UUID  `json:"reply_to_msg_id"`
 	Payload      []byte      `json:"payload"`
 	Ext          []byte      `json:"ext"`
+	IsRecalled   bool        `json:"is_recalled"`
 }
 
 func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoomParams) ([]*ListMessagesByRoomRow, error) {
@@ -244,6 +555,7 @@ func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoom
 			&i.ReplyToMsgID,
 			&i.Payload,
 			&i.Ext,
+			&i.IsRecalled,
 		); err != nil {
 			return nil, err
 		}
@@ -253,4 +565,138 @@ func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoom
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRoomMembers = `-- name: ListRoomMembers :many
+SELECT rm.user_id, rm.role, rm.is_hidden, rm.is_muted,
+       u.username, u.display_name, u.avatar_url, u.bio
+FROM room_members rm
+JOIN users u ON u.user_id = rm.user_id
+WHERE rm.room_id = $1
+ORDER BY CASE rm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, rm.user_id
+`
+
+type ListRoomMembersRow struct {
+	UserID      uuid.UUID  `json:"user_id"`
+	Role        MemberRole `json:"role"`
+	IsHidden    bool       `json:"is_hidden"`
+	IsMuted     bool       `json:"is_muted"`
+	Username    string     `json:"username"`
+	DisplayName string     `json:"display_name"`
+	AvatarUrl   string     `json:"avatar_url"`
+	Bio         string     `json:"bio"`
+}
+
+func (q *Queries) ListRoomMembers(ctx context.Context, roomID uuid.UUID) ([]*ListRoomMembersRow, error) {
+	rows, err := q.db.Query(ctx, listRoomMembers, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ListRoomMembersRow{}
+	for rows.Next() {
+		var i ListRoomMembersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Role,
+			&i.IsHidden,
+			&i.IsMuted,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.Bio,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recallMessage = `-- name: RecallMessage :one
+UPDATE messages
+SET recalled_at = NOW()
+WHERE msg_id = $1
+  AND sender_id = $2
+  AND recalled_at IS NULL
+  AND server_time >= (EXTRACT(EPOCH FROM (NOW() - INTERVAL '2 minutes')) * 1000000)::bigint
+RETURNING msg_id, room_id, server_time
+`
+
+type RecallMessageParams struct {
+	MsgID    uuid.UUID `json:"msg_id"`
+	SenderID uuid.UUID `json:"sender_id"`
+}
+
+type RecallMessageRow struct {
+	MsgID      uuid.UUID `json:"msg_id"`
+	RoomID     uuid.UUID `json:"room_id"`
+	ServerTime int64     `json:"server_time"`
+}
+
+func (q *Queries) RecallMessage(ctx context.Context, arg RecallMessageParams) (*RecallMessageRow, error) {
+	row := q.db.QueryRow(ctx, recallMessage, arg.MsgID, arg.SenderID)
+	var i RecallMessageRow
+	err := row.Scan(&i.MsgID, &i.RoomID, &i.ServerTime)
+	return &i, err
+}
+
+const updateRoomMemberRole = `-- name: UpdateRoomMemberRole :exec
+UPDATE room_members
+SET role = $1
+WHERE room_id = $2 AND user_id = $3
+`
+
+type UpdateRoomMemberRoleParams struct {
+	Role   MemberRole `json:"role"`
+	RoomID uuid.UUID  `json:"room_id"`
+	UserID uuid.UUID  `json:"user_id"`
+}
+
+func (q *Queries) UpdateRoomMemberRole(ctx context.Context, arg UpdateRoomMemberRoleParams) error {
+	_, err := q.db.Exec(ctx, updateRoomMemberRole, arg.Role, arg.RoomID, arg.UserID)
+	return err
+}
+
+const updateRoomMemberSettings = `-- name: UpdateRoomMemberSettings :exec
+UPDATE room_members
+SET is_hidden = $1, is_muted = $2
+WHERE room_id = $3 AND user_id = $4
+`
+
+type UpdateRoomMemberSettingsParams struct {
+	IsHidden bool      `json:"is_hidden"`
+	IsMuted  bool      `json:"is_muted"`
+	RoomID   uuid.UUID `json:"room_id"`
+	UserID   uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UpdateRoomMemberSettings(ctx context.Context, arg UpdateRoomMemberSettingsParams) error {
+	_, err := q.db.Exec(ctx, updateRoomMemberSettings,
+		arg.IsHidden,
+		arg.IsMuted,
+		arg.RoomID,
+		arg.UserID,
+	)
+	return err
+}
+
+const updateRoomReadCursor = `-- name: UpdateRoomReadCursor :exec
+UPDATE room_members
+SET last_read_server_time = GREATEST(last_read_server_time, $1)
+WHERE room_id = $2 AND user_id = $3
+`
+
+type UpdateRoomReadCursorParams struct {
+	LastReadServerTime int64     `json:"last_read_server_time"`
+	RoomID             uuid.UUID `json:"room_id"`
+	UserID             uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UpdateRoomReadCursor(ctx context.Context, arg UpdateRoomReadCursorParams) error {
+	_, err := q.db.Exec(ctx, updateRoomReadCursor, arg.LastReadServerTime, arg.RoomID, arg.UserID)
+	return err
 }

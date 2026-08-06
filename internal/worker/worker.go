@@ -22,6 +22,7 @@ const (
 type Service struct {
 	mq      mq.MQ
 	queries *db.Queries
+	pool    *pgxpool.Pool
 }
 
 func New(cfg *config.Config, m mq.MQ) *Service {
@@ -47,12 +48,15 @@ func New(cfg *config.Config, m mq.MQ) *Service {
 	return &Service{
 		mq:      m,
 		queries: db.New(pool),
+		pool:    pool,
 	}
 }
 
 func (s *Service) Run(ctx context.Context) {
+	defer s.pool.Close()
 	if err := s.mq.InitStreamGroups(ctx); err != nil {
-		log.Panic().Err(err).Msg("worker consume group init failed")
+		log.Error().Err(err).Msg("worker consume group init failed")
+		return
 	}
 	for {
 		select {

@@ -144,11 +144,17 @@ func getEnv(key, def string) string {
 }
 
 func createBenchMock(ctx context.Context) (*BatchMockResp, error) {
-	body, _ := json.Marshal(map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"single_room_num": SingleRoomNum,
 		"group_room":      GroupRoom,
 	})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, apiBase()+"/api/v1/bench/mock", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("createBenchMock marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase()+"/api/v1/bench/mock", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("createBenchMock request: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -158,7 +164,10 @@ func createBenchMock(ctx context.Context) (*BatchMockResp, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("createBenchMock status=%d read body: %w", resp.StatusCode, err)
+		}
 		return nil, fmt.Errorf("createBenchMock: status=%d body=%s", resp.StatusCode, string(b))
 	}
 
@@ -186,8 +195,8 @@ func flattenMockData(b *BatchMockResp) []VuConfig {
 
 // ===================== 5. VU 主循环 =====================
 
-// runVU 模拟单个 VU: 建立 WebSocket, 每 500ms 发一条 SendMessageReq,
-// 解析回包并匹配 client_msg_id 记录延迟, 关闭时把未匹配的累积到计数器.
+// runVU 模拟单个 VU: 建立 WebSocket, 每 500ms 发一条 ClientFrame,
+// 解析 ServerFrame 回包并匹配 client_msg_id 记录延迟.
 func runVU(ctx context.Context, vuIndex int, cfg *VuConfig, latency *trend, unmatched *atomic.Int64) {
 	dialCtx, cancel := context.WithTimeout(ctx, DialTimeout)
 	defer cancel()
@@ -221,13 +230,11 @@ func runVU(ctx context.Context, vuIndex int, cfg *VuConfig, latency *trend, unma
 			if mt != websocket.MessageBinary {
 				continue
 			}
-			// 服务端 ack 走 SendMessageAck (字段 1 是 client_msg_id);
-			// 错误路径也用 SendMessageAck, code!=0 时 err_msg 有值.
-			var ack imv1.SendMessageAck
-			if err := ack.UnmarshalVT(data); err != nil {
+			var frame imv1.ServerFrame
+			if err := frame.UnmarshalVT(data); err != nil {
 				continue
 			}
-			id := ack.GetClientMsgId()
+			id := frame.GetClientMsgId()
 			if id == "" {
 				continue
 			}
@@ -268,12 +275,15 @@ func runVU(ctx context.Context, vuIndex int, cfg *VuConfig, latency *trend, unma
 				continue
 			}
 			req := &imv1.SendMessageReq{
-				ClientMsgId: &id,
-				RoomId:      &cfg.RoomID,
-				MsgType:     new(imv1.MessageType_MESSAGE_TYPE_TEXT),
-				Payload:     payloadBytes,
+				RoomId:  &cfg.RoomID,
+				MsgType: new(imv1.MessageType_MESSAGE_TYPE_TEXT),
+				Payload: payloadBytes,
 			}
-			data, err := req.MarshalVT()
+			frame := &imv1.ClientFrame{
+				ClientMsgId: &id,
+				Payload:     &imv1.ClientFrame_SendMessage{SendMessage: req},
+			}
+			data, err := frame.MarshalVT()
 			if err != nil {
 				log.Printf("%smarshal req: %v", vuLabel, err)
 				pending.Delete(id)

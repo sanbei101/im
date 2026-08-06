@@ -18,12 +18,16 @@ import (
 	"github.com/sanbei101/im/internal/db"
 	"github.com/sanbei101/im/internal/pgxuuid"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
 )
 
 func main() {
 	logger.InitLogger()
 	cfg := config.New()
+	if err := jwt.Configure(cfg.Auth.JWTSecret); err != nil {
+		log.Fatal().Err(err).Msg("failed to configure JWT")
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
@@ -51,17 +55,19 @@ func main() {
 	log.Info().Msg("connected to postgres")
 
 	query := db.New(pool)
-	userSvc := service.NewUserService(query)
+	userSvc := service.NewUserService(query, pool)
 	userHandler := handler.NewUserHandler(userSvc)
 	messageSvc := service.NewMessageService(query)
 	messageHandler := handler.NewMessageHandler(messageSvc)
 	roomSvc := service.NewRoomService(query, pool)
 	roomHandler := handler.NewRoomHandler(roomSvc)
+	friendSvc := service.NewFriendService(query, pool)
+	friendHandler := handler.NewFriendHandler(friendSvc)
 
 	benchSvc := service.NewBenchMockService(query)
 	benchHandler := handler.NewBenchMockHandler(benchSvc)
 
-	r := api.SetupRouter(userHandler, messageHandler, roomHandler, benchHandler)
+	r := api.SetupRouter(userHandler, messageHandler, roomHandler, friendHandler, benchHandler, cfg.API.AllowedOrigins)
 
 	srv := &http.Server{
 		Addr:    ":8801",

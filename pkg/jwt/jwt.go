@@ -7,28 +7,23 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/cristalhq/jwt/v5"
-	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/pkg/render"
 )
 
-const (
-	jwtExpiration = 7 * 24 * time.Hour
-)
+const jwtExpiration = 15 * time.Minute
+
+var ErrNotConfigured = errors.New("jwt is not configured")
 
 type contextKey string
 
-const (
-	userIDKey contextKey = "user_id"
-)
+const userIDKey contextKey = "user_id"
 
 var (
 	jwtSigner   jwt.Signer
 	jwtVerifier jwt.Verifier
-	jwtSecret   = []byte("blue-book-secret-key")
 )
 
 type userClaims struct {
@@ -36,19 +31,29 @@ type userClaims struct {
 	jwt.RegisteredClaims
 }
 
-func init() {
-	var err error
-	jwtSigner, err = jwt.NewSignerHS(jwt.HS256, jwtSecret)
-	if err != nil {
-		log.Fatal().Err(err).Msg("初始化 JWT 签名器失败")
+// Configure installs the signing key once during service startup.
+func Configure(secret string) error {
+	if secret == "" {
+		return errors.New("jwt secret is required")
 	}
-	jwtVerifier, err = jwt.NewVerifierHS(jwt.HS256, jwtSecret)
+
+	signer, err := jwt.NewSignerHS(jwt.HS256, []byte(secret))
 	if err != nil {
-		log.Fatal().Err(err).Msg("初始化 JWT 验证器失败")
+		return err
 	}
+	verifier, err := jwt.NewVerifierHS(jwt.HS256, []byte(secret))
+	if err != nil {
+		return err
+	}
+	jwtSigner = signer
+	jwtVerifier = verifier
+	return nil
 }
 
 func GenerateToken(userID string) (string, error) {
+	if jwtSigner == nil {
+		return "", ErrNotConfigured
+	}
 	c := userClaims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -65,23 +70,25 @@ func GenerateToken(userID string) (string, error) {
 }
 
 func ParseToken(tokenStr string) (string, error) {
+	if jwtVerifier == nil {
+		return "", ErrNotConfigured
+	}
 	var c userClaims
-
-	tokenBytes := unsafe.Slice(unsafe.StringData(tokenStr), len(tokenStr))
-
-	if err := jwt.ParseClaims(tokenBytes, jwtVerifier, &c); err != nil {
+	if err := jwt.ParseClaims([]byte(tokenStr), jwtVerifier, &c); err != nil {
 		return "", err
 	}
-
 	if !c.IsValidAt(time.Now()) {
 		return "", errors.New("jwt token has expired")
 	}
-
 	return c.UserID, nil
 }
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if jwtVerifier == nil {
+			render.Error(w, http.StatusServiceUnavailable, "认证服务未配置")
+			return
+		}
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
 			render.Error(w, http.StatusUnauthorized, "未登录")
@@ -104,7 +111,6 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			render.Error(w, http.StatusUnauthorized, "凭证数据解析失败")
 			return
 		}
-
 		if !c.IsValidAt(time.Now()) {
 			render.Error(w, http.StatusUnauthorized, "登录已过期")
 			return

@@ -12,10 +12,36 @@ import (
 	"github.com/google/uuid"
 )
 
+const createRefreshSession = `-- name: CreateRefreshSession :one
+INSERT INTO refresh_sessions (user_id, token_hash, expires_at)
+VALUES ($1, $2, $3)
+RETURNING session_id, user_id, token_hash, expires_at, revoked_at, created_at
+`
+
+type CreateRefreshSessionParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	TokenHash []byte    `json:"token_hash"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSessionParams) (*RefreshSession, error) {
+	row := q.db.QueryRow(ctx, createRefreshSession, arg.UserID, arg.TokenHash, arg.ExpiresAt)
+	var i RefreshSession
+	err := row.Scan(
+		&i.SessionID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return &i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, password)
 VALUES ($1, $2)
-RETURNING user_id, username, created_at
+RETURNING user_id, username, display_name, avatar_url, bio, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -24,33 +50,243 @@ type CreateUserParams struct {
 }
 
 type CreateUserRow struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Username  string    `json:"username"`
-	CreatedAt time.Time `json:"created_at"`
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (*CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser, arg.Username, arg.Password)
 	var i CreateUserRow
-	err := row.Scan(&i.UserID, &i.Username, &i.CreatedAt)
+	err := row.Scan(
+		&i.UserID,
+		&i.Username,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const getRefreshSessionForUpdate = `-- name: GetRefreshSessionForUpdate :one
+SELECT session_id, user_id, token_hash, expires_at, revoked_at, created_at
+FROM refresh_sessions
+WHERE token_hash = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetRefreshSessionForUpdate(ctx context.Context, tokenHash []byte) (*RefreshSession, error) {
+	row := q.db.QueryRow(ctx, getRefreshSessionForUpdate, tokenHash)
+	var i RefreshSession
+	err := row.Scan(
+		&i.SessionID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return &i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT user_id, username, password, display_name, avatar_url, bio, created_at, updated_at
+FROM users
+WHERE user_id = $1
+LIMIT 1
+`
+
+type GetUserByIDRow struct {
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	Password    string    `json:"password"`
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, userID uuid.UUID) (*GetUserByIDRow, error) {
+	row := q.db.QueryRow(ctx, getUserByID, userID)
+	var i GetUserByIDRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Username,
+		&i.Password,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return &i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT user_id, username, password, created_at
+SELECT user_id, username, password, display_name, avatar_url, bio, created_at, updated_at
 FROM users
 WHERE username = $1
 LIMIT 1
 `
 
-func (q *Queries) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+type GetUserByUsernameRow struct {
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	Password    string    `json:"password"`
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByUsername(ctx context.Context, username string) (*GetUserByUsernameRow, error) {
 	row := q.db.QueryRow(ctx, getUserByUsername, username)
-	var i User
+	var i GetUserByUsernameRow
 	err := row.Scan(
 		&i.UserID,
 		&i.Username,
 		&i.Password,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.Bio,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const revokeRefreshSession = `-- name: RevokeRefreshSession :exec
+UPDATE refresh_sessions
+SET revoked_at = NOW()
+WHERE session_id = $1 AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeRefreshSession(ctx context.Context, sessionID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, revokeRefreshSession, sessionID)
+	return err
+}
+
+const revokeUserRefreshSessions = `-- name: RevokeUserRefreshSessions :exec
+UPDATE refresh_sessions
+SET revoked_at = NOW()
+WHERE user_id = $1 AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeUserRefreshSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, revokeUserRefreshSessions, userID)
+	return err
+}
+
+const searchPublicUsers = `-- name: SearchPublicUsers :many
+SELECT user_id, username, display_name, avatar_url, bio
+FROM users
+WHERE username ILIKE '%' || $1::text || '%'
+   OR display_name ILIKE '%' || $1::text || '%'
+ORDER BY username
+LIMIT 20
+`
+
+type SearchPublicUsersRow struct {
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+}
+
+func (q *Queries) SearchPublicUsers(ctx context.Context, query string) ([]*SearchPublicUsersRow, error) {
+	rows, err := q.db.Query(ctx, searchPublicUsers, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*SearchPublicUsersRow{}
+	for rows.Next() {
+		var i SearchPublicUsersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.Bio,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users
+SET password = $1, updated_at = NOW()
+WHERE user_id = $2
+`
+
+type UpdateUserPasswordParams struct {
+	Password string    `json:"password"`
+	UserID   uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.Password, arg.UserID)
+	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET display_name = $1,
+    avatar_url = $2,
+    bio = $3,
+    updated_at = NOW()
+WHERE user_id = $4
+RETURNING user_id, username, display_name, avatar_url, bio, created_at, updated_at
+`
+
+type UpdateUserProfileParams struct {
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+type UpdateUserProfileRow struct {
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	Bio         string    `json:"bio"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (*UpdateUserProfileRow, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile,
+		arg.DisplayName,
+		arg.AvatarUrl,
+		arg.Bio,
+		arg.UserID,
+	)
+	var i UpdateUserProfileRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Username,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return &i, err
 }

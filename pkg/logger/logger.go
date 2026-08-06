@@ -4,14 +4,13 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
 
 	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/phuslu/log"
 )
 
 func InitLogger() {
-	isProd, _ := strconv.ParseBool(os.Getenv("PRODUCTION"))
+	isProd := os.Getenv("PRODUCTION") == "true"
 
 	var writer log.Writer
 

@@ -40,8 +40,8 @@ func generateMachineFingerprint(truncateLen int) string {
 	}
 
 	if len(parts) == 0 {
-		host, _ := os.Hostname()
-		if host != "" {
+		host, err := os.Hostname()
+		if err == nil && host != "" {
 			parts = append(parts, host)
 		} else {
 			parts = append(parts, "unknown")
@@ -61,7 +61,10 @@ func generateMachineFingerprint(truncateLen int) string {
 // primaryMAC returns the first non-virtual, non-loopback MAC address as a
 // hex string with colons stripped. Empty string if none is found.
 func primaryMAC() string {
-	interfaces, _ := net.Interfaces()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue

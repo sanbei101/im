@@ -67,80 +67,109 @@ func (c *UserClient) readPump(ctx context.Context) {
 }
 
 func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
-	req := &imv1.SendMessageReq{}
-	if err := req.UnmarshalVT(payload); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal SendMessageReq failed")
-		c.sendAck(-1, "", "", 0, "invalid proto")
+	frame := &imv1.ClientFrame{}
+	if err := frame.UnmarshalVT(payload); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal ClientFrame failed")
+		c.sendError("", "invalid_frame", "invalid client frame")
 		return
 	}
 
-	// Ping convention: msg_type == UNSPECIFIED is a keepalive - drop silently.
-	if req.GetMsgType() == imv1.MessageType_MESSAGE_TYPE_UNSPECIFIED {
+	clientMsgID := frame.GetClientMsgId()
+	if _, err := uuid.Parse(clientMsgID); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client frame has invalid client_msg_id")
+		c.sendError(clientMsgID, "invalid_client_msg_id", "client_msg_id must be a UUID")
+		return
+	}
+
+	if frame.GetPing() != nil {
+		c.sendFrame(&imv1.ServerFrame{
+			ClientMsgId: &clientMsgID,
+			Payload:     &imv1.ServerFrame_Pong{Pong: &imv1.Pong{}},
+		})
+		return
+	}
+
+	req := frame.GetSendMessage()
+	if req == nil {
+		c.sendError(clientMsgID, "unsupported_frame", "frame type is not supported")
 		return
 	}
 
 	msgID, err := uuid.NewV7()
 	if err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client generate msg_id failed")
-		c.sendAck(-1, req.GetClientMsgId(), "", 0, "failed to generate msg_id")
+		c.sendError(clientMsgID, "internal", "failed to accept message")
 		return
 	}
 
 	serverTime := time.Now().UnixMicro()
-
-	msg, err := sendMessageReqToMessage(req, c.UserID, msgID, serverTime)
+	msg, err := sendMessageReqToMessage(req, clientMsgID, c.UserID, msgID, serverTime)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client send message invalid")
-		c.sendAck(-1, req.GetClientMsgId(), msgID.String(), serverTime, err.Error())
+		log.Error().
+			Err(err).
+			Str("user_id", c.UserID.String()).
+			Str("client_msg_id", clientMsgID).
+			Msg("client send message invalid")
+		c.sendError(clientMsgID, "invalid_message", "invalid message")
 		return
 	}
 
-	// 先写入 MQ,确认消息已被服务端接管后再返回成功 ACK.
-	// 如果入队失败,客户端只能收到失败 ACK,避免先收到成功再收到失败.
 	if err := c.gateway.MQ.GatewayEnqueueMessage(ctx, []*imv1.Message{msg}); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client enqueue message failed")
-		c.sendAck(-1, req.GetClientMsgId(), "", 0, "enqueue failed")
+		log.Error().
+			Err(err).
+			Str("user_id", c.UserID.String()).
+			Str("client_msg_id", clientMsgID).
+			Msg("client enqueue message failed")
+		c.sendError(clientMsgID, "unavailable", "message queue unavailable")
 		return
 	}
 
-	// 入队成功后发送成功 ACK. 此时消息已进入异步处理链路.
-	c.sendAck(0, req.GetClientMsgId(), msgID.String(), serverTime, "")
+	c.sendAck(clientMsgID, msgID.String(), serverTime)
 }
 
-// sendAck 把 SendMessageAck 写入 client.Send. code=0 即成功 ack (msg_id 必填);
-// code!=0 即错误响应 (msg_id 可能为空, err_msg 必填).
-func (c *UserClient) sendAck(code int32, clientMsgID, msgID string, serverTime int64, errMsg string) {
-	ack := &imv1.SendMessageAck{
-		Code:   &code,
-		ErrMsg: &errMsg,
+func (c *UserClient) sendReady(sessionID string) {
+	serverTime := time.Now().UnixMicro()
+	c.sendFrame(&imv1.ServerFrame{
+		Payload: &imv1.ServerFrame_Ready{Ready: &imv1.Ready{
+			SessionId:  &sessionID,
+			ServerTime: &serverTime,
+		}},
+	})
+}
+
+func (c *UserClient) sendAck(clientMsgID, msgID string, serverTime int64) {
+	c.sendFrame(&imv1.ServerFrame{
+		ClientMsgId: &clientMsgID,
+		Payload: &imv1.ServerFrame_Ack{Ack: &imv1.SendMessageAck{
+			MsgId:      &msgID,
+			ServerTime: &serverTime,
+		}},
+	})
+}
+
+func (c *UserClient) sendError(clientMsgID, code, message string) {
+	frame := &imv1.ServerFrame{
+		Payload: &imv1.ServerFrame_Error{Error: &imv1.Error{
+			Code:    &code,
+			Message: &message,
+		}},
 	}
 	if clientMsgID != "" {
-		ack.ClientMsgId = &clientMsgID
+		frame.ClientMsgId = &clientMsgID
 	}
-	if msgID != "" {
-		ack.MsgId = &msgID
-	}
-	if serverTime != 0 {
-		st := serverTime
-		ack.ServerTime = &st
-	}
-	bin := make([]byte, ack.SizeVT())
-	n, err := ack.MarshalToVT(bin)
+	c.sendFrame(frame)
+}
+
+func (c *UserClient) sendFrame(frame *imv1.ServerFrame) {
+	bin, err := frame.MarshalVT()
 	if err != nil {
-		log.Error().Err(err).
-			Int32("code", code).
-			Str("err_msg", errMsg).
-			Msg("marshal SendMessageAck failed")
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("marshal ServerFrame failed")
 		return
 	}
-	bin = bin[:n]
 	select {
 	case c.Send <- bin:
 	default:
-		log.Warn().
-			Int32("code", code).
-			Str("err_msg", errMsg).
-			Msg("client send ack failed, send channel is full")
+		log.Warn().Str("user_id", c.UserID.String()).Msg("gateway client buffer full, dropping server frame")
 	}
 }
 

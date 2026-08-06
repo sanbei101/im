@@ -65,6 +65,8 @@ func (p *uuidScanPlan) Scan(src []byte, dst any) error {
 
 // Register enables direct binary UUID encoding and scanning for google/uuid.
 func Register(tm *pgtype.Map) {
-	tm.TryWrapEncodePlanFuncs = append([]pgtype.TryWrapEncodePlanFunc{tryWrapUUIDEncodePlan}, tm.TryWrapEncodePlanFuncs...)
+	tm.TryWrapEncodePlanFuncs = append(
+		[]pgtype.TryWrapEncodePlanFunc{tryWrapUUIDEncodePlan},
+		tm.TryWrapEncodePlanFuncs...)
 	tm.TryWrapScanPlanFuncs = append([]pgtype.TryWrapScanPlanFunc{tryWrapUUIDScanPlan}, tm.TryWrapScanPlanFuncs...)
 }

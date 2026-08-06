@@ -36,6 +36,10 @@ type MQ interface {
 	// the given inbound stream IDs.
 	WorkerAckMessage(ctx context.Context, ids ...string) error
 
+	// WorkerEnqueueDeadLetter preserves an inbound entry that exceeded the
+	// finite retry budget before it is acknowledged from the main stream.
+	WorkerEnqueueDeadLetter(ctx context.Context, msg *InboundMsgEnvelope, reason string) error
+
 	// GatewayPullDeliveryTask reads up to `batch` delivery tasks produced by
 	// the worker. Gateway is the consumer.
 	GatewayPullDeliveryTask(ctx context.Context, batch int64) ([]*DeliverTaskEnvelope, error)

@@ -4,111 +4,157 @@ option go_package = "im/gen/go/im/v1;imv1";
 
 enum MessageType {
   MESSAGE_TYPE_UNSPECIFIED = 0;
-  MESSAGE_TYPE_TEXT        = 1; // 文本
-  MESSAGE_TYPE_IMAGE       = 2; // 图片
-  MESSAGE_TYPE_VIDEO       = 3; // 视频
-  MESSAGE_TYPE_FILE        = 4; // 文件
-  MESSAGE_TYPE_SYSTEM      = 5; // 系统通知/广播
+  MESSAGE_TYPE_TEXT        = 1;
+  MESSAGE_TYPE_IMAGE       = 2;
+  MESSAGE_TYPE_VIDEO       = 3;
+  MESSAGE_TYPE_FILE        = 4;
+  MESSAGE_TYPE_SYSTEM      = 5;
 }
 
-// 文本消息 Payload
 message TextMessagePayload {
-  string text = 1;                 // 文本内容
-  repeated string at_user_ids = 2; // @ 的用户 ID 列表
+  string text = 1;
+  repeated string at_user_ids = 2;
 }
 
-// 图片消息 Payload
 message ImageMessagePayload {
-  string url = 1;           // 原图 URL
-  string thumbnail_url = 2; // 缩略图 URL
-  uint32 width = 3;         // 宽度 (px)
-  uint32 height = 4;        // 高度 (px)
-  uint64 size_bytes = 5;    // 文件大小 (字节)
-  string mime_type = 6;     // 如 "image/jpeg"
+  string url = 1;
+  string thumbnail_url = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  uint64 size_bytes = 5;
+  string mime_type = 6;
 }
 
-// 视频消息 Payload
 message VideoMessagePayload {
-  string url = 1;           // 视频 URL
-  string cover_url = 2;     // 封面图 URL
-  uint32 duration_sec = 3;  // 视频时长 (秒)
-  uint32 width = 4;         // 宽度
-  uint32 height = 5;        // 高度
-  uint64 size_bytes = 6;    // 文件大小 (字节)
+  string url = 1;
+  string cover_url = 2;
+  uint32 duration_sec = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+  uint64 size_bytes = 6;
 }
 
-// 文件消息 Payload
 message FileMessagePayload {
-  string url = 1;           // 文件下载 URL
-  string file_name = 2;     // 文件原名
-  string extension = 3;     // 后缀名 (如 "pdf", "docx")
-  uint64 size_bytes = 4;    // 文件大小 (字节)
+  string url = 1;
+  string file_name = 2;
+  string extension = 3;
+  uint64 size_bytes = 4;
 }
 
-// 系统通知 Payload
 message SystemMessagePayload {
-  int32 event_code = 1;     // 系统事件编号 (例如: 1001-入群通知,1002-踢出群聊)
-  string content = 2;       // 提示文案
-  map<string, string> extra_params = 3; // 模版参数/扩展数据
+  int32 event_code = 1;
+  string content = 2;
+  map<string, string> extra_params = 3;
 }
 
-// 消息内容体,序列化后通过 Message.payload 字节嵌入到 Message.
 message MessageBody {
   oneof content {
-    TextMessagePayload    text   = 1;
-    ImageMessagePayload   image  = 2;
-    VideoMessagePayload   video  = 3;
-    FileMessagePayload    file   = 4;
-    SystemMessagePayload  system = 5;
+    TextMessagePayload text = 1;
+    ImageMessagePayload image = 2;
+    VideoMessagePayload video = 3;
+    FileMessagePayload file = 4;
+    SystemMessagePayload system = 5;
   }
 }
 
-// 客户端上行发消息请求
 message SendMessageReq {
-  string client_msg_id   = 1; // 客户端消息去重 UUID
-  string room_id         = 2; // 接收目标房间 UUID
-  MessageType msg_type   = 3; // 消息类型
-  bytes  payload         = 4; // 消息内容体 (序列化的 MessageBody)
-  string reply_to_msg_id = 5; // 引用/回复消息 ID
-  bytes  ext             = 6; // 扩展属性
+  string room_id = 1;
+  MessageType msg_type = 2;
+  bytes payload = 3;
+  string reply_to_msg_id = 4;
+  bytes ext = 5;
+  string client_msg_id = 6 [deprecated = true];
 }
 
-// 网关下行同步 ack -- 客户端收到后即可信任 msg_id,无需再等异步分发.
-// code=0 表示已接受并落库排队;非 0 见 err_msg.
-// 原名 SendMessageResp -- 改名为 SendMessageAck,强调只是 ack 不带内容.
 message SendMessageAck {
-  string client_msg_id = 1; // 对应的客户端去重 ID
-  string msg_id        = 2; // 服务端生成的真实 msg_id
-  int64  server_time   = 3; // 落盘时间戳
-  int32  code          = 4; // 状态码: 0-成功, 非0-失败
-  string err_msg       = 5; // 错误说明
+  string msg_id = 1;
+  int64 server_time = 2;
+  string client_msg_id = 3 [deprecated = true];
+  int32 code = 4 [deprecated = true];
+  string err_msg = 5 [deprecated = true];
 }
 
-// -----------------------------------------------------------------
-// MQ 传输层
-// -----------------------------------------------------------------
+message ReadReceipt {
+  string room_id = 1;
+  int64 last_read_server_time = 2;
+}
 
-// Worker -> MQ -> Gateway 的投递任务
-// 原名 GatewayPushTask -- 改名为 GatewayDeliveryTask,避免和旧 MessagePush 撞名.
+message TypingEvent {
+  string room_id = 1;
+  bool is_typing = 2;
+}
+
+message Ping {}
+message Pong {}
+
+message Ready {
+  string session_id = 1;
+  int64 server_time = 2;
+}
+
+message MessagePersisted {
+  string msg_id = 1;
+  int64 server_time = 2;
+}
+
+message MessageFailed {
+  string code = 1;
+  string message = 2;
+}
+
+message MessageRecalled {
+  string msg_id = 1;
+  int64 server_time = 2;
+}
+
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+message ClientFrame {
+  string client_msg_id = 1;
+  oneof payload {
+    SendMessageReq send_message = 2;
+    ReadReceipt read = 3;
+    TypingEvent typing = 4;
+    Ping ping = 5;
+  }
+}
+
+message ServerFrame {
+  string client_msg_id = 1;
+  oneof payload {
+    Ready ready = 2;
+    SendMessageAck ack = 3;
+    Message message = 4;
+    MessagePersisted persisted = 5;
+    MessageFailed failed = 6;
+    MessageRecalled recalled = 7;
+    ReadReceipt read = 8;
+    TypingEvent typing = 9;
+    Pong pong = 10;
+    Error error = 11;
+  }
+}
+
 message GatewayDeliveryTask {
-  string           room_id         = 1; // 目标房间 UUID
-  repeated string  target_user_ids = 2; // 需要推送的在线用户 UUID 列表 (发送者已剔除)
-  Message          message         = 3; // 投递的消息内容
+  string room_id = 1;
+  repeated string target_user_ids = 2;
+  Message message = 3;
+  string client_msg_id = 4;
+  MessageFailed failed = 5;
+  MessagePersisted persisted = 6;
 }
-
-// -----------------------------------------------------------------
-// 下行:服务端推送给房间内其他成员的实时消息
-// 原名 MessagePush -- 改名为 Message,它就是消息本体.
-// -----------------------------------------------------------------
 
 message Message {
-  string     msg_id         = 1;  // 服务端生成的消息 ID
-  string     client_msg_id  = 2;  // 发送方客户端去重 ID
-  string     sender_id      = 3;  // 发送人 UUID (服务端填充,防止伪造)
-  string     room_id        = 4;  // 房间 UUID
-  int64      server_time    = 5;  // 落盘时间戳
-  MessageType msg_type      = 6;  // 消息类型
-  bytes      payload        = 7;  // 消息内容体 (序列化的 MessageBody)
-  string     reply_to_msg_id = 8; // 引用的消息 ID
-  bytes      ext            = 9;  // 扩展属性
+  string msg_id = 1;
+  string client_msg_id = 2;
+  string sender_id = 3;
+  string room_id = 4;
+  int64 server_time = 5;
+  MessageType msg_type = 6;
+  bytes payload = 7;
+  string reply_to_msg_id = 8;
+  bytes ext = 9;
 }

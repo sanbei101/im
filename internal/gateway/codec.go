@@ -50,13 +50,14 @@ func dbMsgTypeToProto(t db.MessageType) imv1.MessageType {
 // fields (msg_id, sender_id, server_time) are filled here.
 func sendMessageReqToMessage(
 	req *imv1.SendMessageReq,
+	clientMsgID string,
 	senderID, msgID uuid.UUID,
 	serverTime int64,
 ) (*imv1.Message, error) {
 	if req == nil {
 		return nil, errors.New("nil request")
 	}
-	clientMsgID, err := uuid.Parse(req.GetClientMsgId())
+	clientMsgUUID, err := uuid.Parse(clientMsgID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid client_msg_id: %w", err)
 	}
@@ -72,7 +73,7 @@ func sendMessageReqToMessage(
 	// protobuf-go-lite represents proto3 scalar fields as *T; bind to local
 	// variables so the proto takes ownership of the values.
 	msgIDStr := msgID.String()
-	clientMsgIDStr := clientMsgID.String()
+	clientMsgIDStr := clientMsgUUID.String()
 	senderIDStr := senderID.String()
 	roomIDStr := roomID.String()
 	protoType := dbMsgTypeToProto(msgType)
