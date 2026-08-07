@@ -108,6 +108,9 @@ func (c *Config) Default() {
 	if v := os.Getenv("JWT_SECRET"); v != "" {
 		c.Auth.JWTSecret = v
 	}
+	if c.Auth.JWTSecret == "" {
+		c.Auth.JWTSecret = "jwt-test-secret"
+	}
 	if c.Gateway.MaxTimeout == 0 {
 		c.Gateway.MaxTimeout = 10
 	}
