@@ -246,6 +246,7 @@ type RoomMember struct {
 	IsHidden           bool       `json:"is_hidden"`
 	IsMuted            bool       `json:"is_muted"`
 	LastReadServerTime int64      `json:"last_read_server_time"`
+	JoinedAt           time.Time  `json:"joined_at"`
 }
 
 type User struct {

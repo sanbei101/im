@@ -11,16 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/phuslu/log"
 
+	"github.com/sanbei101/im/internal/cache"
 	"github.com/sanbei101/im/internal/db"
 )
 
 type RoomService struct {
 	query *db.Queries
 	db    *pgxpool.Pool
+	cache *cache.RoomStore
 }
 
-func NewRoomService(query *db.Queries, dbPool *pgxpool.Pool) *RoomService {
-	return &RoomService{query: query, db: dbPool}
+func NewRoomService(query *db.Queries, dbPool *pgxpool.Pool, roomCache *cache.RoomStore) *RoomService {
+	return &RoomService{query: query, db: dbPool, cache: roomCache}
 }
 
 type CreateRoomReq struct {
@@ -76,6 +78,22 @@ func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsR
 			LastMessageServerTime: r.LastMessageServerTime,
 			UnreadCount:           r.UnreadCount,
 		}
+	}
+	if s.cache != nil {
+		refs := make([]cache.RoomRef, 0, len(rooms))
+		roomIDs := make([]uuid.UUID, 0, len(rooms))
+		for _, room := range rooms {
+			score := room.LastMessageServerTime
+			if score == 0 {
+				score = room.CreatedAt.UnixMicro()
+			}
+			refs = append(refs, cache.RoomRef{RoomID: room.RoomID, Score: score})
+			roomIDs = append(roomIDs, room.RoomID)
+		}
+		if err := s.cache.CacheUserRooms(ctx, userUUID, refs); err != nil {
+			log.Error().Err(err).Str("user_id", userID).Msg("cache user rooms failed")
+		}
+		s.cacheRoomMembers(ctx, roomIDs)
 	}
 
 	return &ListRoomsResp{Rooms: result}, nil
@@ -179,6 +197,7 @@ func (s *RoomService) CreateOrGetSingleChatRoom(
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	committed = true
+	s.invalidateRoomCache(ctx, roomUUID, []uuid.UUID{user1, user2})
 
 	return &RoomResp{RoomID: roomUUID.String()}, nil
 }
@@ -259,6 +278,8 @@ func (s *RoomService) CreateGroupRoom(ctx context.Context, ownerID string, req C
 		return nil, fmt.Errorf("commit room transaction: %w", err)
 	}
 	committed = true
+	users := append([]uuid.UUID{owner}, memberUUIDs...)
+	s.invalidateRoomCache(ctx, roomUUID, users)
 	return &RoomResp{RoomID: roomUUID.String()}, nil
 }
 
@@ -366,6 +387,7 @@ func (s *RoomService) GetRoom(ctx context.Context, userID, roomID string) (*Room
 	if err != nil {
 		return nil, fmt.Errorf("list room members: %w", err)
 	}
+	s.cacheRoomMemberRows(ctx, room, members)
 	resp := &RoomDetailResp{
 		RoomID:    r.RoomID.String(),
 		ChatType:  string(r.ChatType),
@@ -388,6 +410,7 @@ func (s *RoomService) ListMembers(ctx context.Context, userID, roomID string) ([
 	if err != nil {
 		return nil, fmt.Errorf("list room members: %w", err)
 	}
+	s.cacheRoomMemberRows(ctx, room, rows)
 	result := make([]*RoomMemberResp, 0, len(rows))
 	for _, m := range rows {
 		result = append(result, roomMemberResponse(m))
@@ -436,6 +459,7 @@ func (s *RoomService) AddMember(ctx context.Context, actorID, roomID string, req
 	); err != nil {
 		return fmt.Errorf("add room member: %w", err)
 	}
+	s.invalidateRoomCache(ctx, room, []uuid.UUID{actor, member})
 	return nil
 }
 
@@ -465,6 +489,7 @@ func (s *RoomService) KickMember(ctx context.Context, actorID, roomID, memberID 
 	if err := s.query.DeleteRoomMember(ctx, db.DeleteRoomMemberParams{RoomID: room, UserID: member}); err != nil {
 		return fmt.Errorf("kick room member: %w", err)
 	}
+	s.invalidateRoomCache(ctx, room, []uuid.UUID{actor, member})
 	return nil
 }
 
@@ -479,6 +504,7 @@ func (s *RoomService) Leave(ctx context.Context, userID, roomID string) error {
 	if err := s.query.DeleteRoomMember(ctx, db.DeleteRoomMemberParams{RoomID: room, UserID: user}); err != nil {
 		return fmt.Errorf("leave room: %w", err)
 	}
+	s.invalidateRoomCache(ctx, room, []uuid.UUID{user})
 	return nil
 }
 
@@ -490,9 +516,18 @@ func (s *RoomService) Dissolve(ctx context.Context, userID, roomID string) error
 	if role != db.MemberRoleOwner {
 		return ErrRoomOwnerRequired
 	}
+	members, err := s.query.ListRoomMembersByRoomIDs(ctx, []uuid.UUID{room})
+	if err != nil {
+		return fmt.Errorf("list members before dissolve: %w", err)
+	}
 	if err := s.query.DeleteRoom(ctx, room); err != nil {
 		return fmt.Errorf("dissolve room: %w", err)
 	}
+	userIDs := make([]uuid.UUID, 0, len(members))
+	for _, member := range members {
+		userIDs = append(userIDs, member.UserID)
+	}
+	s.invalidateRoomCache(ctx, room, userIDs)
 	return nil
 }
 
@@ -541,6 +576,7 @@ func (s *RoomService) TransferOwnership(ctx context.Context, userID, roomID stri
 		return fmt.Errorf("commit ownership transfer: %w", err)
 	}
 	committed = true
+	s.invalidateRoomCache(ctx, room, []uuid.UUID{actor, target})
 	return nil
 }
 
@@ -576,6 +612,7 @@ func (s *RoomService) SetRole(ctx context.Context, userID, roomID, memberID stri
 	); err != nil {
 		return fmt.Errorf("set room role: %w", err)
 	}
+	s.invalidateRoomCache(ctx, room, []uuid.UUID{member})
 	return nil
 }
 
@@ -608,5 +645,54 @@ func (s *RoomService) UpdateSettings(ctx context.Context, userID, roomID string,
 	); err != nil {
 		return fmt.Errorf("update room settings: %w", err)
 	}
+	s.invalidateRoomCache(ctx, room, []uuid.UUID{user})
 	return nil
+}
+
+func (s *RoomService) cacheRoomMembers(ctx context.Context, roomIDs []uuid.UUID) {
+	if s.cache == nil || len(roomIDs) == 0 {
+		return
+	}
+	rows, err := s.query.ListRoomMembersByRoomIDs(ctx, roomIDs)
+	if err != nil {
+		log.Error().Err(err).Msg("load room members for cache failed")
+		return
+	}
+	byRoom := make(map[uuid.UUID][]cache.RoomMember, len(roomIDs))
+	for _, row := range rows {
+		byRoom[row.RoomID] = append(byRoom[row.RoomID], cache.RoomMember{
+			UserID: row.UserID, JoinedAt: row.JoinedAt, IsMuted: row.IsMuted,
+		})
+	}
+	for _, roomID := range roomIDs {
+		s.cacheRoomMembersByID(ctx, roomID, byRoom[roomID])
+	}
+}
+
+func (s *RoomService) cacheRoomMemberRows(ctx context.Context, roomID uuid.UUID, rows []*db.ListRoomMembersRow) {
+	if s.cache == nil {
+		return
+	}
+	members := make([]cache.RoomMember, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, cache.RoomMember{
+			UserID: row.UserID, JoinedAt: row.JoinedAt, IsMuted: row.IsMuted,
+		})
+	}
+	s.cacheRoomMembersByID(ctx, roomID, members)
+}
+
+func (s *RoomService) cacheRoomMembersByID(ctx context.Context, roomID uuid.UUID, members []cache.RoomMember) {
+	if err := s.cache.CacheRoomMembers(ctx, roomID, members); err != nil {
+		log.Error().Err(err).Str("room_id", roomID.String()).Msg("cache room members failed")
+	}
+}
+
+func (s *RoomService) invalidateRoomCache(ctx context.Context, roomID uuid.UUID, userIDs []uuid.UUID) {
+	if s.cache == nil {
+		return
+	}
+	if err := s.cache.InvalidateRoom(ctx, roomID, userIDs); err != nil {
+		log.Error().Err(err).Str("room_id", roomID.String()).Msg("invalidate room cache failed")
+	}
 }

@@ -568,7 +568,7 @@ func (q *Queries) ListMessagesByRoom(ctx context.Context, arg ListMessagesByRoom
 }
 
 const listRoomMembers = `-- name: ListRoomMembers :many
-SELECT rm.user_id, rm.role, rm.is_hidden, rm.is_muted,
+SELECT rm.user_id, rm.role, rm.is_hidden, rm.is_muted, rm.joined_at,
        u.username, u.display_name, u.avatar_url, u.bio
 FROM room_members rm
 JOIN users u ON u.user_id = rm.user_id
@@ -581,6 +581,7 @@ type ListRoomMembersRow struct {
 	Role        MemberRole `json:"role"`
 	IsHidden    bool       `json:"is_hidden"`
 	IsMuted     bool       `json:"is_muted"`
+	JoinedAt    time.Time  `json:"joined_at"`
 	Username    string     `json:"username"`
 	DisplayName string     `json:"display_name"`
 	AvatarUrl   string     `json:"avatar_url"`
@@ -601,10 +602,49 @@ func (q *Queries) ListRoomMembers(ctx context.Context, roomID uuid.UUID) ([]*Lis
 			&i.Role,
 			&i.IsHidden,
 			&i.IsMuted,
+			&i.JoinedAt,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarUrl,
 			&i.Bio,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoomMembersByRoomIDs = `-- name: ListRoomMembersByRoomIDs :many
+SELECT room_id, user_id, joined_at, is_muted
+FROM room_members
+WHERE room_id = ANY($1::uuid[])
+`
+
+type ListRoomMembersByRoomIDsRow struct {
+	RoomID   uuid.UUID `json:"room_id"`
+	UserID   uuid.UUID `json:"user_id"`
+	JoinedAt time.Time `json:"joined_at"`
+	IsMuted  bool      `json:"is_muted"`
+}
+
+func (q *Queries) ListRoomMembersByRoomIDs(ctx context.Context, roomIds []uuid.UUID) ([]*ListRoomMembersByRoomIDsRow, error) {
+	rows, err := q.db.Query(ctx, listRoomMembersByRoomIDs, roomIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ListRoomMembersByRoomIDsRow{}
+	for rows.Next() {
+		var i ListRoomMembersByRoomIDsRow
+		if err := rows.Scan(
+			&i.RoomID,
+			&i.UserID,
+			&i.JoinedAt,
+			&i.IsMuted,
 		); err != nil {
 			return nil, err
 		}

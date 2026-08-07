@@ -94,6 +94,25 @@ func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
 		c.sendError(clientMsgID, "unsupported_frame", "frame type is not supported")
 		return
 	}
+	if c.gateway.RoomAccess == nil {
+		c.sendError(clientMsgID, "unavailable", "room access check unavailable")
+		return
+	}
+	allowed, err := c.gateway.RoomAccess.CanSend(ctx, req.GetRoomId(), c.UserID.String())
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", c.UserID.String()).
+			Str("room_id", req.GetRoomId()).
+			Str("client_msg_id", clientMsgID).
+			Msg("check room access failed")
+		c.sendError(clientMsgID, "unavailable", "room access check unavailable")
+		return
+	}
+	if !allowed {
+		c.sendError(clientMsgID, "room_access_denied", "room access denied")
+		return
+	}
 
 	msgID, err := uuid.NewV7()
 	if err != nil {

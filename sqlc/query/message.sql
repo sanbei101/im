@@ -137,12 +137,17 @@ FROM room_members
 WHERE room_id = sqlc.arg(room_id) AND user_id = sqlc.arg(user_id);
 
 -- name: ListRoomMembers :many
-SELECT rm.user_id, rm.role, rm.is_hidden, rm.is_muted,
+SELECT rm.user_id, rm.role, rm.is_hidden, rm.is_muted, rm.joined_at,
        u.username, u.display_name, u.avatar_url, u.bio
 FROM room_members rm
 JOIN users u ON u.user_id = rm.user_id
 WHERE rm.room_id = sqlc.arg(room_id)
 ORDER BY CASE rm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, rm.user_id;
+
+-- name: ListRoomMembersByRoomIDs :many
+SELECT room_id, user_id, joined_at, is_muted
+FROM room_members
+WHERE room_id = ANY(sqlc.arg(room_ids)::uuid[]);
 
 -- name: DeleteRoomMember :exec
 DELETE FROM room_members

@@ -15,6 +15,7 @@ import (
 	"github.com/sanbei101/im/internal/api"
 	"github.com/sanbei101/im/internal/api/handler"
 	"github.com/sanbei101/im/internal/api/service"
+	"github.com/sanbei101/im/internal/cache"
 	"github.com/sanbei101/im/internal/db"
 	"github.com/sanbei101/im/internal/pgxuuid"
 	"github.com/sanbei101/im/pkg/config"
@@ -55,11 +56,17 @@ func main() {
 	log.Info().Msg("connected to postgres")
 
 	query := db.New(pool)
+	roomCache := cache.NewRoomStore(cfg)
+	defer func() {
+		if err := roomCache.Close(); err != nil {
+			log.Error().Err(err).Msg("close room cache failed")
+		}
+	}()
 	userSvc := service.NewUserService(query, pool)
 	userHandler := handler.NewUserHandler(userSvc)
 	messageSvc := service.NewMessageService(query)
 	messageHandler := handler.NewMessageHandler(messageSvc)
-	roomSvc := service.NewRoomService(query, pool)
+	roomSvc := service.NewRoomService(query, pool, roomCache)
 	roomHandler := handler.NewRoomHandler(roomSvc)
 	friendSvc := service.NewFriendService(query, pool)
 	friendHandler := handler.NewFriendHandler(friendSvc)

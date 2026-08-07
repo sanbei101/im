@@ -8,6 +8,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/google/uuid"
 	"github.com/phuslu/log"
 	"github.com/redis/go-redis/v9"
 
@@ -195,6 +196,28 @@ func (r *RedisMQ) pullDeliveryTasks(ctx context.Context, startID string, batch i
 // inbound stream.
 func (r *RedisMQ) GatewayEnqueueMessage(ctx context.Context, messages []*imv1.Message) error {
 	return r.pushMessageToStream(ctx, streamInbound, messages)
+}
+
+func (r *RedisMQ) CanSend(ctx context.Context, roomID, userID string) (bool, error) {
+	room, err := uuid.Parse(roomID)
+	if err != nil {
+		return false, nil
+	}
+	user, err := uuid.Parse(userID)
+	if err != nil {
+		return false, nil
+	}
+	if _, err := r.client.ZScore(ctx, "room:"+room.String()+":members", user.String()).Result(); err != nil {
+		if errors.Is(err, redis.Nil) {
+			return false, nil
+		}
+		return false, fmt.Errorf("check room member cache: %w", err)
+	}
+	muted, err := r.client.HGet(ctx, "room:"+room.String()+":member_muted", user.String()).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return false, fmt.Errorf("check room mute cache: %w", err)
+	}
+	return muted != "1", nil
 }
 
 // GatewayAckMessage confirms the given deliver stream IDs.

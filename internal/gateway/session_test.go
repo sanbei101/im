@@ -13,6 +13,15 @@ import (
 type testMQ struct {
 	messages []*imv1.Message
 	acked    []string
+	allowed  bool
+	err      error
+}
+
+func (m *testMQ) CanSend(context.Context, string, string) (bool, error) {
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.allowed, nil
 }
 
 func (m *testMQ) InitStreamGroups(context.Context) error { return nil }
@@ -55,9 +64,9 @@ func TestUserClientSendMessageUsesFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	broker := &testMQ{}
+	broker := &testMQ{allowed: true}
 	client := &UserClient{
-		gateway: &Gateway{MQ: broker},
+		gateway: &Gateway{MQ: broker, RoomAccess: broker},
 		Send:    make(chan []byte, 1),
 		UserID:  uuid.MustParse(uuid.NewString()),
 	}
@@ -102,6 +111,42 @@ func TestUserClientPingUsesPongFrame(t *testing.T) {
 	}
 	if response.GetPong() == nil || response.GetClientMsgId() != clientMsgID {
 		t.Fatalf("response = %#v, want correlated Pong", response)
+	}
+}
+
+func TestUserClientRejectsMessageWithoutRoomAccess(t *testing.T) {
+	clientMsgID := uuid.NewString()
+	roomID := uuid.NewString()
+	msgType := imv1.MessageType_MESSAGE_TYPE_TEXT
+	frame := &imv1.ClientFrame{
+		ClientMsgId: &clientMsgID,
+		Payload: &imv1.ClientFrame_SendMessage{SendMessage: &imv1.SendMessageReq{
+			RoomId:  &roomID,
+			MsgType: &msgType,
+		}},
+	}
+	payload, err := frame.MarshalVT()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	broker := &testMQ{}
+	client := &UserClient{
+		gateway: &Gateway{MQ: broker, RoomAccess: broker},
+		Send:    make(chan []byte, 1),
+		UserID:  uuid.New(),
+	}
+	client.handleUserMessage(context.Background(), payload)
+
+	if len(broker.messages) != 0 {
+		t.Fatal("message was enqueued without room access")
+	}
+	response := &imv1.ServerFrame{}
+	if err := response.UnmarshalVT(<-client.Send); err != nil {
+		t.Fatal(err)
+	}
+	if response.GetError() == nil || response.GetError().GetCode() != "room_access_denied" {
+		t.Fatalf("response = %#v, want room_access_denied", response)
 	}
 }
 
