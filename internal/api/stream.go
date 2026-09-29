@@ -163,6 +163,10 @@ func (h *StreamHandler) writeBatch(
 }
 
 func (h *StreamHandler) push(ctx context.Context, message *store.Message) error {
+	msgType, err := messageTypeNumber(message.MsgType)
+	if err != nil {
+		return fmt.Errorf("push room message: %w", err)
+	}
 	members, err := h.store.Members(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
@@ -183,7 +187,7 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 					RoomSeq:    message.RoomSeq,
 					MsgId:      message.MsgID.String(),
 					SenderId:   message.SenderID.String(),
-					MsgType:    messageTypeNumber(message.MsgType),
+					MsgType:    msgType,
 					Payload:    message.Payload,
 					ServerTime: message.ServerTime,
 					Ext:        message.Ext,
@@ -202,10 +206,12 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 	return nil
 }
 
-func messageTypeNumber(value string) int32 {
-	var number int32
-	_, _ = fmt.Sscan(value, &number)
-	return number
+func messageTypeNumber(value string) (int32, error) {
+	number, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid message type %q: %w", value, err)
+	}
+	return int32(number), nil
 }
 
 func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) {

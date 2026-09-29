@@ -177,11 +177,6 @@ func getU64(src []byte) (uint64, error) {
 
 func putI64(dst []byte, value int64) { binary.BigEndian.PutUint64(dst, uint64(value)) }
 
-func getI64(src []byte) (int64, error) {
-	value, err := getU64(src)
-	return int64(value), err
-}
-
 func appendBytes(dst, value []byte) []byte {
 	var size [4]byte
 	binary.BigEndian.PutUint32(size[:], uint32(len(value)))
