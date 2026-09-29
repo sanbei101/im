@@ -121,67 +121,116 @@ func decodeDedup(data []byte) (Dedup, error) {
 }
 
 func (s *Store) WriteMessage(ctx context.Context, message Message) (Message, error) {
-	if err := contextErr(ctx); err != nil {
-		return Message{}, err
+	results := s.WriteMessages(ctx, []Message{message})
+	if len(results) == 0 {
+		return Message{}, ErrClosed
 	}
+	return results[0].Message, results[0].Err
+}
+
+func (s *Store) writeMessageBatch(messages []Message) ([]Message, []error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var room Room
-	if err := s.get([]byte(roomKey(message.RoomID)), func(data []byte) error {
-		var err error
-		room, err = decodeRoom(data)
-		return err
-	}); err != nil {
-		return Message{}, err
-	}
-	digestInput := append([]byte(message.MsgType), 0)
-	digestInput = append(digestInput, message.Payload...)
-	digestInput = append(digestInput, 0)
-	digestInput = append(digestInput, message.Ext...)
-	if message.HasReply {
-		digestInput = append(digestInput, message.ReplyToMsgID[:]...)
-	}
-	digest := sha256.Sum256(digestInput)
-	var old Dedup
-	if err := s.get([]byte(dedupKey(message.RoomID, message.SenderID, message.ClientMsgID)), func(data []byte) error {
-		var err error
-		old, err = decodeDedup(data)
-		return err
-	}); err == nil {
-		if old.PayloadSum != digest {
-			return Message{}, ErrConflict
-		}
-		message.MsgID, message.RoomSeq, message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
-		return message, nil
-	} else if !errors.Is(err, ErrNotFound) {
-		return Message{}, err
-	}
-	room.LastSeq++
-	message.RoomSeq = room.LastSeq
-	message.MsgID = uuid.NewV7()
-	message.ServerTime = time.Now().UnixMicro()
-	room.UpdatedAt = time.Now()
+
+	results := make([]Message, len(messages))
+	errs := make([]error, len(messages))
 	batch := s.db.NewBatch()
 	defer batch.Close()
-	if err := s.set(batch, roomKey(room.RoomID), encodeRoom(room)); err != nil {
-		return Message{}, err
+	rooms := make(map[uuid.UUID]Room)
+	digests := make([][32]byte, len(messages))
+	pending := make(map[string]int, len(messages))
+
+	for index, message := range messages {
+		results[index] = message
+		room, ok := rooms[message.RoomID]
+		if !ok {
+			if err := s.get([]byte(roomKey(message.RoomID)), func(data []byte) error {
+				var err error
+				room, err = decodeRoom(data)
+				return err
+			}); err != nil {
+				errs[index] = err
+				continue
+			}
+			rooms[message.RoomID] = room
+		}
+
+		digestInput := make([]byte, 0, len(message.MsgType)+len(message.Payload)+len(message.Ext)+18)
+		digestInput = append(digestInput, message.MsgType...)
+		digestInput = append(digestInput, 0)
+		digestInput = append(digestInput, message.Payload...)
+		digestInput = append(digestInput, 0)
+		digestInput = append(digestInput, message.Ext...)
+		if message.HasReply {
+			digestInput = append(digestInput, message.ReplyToMsgID[:]...)
+		}
+		digest := sha256.Sum256(digestInput)
+		digests[index] = digest
+		dedup := dedupKey(message.RoomID, message.SenderID, message.ClientMsgID)
+		if previous, ok := pending[dedup]; ok {
+			if digests[previous] != digest {
+				errs[index] = ErrConflict
+			} else if errs[previous] != nil {
+				errs[index] = errs[previous]
+			} else {
+				results[index] = results[previous]
+			}
+			continue
+		}
+		var old Dedup
+		if err := s.get([]byte(dedup), func(data []byte) error {
+			var err error
+			old, err = decodeDedup(data)
+			return err
+		}); err == nil {
+			if old.PayloadSum != digest {
+				errs[index] = ErrConflict
+			} else {
+				results[index].MsgID, results[index].RoomSeq, results[index].ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
+			}
+			pending[dedup] = index
+			continue
+		} else if !errors.Is(err, ErrNotFound) {
+			errs[index] = err
+			pending[dedup] = index
+			continue
+		}
+
+		room.LastSeq++
+		results[index].RoomSeq = room.LastSeq
+		results[index].MsgID = uuid.NewV7()
+		results[index].ServerTime = time.Now().UnixMicro()
+		room.UpdatedAt = time.Now()
+		rooms[message.RoomID] = room
+		pending[dedup] = index
+		if err := s.set(batch, messageKey(message.RoomID, results[index].RoomSeq), encodeMessage(results[index])); err != nil {
+			errs[index] = err
+			continue
+		}
+		if err := s.set(batch, dedup, encodeDedup(Dedup{
+			MsgID: results[index].MsgID, RoomSeq: results[index].RoomSeq,
+			ServerTime: results[index].ServerTime, PayloadSum: digest,
+		})); err != nil {
+			errs[index] = err
+		}
 	}
-	if err := s.set(batch, messageKey(message.RoomID, message.RoomSeq), encodeMessage(message)); err != nil {
-		return Message{}, err
-	}
-	if err := s.set(
-		batch,
-		dedupKey(message.RoomID, message.SenderID, message.ClientMsgID),
-		encodeDedup(
-			Dedup{MsgID: message.MsgID, RoomSeq: message.RoomSeq, ServerTime: message.ServerTime, PayloadSum: digest},
-		),
-	); err != nil {
-		return Message{}, err
+	for roomID, room := range rooms {
+		if err := s.set(batch, roomKey(roomID), encodeRoom(room)); err != nil {
+			for index := range results {
+				if results[index].RoomID == roomID && errs[index] == nil {
+					errs[index] = err
+				}
+			}
+		}
 	}
 	if err := commit(batch); err != nil {
-		return Message{}, fmt.Errorf("commit message: %w", err)
+		for index := range errs {
+			if errs[index] == nil {
+				errs[index] = fmt.Errorf("commit messages: %w", err)
+			}
+		}
 	}
-	return message, nil
+	return results, errs
 }
 
 func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, limit int) (MessagePage, error) {

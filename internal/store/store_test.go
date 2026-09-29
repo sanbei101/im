@@ -175,6 +175,67 @@ func TestStoreConcurrentMessageWrites(t *testing.T) {
 	}
 }
 
+func TestStoreBatchWriteDedupAndClose(t *testing.T) {
+	data, err := Open(t.TempDir() + "/store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomID := uuid.NewV7()
+	senderID := uuid.NewV7()
+	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+		t.Fatal(err)
+	}
+	clientID := uuid.NewV7()
+	results := data.WriteMessages(context.Background(), []Message{
+		{ClientMsgID: clientID, SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("same")},
+		{ClientMsgID: clientID, SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("same")},
+		{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("next")},
+	})
+	if len(results) != 3 || results[0].Err != nil || results[1].Err != nil || results[2].Err != nil {
+		t.Fatalf("batch results = %+v", results)
+	}
+	if results[0].Message.MsgID != results[1].Message.MsgID || results[0].Message.RoomSeq != results[1].Message.RoomSeq {
+		t.Fatalf("duplicate batch result changed: %+v", results)
+	}
+	if results[2].Message.RoomSeq != 2 {
+		t.Fatalf("next batch sequence = %d, want 2", results[2].Message.RoomSeq)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+	closed := data.WriteMessages(context.Background(), []Message{{RoomID: roomID}})
+	if len(closed) != 1 || !errors.Is(closed[0].Err, ErrClosed) {
+		t.Fatalf("closed write result = %+v", closed)
+	}
+}
+
+func BenchmarkWriteMessagesBatch(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+	roomID := uuid.NewV7()
+	senderID := uuid.NewV7()
+	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		messages := make([]Message, 32)
+		for i := range messages {
+			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("batch")}
+		}
+		results := data.WriteMessages(context.Background(), messages)
+		for i := range results {
+			if results[i].Err != nil {
+				b.Fatal(results[i].Err)
+			}
+		}
+	}
+}
+
 func BenchmarkWriteMessage(b *testing.B) {
 	data, err := Open(b.TempDir() + "/store")
 	if err != nil {

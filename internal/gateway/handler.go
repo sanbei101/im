@@ -10,12 +10,13 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/pkg/jwt"
+	"github.com/sanbei101/im/pkg/render"
 )
 
 func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request) {
 	userID, err := gateway.authenticate(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -62,6 +63,7 @@ func (gateway *Gateway) setupUserClient(userID uuid.UUID, conn *websocket.Conn) 
 		Conn:    conn,
 		Send:    make(chan []byte, 100),
 		UserID:  userID,
+		frames:  render.NewFrameWriter(),
 	}
 	userSession := gateway.UserSessionManager.LoadOrCreate(userID.String(), NewUserSession)
 	userSession.Add(userClient)
