@@ -55,3 +55,14 @@ docker compose up --build
 Pebble Value 使用 `encoding/binary` 手写编码，不使用 JSON。消息写入会在同一个 Batch 中更新消息、房间序号和幂等记录；只有同步提交成功后才返回成功结果。
 
 消息幂等键为 `room_id + sender_id + client_msg_id`。相同请求重试返回原消息结果，使用相同键提交不同内容会返回冲突。
+
+## 测试、Benchmark 与 Pprof
+
+所有检查通过 `Makefile` 执行
+
+```bash
+make verify       # gofmt、go vet、全部测试、race、benchmark
+make bench        # 真实 Pebble 写入和历史读取 benchmark
+make pprof        # 真实批量写入并生成 CPU、heap、mutex、block profile
+make analyze      # 输出 pprof top 热点
+```

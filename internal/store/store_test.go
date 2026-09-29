@@ -236,6 +236,33 @@ func BenchmarkWriteMessagesBatch(b *testing.B) {
 	}
 }
 
+func BenchmarkWriteMessages100Batch(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+	roomID := uuid.NewV7()
+	senderID := uuid.NewV7()
+	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		messages := make([]Message, 100)
+		for i := range messages {
+			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("batch")}
+		}
+		results := data.WriteMessages(context.Background(), messages)
+		for i := range results {
+			if results[i].Err != nil {
+				b.Fatal(results[i].Err)
+			}
+		}
+	}
+}
+
 func BenchmarkWriteMessage(b *testing.B) {
 	data, err := Open(b.TempDir() + "/store")
 	if err != nil {
