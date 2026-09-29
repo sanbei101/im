@@ -2,9 +2,9 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"uuid"
@@ -13,6 +13,7 @@ import (
 	"github.com/phuslu/log"
 
 	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
+	"github.com/sanbei101/im/pkg/render"
 )
 
 type UserClient struct {
@@ -20,6 +21,7 @@ type UserClient struct {
 	Conn    *websocket.Conn
 	Send    chan []byte
 	UserID  uuid.UUID
+	frames  *render.FrameWriter
 }
 
 func (c *UserClient) writePump(ctx context.Context) {
@@ -32,35 +34,29 @@ func (c *UserClient) writePump(ctx context.Context) {
 
 func (c *UserClient) readPump(ctx context.Context) {
 	for {
-		_, payload, err := c.Conn.Read(ctx)
+		_, r, err := c.Conn.Reader(ctx)
 		if err != nil {
 			if websocket.CloseStatus(err) == -1 {
 				log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client read message failed")
 			}
 			return
 		}
-		if err := c.handleFrame(ctx, payload); err != nil {
+		// 硬性不变量：无论 decode 成败，reader 必须被读尽，
+		// 否则下一条消息报 "previous message not read to completion"。
+		defer func() { _, _ = io.Copy(io.Discard, r) }()
+		if err := c.handleFrame(ctx, r); err != nil {
 			c.sendError(err.Error())
 		}
 	}
 }
 
-func (c *UserClient) handleFrame(ctx context.Context, payload []byte) error {
-	var input struct {
-		Type         string          `json:"type"`
-		RequestID    string          `json:"request_id"`
-		ClientMsgID  string          `json:"client_msg_id"`
-		RoomID       string          `json:"room_id"`
-		MsgType      string          `json:"msg_type"`
-		Payload      json.RawMessage `json:"payload"`
-		ReplyToMsgID string          `json:"reply_to_msg_id"`
-		Ext          json.RawMessage `json:"ext"`
-	}
-	if err := json.Unmarshal(payload, &input); err != nil {
+func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
+	var input render.ClientFrame
+	if err := render.NewFrameReader(r).ReadFrame(&input); err != nil {
 		return fmt.Errorf("decode websocket message: %w", err)
 	}
 	if input.Type == "ping" {
-		return c.sendJSON(map[string]any{"type": "pong"})
+		return c.encodeFrame(render.PongFrame{Type: "pong"})
 	}
 	if input.RoomID == "" || input.ClientMsgID == "" {
 		return errors.New("room_id and client_msg_id are required")
@@ -111,21 +107,27 @@ func messageType(value string) (int32, error) {
 	}
 }
 
-func (c *UserClient) sendJSON(value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
+// sendFrame 非阻塞投递已编码帧；缓冲区满返回错误。
+func (c *UserClient) sendFrame(frame []byte) error {
 	select {
-	case c.Send <- data:
+	case c.Send <- frame:
 		return nil
 	default:
 		return errors.New("client send buffer is full")
 	}
 }
 
+// encodeFrame 编码一帧并投递到 Send；编码失败或缓冲已满时返回错误。
+func (c *UserClient) encodeFrame(v any) error {
+	frame, err := c.frames.EncodeFrame(v)
+	if err != nil {
+		return err
+	}
+	return c.sendFrame(frame)
+}
+
 func (c *UserClient) sendError(message string) {
-	if err := c.sendJSON(map[string]any{"type": "error", "error": message}); err != nil {
+	if err := c.encodeFrame(render.ErrorFrame{Type: "error", Error: message}); err != nil {
 		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("send error frame failed")
 	}
 }
@@ -223,14 +225,13 @@ func (s *UserSession) Remove(client *UserClient) bool {
 	return len(s.clients) == 0
 }
 
-func (s *UserSession) Broadcast(data []byte) {
+// Clients 返回会话内全部客户端的快照（调用方遍历发送）。
+func (s *UserSession) Clients() []*UserClient {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	clients := make([]*UserClient, 0, len(s.clients))
 	for client := range s.clients {
-		select {
-		case client.Send <- data:
-		default:
-			log.Warn().Str("user_id", client.UserID.String()).Msg("client send buffer is full")
-		}
+		clients = append(clients, client)
 	}
+	return clients
 }

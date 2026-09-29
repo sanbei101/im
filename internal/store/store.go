@@ -18,13 +18,39 @@ var (
 	ErrNotFound      = errors.New("store: not found")
 	ErrAlreadyExists = errors.New("store: already exists")
 	ErrConflict      = errors.New("store: conflict")
+	ErrClosed        = errors.New("store: closed")
 )
 
-const recordVersion byte = 1
+const (
+	recordVersion      byte = 1
+	messageQueueSize        = 4096
+	messageBatchSize        = 128
+	messageBatchWindow      = time.Millisecond
+)
+
+type messageWriteRequest struct {
+	ctx      context.Context
+	messages []Message
+	result   chan []MessageWriteResult
+}
+
+type MessageWriteResult struct {
+	Message Message
+	Err     error
+}
 
 type Store struct {
 	db *pebble.DB
 	mu sync.RWMutex
+
+	messageQueue chan messageWriteRequest
+	closeSignal  chan struct{}
+	writerDone   chan struct{}
+	closeDone    chan struct{}
+	closeOnce    sync.Once
+	stateMu      sync.RWMutex
+	closed       bool
+	closeErr     error
 }
 
 type User struct {
@@ -95,14 +121,146 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open pebble: %w", err)
 	}
-	return &Store{db: db}, nil
+	store := &Store{
+		db:           db,
+		messageQueue: make(chan messageWriteRequest, messageQueueSize),
+		closeSignal:  make(chan struct{}),
+		writerDone:   make(chan struct{}),
+		closeDone:    make(chan struct{}),
+	}
+	go store.runMessageWriter()
+	return store, nil
 }
 
 func (s *Store) Close() error {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil
 	}
-	return s.db.Close()
+	s.closeOnce.Do(func() {
+		s.stateMu.Lock()
+		s.closed = true
+		close(s.closeSignal)
+		s.stateMu.Unlock()
+		<-s.writerDone
+		s.closeErr = s.db.Close()
+		close(s.closeDone)
+	})
+	<-s.closeDone
+	return s.closeErr
+}
+
+func (s *Store) WriteMessages(ctx context.Context, messages []Message) []MessageWriteResult {
+	if len(messages) == 0 {
+		return nil
+	}
+	queued := append([]Message(nil), messages...)
+	result := make(chan []MessageWriteResult, 1)
+	request := messageWriteRequest{ctx: ctx, messages: queued, result: result}
+	s.stateMu.RLock()
+	if s.closed {
+		s.stateMu.RUnlock()
+		results := make([]MessageWriteResult, len(messages))
+		for i := range results {
+			results[i].Err = ErrClosed
+		}
+		return results
+	}
+	select {
+	case s.messageQueue <- request:
+		s.stateMu.RUnlock()
+	case <-ctx.Done():
+		s.stateMu.RUnlock()
+		results := make([]MessageWriteResult, len(messages))
+		for i := range results {
+			results[i].Err = ctx.Err()
+		}
+		return results
+	}
+	return <-result
+}
+
+func (s *Store) runMessageWriter() {
+	defer close(s.writerDone)
+	for {
+		select {
+		case request := <-s.messageQueue:
+			s.commitMessageRequests(s.collectMessageRequests(request))
+		case <-s.closeSignal:
+			for {
+				select {
+				case request := <-s.messageQueue:
+					s.commitMessageRequests(s.collectMessageRequests(request))
+				default:
+					return
+				}
+			}
+		}
+	}
+}
+
+func (s *Store) collectMessageRequests(first messageWriteRequest) []messageWriteRequest {
+	requests := []messageWriteRequest{first}
+	messageCount := len(first.messages)
+	timer := time.NewTimer(messageBatchWindow)
+	defer timer.Stop()
+	for messageCount < messageBatchSize {
+		select {
+		case request := <-s.messageQueue:
+			requests = append(requests, request)
+			messageCount += len(request.messages)
+		case <-timer.C:
+			return requests
+		case <-s.closeSignal:
+			for messageCount < messageBatchSize {
+				select {
+				case request := <-s.messageQueue:
+					requests = append(requests, request)
+					messageCount += len(request.messages)
+				default:
+					return requests
+				}
+			}
+		}
+	}
+	return requests
+}
+
+func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
+	total := 0
+	for _, request := range requests {
+		total += len(request.messages)
+	}
+	results := make([]MessageWriteResult, total)
+	messages := make([]Message, 0, total)
+	resultIndex := 0
+	for _, request := range requests {
+		for _, message := range request.messages {
+			result := &results[resultIndex]
+			result.Message = message
+			if err := contextErr(request.ctx); err != nil {
+				result.Err = err
+			} else {
+				messages = append(messages, message)
+			}
+			resultIndex++
+		}
+	}
+	if len(messages) > 0 {
+		committed, errs := s.writeMessageBatch(messages)
+		committedIndex := 0
+		for i := range results {
+			if results[i].Err != nil {
+				continue
+			}
+			results[i] = MessageWriteResult{Message: committed[committedIndex], Err: errs[committedIndex]}
+			committedIndex++
+		}
+	}
+	resultIndex = 0
+	for _, request := range requests {
+		request.result <- results[resultIndex : resultIndex+len(request.messages)]
+		resultIndex += len(request.messages)
+	}
 }
 
 func (s *Store) Checkpoint(ctx context.Context, dir string) error {

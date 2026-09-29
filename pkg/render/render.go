@@ -1,9 +1,13 @@
 package render
 
 import (
+	"bytes"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	validator "github.com/kamalyes/go-argus"
 	"github.com/phuslu/log"
@@ -92,4 +96,95 @@ func ReadBody[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	}
 
 	return body, nil
+}
+
+// ClientFrame 客户端上行帧
+type ClientFrame struct {
+	Type         string         `json:"type"`
+	RequestID    string         `json:"request_id"`
+	ClientMsgID  string         `json:"client_msg_id"`
+	RoomID       string         `json:"room_id"`
+	MsgType      string         `json:"msg_type"`
+	Payload      jsontext.Value `json:"payload"`
+	ReplyToMsgID string         `json:"reply_to_msg_id"`
+	Ext          jsontext.Value `json:"ext"`
+}
+
+// AckFrame 下行 ack 帧。
+type AckFrame struct {
+	Type        string `json:"type"`
+	RequestID   string `json:"request_id"`
+	ClientMsgID string `json:"client_msg_id"`
+	MsgID       string `json:"msg_id"`
+	RoomID      string `json:"room_id"`
+	RoomSeq     uint64 `json:"room_seq"`
+	ServerTime  int64  `json:"server_time"`
+	Code        int32  `json:"code"`
+	Error       string `json:"error"`
+}
+
+// PushFrame 下行推送帧(单元素数组包裹,保持现状)。
+type PushFrame struct {
+	MsgID      string         `json:"msg_id"`
+	SenderID   string         `json:"sender_id"`
+	RoomID     string         `json:"room_id"`
+	RoomSeq    uint64         `json:"room_seq"`
+	ServerTime int64          `json:"server_time"`
+	MsgType    string         `json:"msg_type"`
+	Payload    jsontext.Value `json:"payload"`
+	Ext        jsontext.Value `json:"ext"`
+}
+
+// ErrorFrame 下行错误帧。
+type ErrorFrame struct {
+	Type  string `json:"type"`
+	Error string `json:"error"`
+}
+
+// PongFrame 心跳应答帧。
+type PongFrame struct {
+	Type string `json:"type"`
+}
+
+// FrameWriter 持有可复用的 jsontext.Encoder,把下行帧流式编码进内部 buffer
+type FrameWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+	enc *jsontext.Encoder
+}
+
+// NewFrameWriter 构造帧编码器。
+func NewFrameWriter() *FrameWriter { return &FrameWriter{} }
+
+func (fw *FrameWriter) EncodeFrame(v any) ([]byte, error) {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	if fw.enc == nil {
+		fw.enc = jsontext.NewEncoder(&fw.buf)
+	}
+	if err := json.MarshalEncode(fw.enc, v); err != nil {
+		fw.buf.Reset()
+		fw.enc = jsontext.NewEncoder(&fw.buf)
+		return nil, err
+	}
+	b := fw.buf.Bytes()
+	n := len(b)
+	if n > 0 && b[n-1] == '\n' {
+		n--
+	}
+	frame := append([]byte(nil), b[:n]...)
+	fw.buf.Reset()
+	return frame, nil
+}
+
+type FrameReader struct {
+	dec *jsontext.Decoder
+}
+
+func NewFrameReader(r io.Reader) *FrameReader {
+	return &FrameReader{dec: jsontext.NewDecoder(r)}
+}
+
+func (fr *FrameReader) ReadFrame(out any) error {
+	return json.UnmarshalDecode(fr.dec, out)
 }

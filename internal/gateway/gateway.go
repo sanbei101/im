@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"sync"
@@ -16,6 +16,7 @@ import (
 	"github.com/sanbei101/im/kitex_gen/im/v1/gatewayservice"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/render"
 )
 
 type Gateway struct {
@@ -211,16 +212,17 @@ func (s *apiStream) handleResults(batch *imv1.SendResultBatch) {
 		if !ok {
 			continue
 		}
-		data, err := json.Marshal(map[string]any{
-			"type": "ack", "request_id": result.GetRequestId(), "client_msg_id": result.GetClientMsgId(),
-			"msg_id": result.GetMsgId(), "room_id": result.GetRoomId(), "room_seq": result.GetRoomSeq(),
-			"server_time": result.GetServerTime(), "code": result.GetCode(), "error": result.GetError(),
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("marshal message result failed")
-			continue
-		}
-		if err := userClient.sendJSON(data); err != nil {
+		if err := userClient.encodeFrame(render.AckFrame{
+			Type:        "ack",
+			RequestID:   result.GetRequestId(),
+			ClientMsgID: result.GetClientMsgId(),
+			MsgID:       result.GetMsgId(),
+			RoomID:      result.GetRoomId(),
+			RoomSeq:     result.GetRoomSeq(),
+			ServerTime:  result.GetServerTime(),
+			Code:        result.GetCode(),
+			Error:       result.GetError(),
+		}); err != nil {
 			log.Error().Err(err).Msg("send message result to websocket failed")
 		}
 	}
@@ -235,25 +237,21 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 		if !ok {
 			continue
 		}
-		data, err := json.Marshal([]map[string]any{
-			{
-				"msg_id":      push.GetMsgId(),
-				"sender_id":   push.GetSenderId(),
-				"room_id":     push.GetRoomId(),
-				"room_seq":    push.GetRoomSeq(),
-				"server_time": push.GetServerTime(),
-				"msg_type": messageTypeName(
-					push.GetMsgType(),
-				),
-				"payload": json.RawMessage(push.GetPayload()),
-				"ext":     json.RawMessage(push.GetExt()),
-			},
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("marshal push frame failed")
-			continue
+		frame := []render.PushFrame{{
+			MsgID:      push.GetMsgId(),
+			SenderID:   push.GetSenderId(),
+			RoomID:     push.GetRoomId(),
+			RoomSeq:    push.GetRoomSeq(),
+			ServerTime: push.GetServerTime(),
+			MsgType:    messageTypeName(push.GetMsgType()),
+			Payload:    jsontext.Value(push.GetPayload()),
+			Ext:        jsontext.Value(push.GetExt()),
+		}}
+		for _, client := range session.Clients() {
+			if err := client.encodeFrame(frame); err != nil {
+				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
+			}
 		}
-		session.Broadcast(data)
 	}
 }
 

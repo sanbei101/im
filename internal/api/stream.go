@@ -121,16 +121,17 @@ func (h *StreamHandler) writeBatch(
 	batch *imv1.SendBatch,
 ) (*imv1.SendResultBatch, []*store.Message, error) {
 	result := &imv1.SendResultBatch{BatchId: batch.GetBatchId()}
-	var messages []*store.Message
-	for _, input := range batch.GetMessages() {
+	inputs := batch.GetMessages()
+	messages := make([]store.Message, 0, len(inputs))
+	resultIndexes := make([]int, 0, len(inputs))
+	for _, input := range inputs {
 		if input == nil {
 			continue
 		}
 		item := &imv1.SendResult{
-			RequestId:   input.GetRequestId(),
-			ClientMsgId: input.GetClientMsgId(),
-			RoomId:      input.GetRoomId(),
+			RequestId: input.GetRequestId(), ClientMsgId: input.GetClientMsgId(), RoomId: input.GetRoomId(),
 		}
+		result.Results = append(result.Results, item)
 		message, err := h.message(input)
 		if err == nil {
 			if slot, slotErr := pkg.RoomSlot(message.RoomID, h.slots); slotErr != nil {
@@ -141,25 +142,33 @@ func (h *StreamHandler) writeBatch(
 				err = fmt.Errorf("room is owned by api node index %d", owner)
 			}
 		}
-		if err == nil {
-			written, writeErr := h.store.WriteMessage(ctx, message)
-			err = writeErr
-			if err == nil {
-				message = written
-				messages = append(messages, &message)
-			}
-		}
 		if err != nil {
 			item.Code = 1
 			item.Error = err.Error()
-		} else {
-			item.MsgId = message.MsgID.String()
-			item.RoomSeq = message.RoomSeq
-			item.ServerTime = message.ServerTime
+			continue
 		}
-		result.Results = append(result.Results, item)
+		messages = append(messages, message)
+		resultIndexes = append(resultIndexes, len(result.Results)-1)
 	}
-	return result, messages, nil
+	written := make([]*store.Message, 0, len(messages))
+	if len(messages) == 0 {
+		return result, written, nil
+	}
+	writeResults := h.store.WriteMessages(ctx, messages)
+	for index, writtenResult := range writeResults {
+		item := result.Results[resultIndexes[index]]
+		if writtenResult.Err != nil {
+			item.Code = 1
+			item.Error = writtenResult.Err.Error()
+			continue
+		}
+		message := writtenResult.Message
+		item.MsgId = message.MsgID.String()
+		item.RoomSeq = message.RoomSeq
+		item.ServerTime = message.ServerTime
+		written = append(written, &message)
+	}
+	return result, written, nil
 }
 
 func (h *StreamHandler) push(ctx context.Context, message *store.Message) error {
