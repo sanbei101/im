@@ -3,9 +3,9 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 	"uuid"
 
@@ -193,38 +193,47 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	prefix := []byte(messagePrefix(roomID))
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix})
+	upperBound := messageUpperBound(prefix, before)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
 		return MessagePage{}, err
 	}
 	defer iter.Close()
-	var all []Message
-	for iter.First(); iter.Valid(); iter.Next() {
-		if !strings.HasPrefix(string(iter.Key()), string(prefix)) {
-			break
-		}
-		message, err := decodeMessage(iter.Value())
+
+	messages := make([]Message, 0, limit)
+	for iter.Last(); iter.Valid() && len(messages) <= limit; iter.Prev() {
+		value := append([]byte(nil), iter.Value()...)
+		message, err := decodeMessage(value)
 		if err != nil {
 			return MessagePage{}, err
 		}
-		if before != 0 && message.RoomSeq >= before {
-			continue
-		}
-		all = append(all, message)
+		messages = append(messages, message)
 	}
 	if err := iter.Error(); err != nil {
 		return MessagePage{}, err
 	}
-	if len(all) <= limit {
-		return MessagePage{Messages: reverseMessages(all)}, nil
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
 	}
-	return MessagePage{Messages: reverseMessages(all[len(all)-limit:]), HasMore: true}, nil
+	return MessagePage{Messages: messages, HasMore: hasMore}, nil
 }
 
-func reverseMessages(messages []Message) []Message {
-	for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
-		messages[left], messages[right] = messages[right], messages[left]
+func messageUpperBound(prefix []byte, before uint64) []byte {
+	if before == 0 {
+		upperBound := append([]byte(nil), prefix...)
+		for i := len(upperBound) - 1; i >= 0; i-- {
+			if upperBound[i] < 0xff {
+				upperBound[i]++
+				return upperBound[:i+1]
+			}
+		}
+		return nil
 	}
-	return messages
+	upperBound := make([]byte, len(prefix)+8)
+	copy(upperBound, prefix)
+	binary.BigEndian.PutUint64(upperBound[len(prefix):], before)
+	return upperBound
 }
