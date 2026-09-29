@@ -17,7 +17,6 @@ func SetupRouter(
 	userHandler *handler.UserHandler,
 	messageHandler *handler.MessageHandler,
 	roomHandler *handler.RoomHandler,
-	benchHandler *handler.BenchMockHandler,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -45,10 +44,6 @@ func SetupRouter(
 			r.Post("/single", roomHandler.CreateOrGetSingleChatRoom)
 			r.Post("/group", roomHandler.CreateGroupRoom)
 			r.Post("/list", roomHandler.ListRooms)
-		})
-
-		r.Route("/bench", func(r chi.Router) {
-			r.Post("/mock", benchHandler.CreateMock)
 		})
 	})
 

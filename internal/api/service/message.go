@@ -3,63 +3,41 @@ package service
 import (
 	"context"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
-
-	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/store"
 )
 
-type MessageService struct {
-	query *db.Queries
-}
-
-func NewMessageService(query *db.Queries) *MessageService {
-	return &MessageService{query: query}
-}
+type MessageService struct{ store *store.Store }
 
 type HistoryReq struct {
-	RoomID           string `query:"room_id"            validate:"required"`
-	BeforeServerTime int64  `query:"before_server_time" validate:"required"`
-	PageSize         int    `query:"page_size"          validate:"min=1,max=100" default:"20"`
+	RoomID string `query:"room_id"    validate:"required"`
+	Before uint64 `query:"before_seq"`
+	Limit  int    `query:"page_size"`
 }
 
 type HistoryResp struct {
-	Messages []*db.ListMessagesByRoomRow `json:"messages"`
-	HasMore  bool                        `json:"hasMore"`
+	Messages []store.Message `json:"messages"`
+	HasMore  bool            `json:"hasMore"`
 }
+
+func NewMessageService(s *store.Store) *MessageService { return &MessageService{store: s} }
 
 func (s *MessageService) GetHistory(ctx context.Context, req HistoryReq) (*HistoryResp, error) {
 	roomID, err := uuid.Parse(req.RoomID)
 	if err != nil {
 		return nil, err
 	}
-
-	beforeTime := req.BeforeServerTime
-	if beforeTime == 0 {
-		beforeTime = time.Now().UnixMicro()
-	}
-
-	pageSize := int32(req.PageSize)
-	if pageSize == 0 {
-		pageSize = 20
-	}
-
-	messages, err := s.query.ListMessagesByRoom(ctx, db.ListMessagesByRoomParams{
-		RoomID:           roomID,
-		BeforeServerTime: beforeTime,
-		PageSize:         pageSize + 1,
-	})
+	page, err := s.store.Messages(ctx, roomID, req.Before, req.Limit)
 	if err != nil {
 		return nil, err
 	}
+	return &HistoryResp{Messages: page.Messages, HasMore: page.HasMore}, nil
+}
 
-	hasMore := len(messages) > int(pageSize)
-	if hasMore {
-		messages = messages[:pageSize]
+func (s *MessageService) Write(ctx context.Context, message store.Message) (store.Message, error) {
+	if message.ServerTime == 0 {
+		message.ServerTime = time.Now().UnixMicro()
 	}
-
-	return &HistoryResp{
-		Messages: messages,
-		HasMore:  hasMore,
-	}, nil
+	return s.store.WriteMessage(ctx, message)
 }

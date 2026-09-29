@@ -135,8 +135,8 @@ export class APIClient {
     const queryParams = new URLSearchParams();
     queryParams.append('room_id', params.room_id);
 
-    if (params.before_server_time !== undefined) {
-      queryParams.append('before_server_time', params.before_server_time.toString());
+    if (params.before_seq !== undefined) {
+      queryParams.append('before_seq', params.before_seq.toString());
     }
     if (params.page_size !== undefined) {
       queryParams.append('page_size', params.page_size.toString());

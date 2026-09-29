@@ -13,6 +13,7 @@ linters:
     - modernize
     - revive
     - bodyclose
+    - usestdlibvars
   settings:
     gocritic:
       enabled-tags:
@@ -22,6 +23,11 @@ linters:
         - opinionated
       disabled-tags:
         - experimental
+      disabled-checks:
+        - hugeParam # go
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
     revive:
       enable-default-rules: true
       rules:
@@ -45,9 +51,9 @@ formatters:
         - Default
         - Prefix(github.com/sanbei101/im)
     gofumpt:
-      extra-rules: true
       module-path: "github.com/sanbei101/im"
-
+      extra:
+        group-params: true
     golines:
       max-len: 120
       shorten-comments: true

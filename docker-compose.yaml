@@ -1,58 +1,35 @@
 services:
-  postgres:
-    image: postgres:18
-    container_name: postgres-chat
-    ports:
-      - "5432:5432"
+  api:
+    build: .
+    container_name: im-api
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: database
-    volumes:
-      - ./sqlc/migrations:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d database"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-
-  redis:
-    image: redis:8
-    container_name: redis-chat
+      API_NODE_ID: api-1
+      API_ADDR: ":9000"
+      STORE_PATH: "/data/api-1"
+      BACKUP_PATH: "/backup/api-1"
     ports:
-      - "6379:6379"
-    ulimits:
-      nofile:
-        soft: 1000000
-        hard: 1000000
-    command: redis-server --requirepass 123456 --save "" --appendonly no
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "123456", "ping"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-
-  im:
-    image: ghcr.io/sanbei101/im:latest
-    container_name: im
-    environment:
-      POSTGRES_DSN: "host=postgres port=5432 user=myuser password=mypassword dbname=database sslmode=disable"
-      REDIS_ADDR: "redis:6379"
-      REDIS_PASSWORD: "123456"
-      REDIS_DB: "0"
-      GATEWAY_MAX_TIMEOUT: "10"
-    ports:
-      - "8800:8800"
+      - "9000:9000"
       - "8801:8801"
-      - "6062:6062"
-      - "6063:6063"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    volumes:
+      - api-data:/data
+      - api-backup:/backup
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8801/api/v1/users/batch || exit 1"]
       interval: 2s
       timeout: 5s
       retries: 30
+
+  gateway:
+    build: .
+    container_name: im-gateway
+    environment:
+      GATEWAY_ADDR: ":8800"
+    ports:
+      - "8800:8800"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  api-data:
+  api-backup:

@@ -1,10 +1,19 @@
+api:
+  node_id: api-1
+  addr: ":9000"
+  node_index: 0
+  node_count: 1
+
 gateway:
+  addr: ":8800"
+  api_addrs:
+    - "127.0.0.1:9000"
   max_timeout: 10
 
-postgres:
-  dsn: "host=154.8.213.38 port=5433 user=myuser password=mypassword dbname=database sslmode=disable"
+store:
+  path: "./data/api-1"
+  backup_path: "./backup/api-1"
+  backup_interval_seconds: 3600
 
-redis:
-  addr: "154.8.213.38:4999"
-  password: "123456"
-  db: 0
+shard:
+  slots: 1024

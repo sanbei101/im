@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package im.v1;
+
+option go_package = "github.com/sanbei101/im/kitex_gen/im/v1;imv1";
+
+service GatewayService {
+  rpc Connect(stream GatewayFrame) returns (stream APIFrame);
+}
+
+message GatewayFrame {
+  oneof body {
+    Hello hello = 1;
+    SendBatch send_batch = 2;
+    SessionBatch session_batch = 3;
+    ReceiptBatch receipt_batch = 4;
+    Heartbeat heartbeat = 5;
+  }
+}
+
+message APIFrame {
+  oneof body {
+    HelloAck hello_ack = 1;
+    SendResultBatch send_result_batch = 2;
+    PushBatch push_batch = 3;
+    RoutingError routing_error = 4;
+    Heartbeat heartbeat = 5;
+  }
+}
+
+message Hello { string gateway_id = 1; string topology_version = 2; }
+message HelloAck { string node_id = 1; string topology_version = 2; }
+
+message SendBatch { string batch_id = 1; repeated SendMessage messages = 2; }
+message SendMessage {
+  string request_id = 1;
+  string client_msg_id = 2;
+  string sender_id = 3;
+  string room_id = 4;
+  int32 msg_type = 5;
+  bytes payload = 6;
+  string reply_to_msg_id = 7;
+  bytes ext = 8;
+}
+message SendResultBatch { string batch_id = 1; repeated SendResult results = 2; }
+message SendResult {
+  string request_id = 1;
+  string client_msg_id = 2;
+  string msg_id = 3;
+  string room_id = 4;
+  uint64 room_seq = 5;
+  int64 server_time = 6;
+  int32 code = 7;
+  string error = 8;
+}
+
+message SessionBatch { repeated Session sessions = 1; }
+message Session { string session_id = 1; string user_id = 2; bool online = 3; }
+message ReceiptBatch { repeated Receipt receipts = 1; }
+message Receipt { string user_id = 1; string room_id = 2; uint64 room_seq = 3; }
+
+message PushBatch { repeated Push pushes = 1; }
+message Push {
+  string user_id = 1;
+  string room_id = 2;
+  uint64 room_seq = 3;
+  string msg_id = 4;
+  string sender_id = 5;
+  int32 msg_type = 6;
+  bytes payload = 7;
+  int64 server_time = 8;
+  bytes ext = 9;
+}
+
+message RoutingError { string room_id = 1; string owner = 2; string topology_version = 3; }
+message Heartbeat { int64 unix_micro = 1; }

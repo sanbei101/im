@@ -213,7 +213,7 @@ export interface HistoryQueryParams {
   /** 房间ID */
   room_id: string;
   /** 查询此时间戳之前的消息(微秒级,默认为当前时间) */
-  before_server_time?: number;
+  before_seq?: number;
   /** 每页数量(默认20) */
   page_size?: number;
 }

@@ -2,29 +2,29 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
-	"time"
+	"uuid"
 
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 	"github.com/phuslu/log"
 
-	imv1 "github.com/sanbei101/im/gen/go/proto/im/v1"
+	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
 )
 
 type UserClient struct {
 	gateway *Gateway
 	Conn    *websocket.Conn
-	Send    chan [][]byte
+	Send    chan []byte
 	UserID  uuid.UUID
 }
 
 func (c *UserClient) writePump(ctx context.Context) {
-	for frames := range c.Send {
-		for _, frame := range frames {
-			if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
-				return
-			}
+	for frame := range c.Send {
+		if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
+			return
 		}
 	}
 }
@@ -38,86 +38,90 @@ func (c *UserClient) readPump(ctx context.Context) {
 			}
 			return
 		}
-		c.handleUserMessage(ctx, payload)
+		if err := c.handleFrame(ctx, payload); err != nil {
+			c.sendError(err.Error())
+		}
 	}
 }
 
-func (c *UserClient) handleUserMessage(ctx context.Context, payload []byte) {
-	req := &imv1.SendMessageReq{}
-	if err := req.UnmarshalVT(payload); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client unmarshal SendMessageReq failed")
-		c.sendAck(-1, "", "", 0, "invalid proto")
-		return
+func (c *UserClient) handleFrame(ctx context.Context, payload []byte) error {
+	var input struct {
+		Type         string          `json:"type"`
+		RequestID    string          `json:"request_id"`
+		ClientMsgID  string          `json:"client_msg_id"`
+		RoomID       string          `json:"room_id"`
+		MsgType      string          `json:"msg_type"`
+		Payload      json.RawMessage `json:"payload"`
+		ReplyToMsgID string          `json:"reply_to_msg_id"`
+		Ext          json.RawMessage `json:"ext"`
 	}
-
-	// Ping convention: msg_type == UNSPECIFIED is a keepalive - drop silently.
-	if req.GetMsgType() == imv1.MessageType_MESSAGE_TYPE_UNSPECIFIED {
-		return
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return fmt.Errorf("decode websocket message: %w", err)
 	}
-
-	msgID, err := uuid.NewV7()
+	if input.Type == "ping" {
+		return c.sendJSON(map[string]any{"type": "pong"})
+	}
+	if input.RoomID == "" || input.ClientMsgID == "" {
+		return errors.New("room_id and client_msg_id are required")
+	}
+	roomID, err := uuid.Parse(input.RoomID)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client generate msg_id failed")
-		c.sendAck(-1, req.GetClientMsgId(), "", 0, "failed to generate msg_id")
-		return
+		return fmt.Errorf("invalid room_id: %w", err)
 	}
-
-	serverTime := time.Now().UnixMicro()
-
-	msg, err := sendMessageReqToMessage(req, c.UserID, msgID, serverTime)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client send message invalid")
-		c.sendAck(-1, req.GetClientMsgId(), msgID.String(), serverTime, err.Error())
-		return
+	requestID := input.RequestID
+	if requestID == "" {
+		requestID = uuid.NewV7().String()
 	}
-
-	// 立即同步 ack: 客户端拿到 msg_id 即可信任, 不必等异步广播.
-	c.sendAck(0, req.GetClientMsgId(), msgID.String(), serverTime, "")
-
-	if err := c.gateway.MQ.GatewayEnqueueMessage(ctx, []*imv1.Message{msg}); err != nil {
-		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("client enqueue message failed")
-		c.sendAck(-1, req.GetClientMsgId(), msgID.String(), serverTime, "enqueue failed")
+	message := &imv1.SendMessage{
+		RequestId: requestID, ClientMsgId: input.ClientMsgID, SenderId: c.UserID.String(),
+		RoomId: input.RoomID, MsgType: messageType(input.MsgType), Payload: input.Payload, Ext: input.Ext,
+		ReplyToMsgId: input.ReplyToMsgID,
 	}
+	c.gateway.pending.Store(requestID, c)
+	if err := c.gateway.send(ctx, roomID, message); err != nil {
+		c.gateway.pending.Delete(requestID)
+		return err
+	}
+	return nil
 }
 
-// sendAck 把 SendMessageAck 写入 client.Send. code=0 即成功 ack (msg_id 必填);
-// code!=0 即错误响应 (msg_id 可能为空, err_msg 必填).
-func (c *UserClient) sendAck(code int32, clientMsgID, msgID string, serverTime int64, errMsg string) {
-	ack := &imv1.SendMessageAck{
-		Code:   &code,
-		ErrMsg: &errMsg,
-	}
-	if clientMsgID != "" {
-		ack.ClientMsgId = &clientMsgID
-	}
-	if msgID != "" {
-		ack.MsgId = &msgID
-	}
-	if serverTime != 0 {
-		st := serverTime
-		ack.ServerTime = &st
-	}
-	bin := make([]byte, ack.SizeVT())
-	n, err := ack.MarshalToVT(bin)
-	if err != nil {
-		log.Error().Err(err).
-			Int32("code", code).
-			Str("err_msg", errMsg).
-			Msg("marshal SendMessageAck failed")
-		return
-	}
-	bin = bin[:n]
-	select {
-	case c.Send <- [][]byte{bin}:
+func messageType(value string) int32 {
+	switch value {
+	case "text":
+		return 1
+	case "image":
+		return 2
+	case "video":
+		return 3
+	case "file":
+		return 4
+	case "system":
+		return 5
 	default:
-		log.Warn().
-			Int32("code", code).
-			Str("err_msg", errMsg).
-			Msg("client send ack failed, send channel is full")
+		var result int32
+		_, _ = fmt.Sscan(value, &result)
+		return result
 	}
 }
 
-const shardCount = 256
+func (c *UserClient) sendJSON(value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	select {
+	case c.Send <- data:
+		return nil
+	default:
+		return errors.New("client send buffer is full")
+	}
+}
+
+func (c *UserClient) sendError(message string) {
+	_ = c.sendJSON(map[string]any{"type": "error", "error": message})
+}
+
+const sessionShardCount = 256
 
 type sessionShard struct {
 	mu sync.RWMutex
@@ -125,63 +129,69 @@ type sessionShard struct {
 }
 
 type UserSessionManager struct {
-	shards [shardCount]*sessionShard
+	shards [sessionShardCount]*sessionShard
 }
 
 func NewSessionManager() *UserSessionManager {
-	sm := &UserSessionManager{}
-	for i := range shardCount {
-		sm.shards[i] = &sessionShard{
-			m: make(map[string]*UserSession),
-		}
+	manager := &UserSessionManager{}
+	for i := range manager.shards {
+		manager.shards[i] = &sessionShard{m: make(map[string]*UserSession)}
 	}
-	return sm
+	return manager
 }
 
-func (sm *UserSessionManager) getShard(key string) *sessionShard {
+func (manager *UserSessionManager) shard(key string) *sessionShard {
 	var hash uint32 = 2166136261
-	for i := 0; i < len(key); i++ {
-		hash ^= uint32(key[i])
-		hash *= 16777619
+	for i := range key {
+		hash = (hash ^ uint32(key[i])) * 16777619
 	}
-	return sm.shards[hash%shardCount]
+	return manager.shards[hash%sessionShardCount]
 }
 
-func (sm *UserSessionManager) LoadOrCreate(key string, createFn func() *UserSession) *UserSession {
-	shard := sm.getShard(key)
-
+func (manager *UserSessionManager) LoadOrCreate(key string, create func() *UserSession) *UserSession {
+	shard := manager.shard(key)
 	shard.mu.RLock()
-	if session, ok := shard.m[key]; ok {
-		shard.mu.RUnlock()
+	session := shard.m[key]
+	shard.mu.RUnlock()
+	if session != nil {
 		return session
 	}
-	shard.mu.RUnlock()
-
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
-
-	if session, ok := shard.m[key]; ok {
-		return session
+	if session = shard.m[key]; session == nil {
+		session = create()
+		shard.m[key] = session
 	}
-
-	session := createFn()
-	shard.m[key] = session
 	return session
 }
 
-func (sm *UserSessionManager) Delete(key string) {
-	shard := sm.getShard(key)
+func (manager *UserSessionManager) Delete(key string) {
+	shard := manager.shard(key)
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
 	delete(shard.m, key)
+	shard.mu.Unlock()
 }
 
-func (sm *UserSessionManager) Load(key string) (*UserSession, bool) {
-	shard := sm.getShard(key)
+func (manager *UserSessionManager) Load(key string) (*UserSession, bool) {
+	shard := manager.shard(key)
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
-	session, ok := shard.m[key]
-	return session, ok
+	value, ok := shard.m[key]
+	return value, ok
+}
+
+func (manager *UserSessionManager) All() []uuid.UUID {
+	var result []uuid.UUID
+	for _, shard := range manager.shards {
+		shard.mu.RLock()
+		for key := range shard.m {
+			if id, err := uuid.Parse(key); err == nil {
+				result = append(result, id)
+			}
+		}
+		shard.mu.RUnlock()
+	}
+	return result
 }
 
 type UserSession struct {
@@ -189,33 +199,28 @@ type UserSession struct {
 	clients map[*UserClient]struct{}
 }
 
-func NewUserSession() *UserSession {
-	return &UserSession{
-		clients: make(map[*UserClient]struct{}),
-	}
+func NewUserSession() *UserSession { return &UserSession{clients: make(map[*UserClient]struct{})} }
+func (s *UserSession) Add(client *UserClient) {
+	s.mu.Lock()
+	s.clients[client] = struct{}{}
+	s.mu.Unlock()
 }
 
-func (s *UserSession) Add(c *UserClient) {
+func (s *UserSession) Remove(client *UserClient) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.clients[c] = struct{}{}
-}
-
-func (s *UserSession) Remove(c *UserClient) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.clients, c)
+	delete(s.clients, client)
 	return len(s.clients) == 0
 }
 
-func (s *UserSession) Broadcast(payloads [][]byte) {
+func (s *UserSession) Broadcast(data []byte) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for c := range s.clients {
+	for client := range s.clients {
 		select {
-		case c.Send <- payloads:
+		case client.Send <- data:
 		default:
-			log.Warn().Msg("gateway client buffer full, dropping message")
+			log.Warn().Str("user_id", client.UserID.String()).Msg("client send buffer is full")
 		}
 	}
 }
