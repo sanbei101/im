@@ -12,7 +12,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/gateway"
-	"github.com/sanbei101/im/internal/mq"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
 )
@@ -22,8 +21,7 @@ var wg sync.WaitGroup
 func main() {
 	logger.InitLogger()
 	cfg := config.New()
-	redisMQ := mq.NewRedisMQ(cfg)
-	g := gateway.NewGateway(cfg, redisMQ)
+	g := gateway.NewGateway(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -32,7 +30,7 @@ func main() {
 	gatewayMux.HandleFunc("/ws", g.HandleUserMessage)
 
 	srv := &http.Server{
-		Addr:    ":8800",
+		Addr:    cfg.Gateway.Addr,
 		Handler: gatewayMux,
 	}
 
@@ -42,11 +40,7 @@ func main() {
 		}
 	})
 
-	wg.Go(func() {
-		log.Info().Msg("starting handle worker messages...")
-		g.HandleWorkerMessages(ctx)
-		log.Info().Msg("handle worker messages stopped")
-	})
+	g.Start(ctx)
 
 	wg.Go(func() {
 		log.Info().Msg("starting gateway server on :8800...")

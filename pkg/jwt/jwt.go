@@ -50,11 +50,9 @@ func init() {
 
 func GenerateToken(userID string) (string, error) {
 	c := userClaims{
-		UserID: userID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtExpiration)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
+		UserID:    userID,
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtExpiration)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	}
 	builder := jwt.NewBuilder(jwtSigner)
 	token, err := builder.Build(c)

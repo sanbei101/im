@@ -1,0 +1,241 @@
+package store
+
+import (
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+	"uuid"
+
+	"github.com/cockroachdb/pebble"
+)
+
+var (
+	ErrNotFound      = errors.New("store: not found")
+	ErrAlreadyExists = errors.New("store: already exists")
+	ErrConflict      = errors.New("store: conflict")
+)
+
+const recordVersion byte = 1
+
+type Store struct {
+	db *pebble.DB
+	mu sync.RWMutex
+}
+
+type User struct {
+	UserID    uuid.UUID
+	Username  string
+	Password  string
+	CreatedAt time.Time
+}
+
+type Room struct {
+	RoomID         uuid.UUID
+	ChatType       string
+	Name           string
+	AvatarURL      string
+	SingleChatHash []byte
+	LastSeq        uint64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Member struct {
+	RoomID   uuid.UUID
+	UserID   uuid.UUID
+	Role     string
+	IsHidden bool
+	IsMuted  bool
+}
+
+type Message struct {
+	MsgID        uuid.UUID
+	ClientMsgID  uuid.UUID
+	SenderID     uuid.UUID
+	RoomID       uuid.UUID
+	RoomSeq      uint64
+	ServerTime   int64
+	ReplyToMsgID uuid.UUID
+	HasReply     bool
+	MsgType      string
+	Payload      []byte
+	Ext          []byte
+}
+
+type Dedup struct {
+	MsgID      uuid.UUID
+	RoomSeq    uint64
+	ServerTime int64
+	PayloadSum [32]byte
+}
+
+type RoomInfo struct {
+	Room   Room
+	Member Member
+}
+
+type MessagePage struct {
+	Messages []Message
+	HasMore  bool
+}
+
+func Open(path string) (*Store, error) {
+	if path == "" {
+		return nil, errors.New("store path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create store directory: %w", err)
+	}
+	db, err := pebble.Open(path, &pebble.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("open pebble: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+func (s *Store) Checkpoint(ctx context.Context, dir string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return fmt.Errorf("create checkpoint parent: %w", err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove old checkpoint: %w", err)
+	}
+	if err := s.db.Checkpoint(dir); err != nil {
+		return fmt.Errorf("create checkpoint: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) get(key []byte, decode func([]byte) error) error {
+	value, closer, err := s.db.Get(key)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	defer closer.Close()
+	return decode(value)
+}
+
+func (s *Store) set(batch *pebble.Batch, key string, value []byte) error {
+	if err := batch.Set([]byte(key), value, nil); err != nil {
+		return fmt.Errorf("set %q: %w", key, err)
+	}
+	return nil
+}
+
+func commit(batch *pebble.Batch) error {
+	return batch.Commit(&pebble.WriteOptions{Sync: true})
+}
+
+func contextErr(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func putUUID(dst []byte, value uuid.UUID) { copy(dst, value[:]) }
+
+func getUUID(src []byte) (uuid.UUID, error) {
+	if len(src) < 16 {
+		return uuid.Nil(), errors.New("invalid uuid")
+	}
+	var value uuid.UUID
+	copy(value[:], src[:16])
+	return value, nil
+}
+
+func putU64(dst []byte, value uint64) { binary.BigEndian.PutUint64(dst, value) }
+
+func getU64(src []byte) (uint64, error) {
+	if len(src) < 8 {
+		return 0, errors.New("invalid uint64")
+	}
+	return binary.BigEndian.Uint64(src[:8]), nil
+}
+
+func putI64(dst []byte, value int64) { binary.BigEndian.PutUint64(dst, uint64(value)) }
+
+func getI64(src []byte) (int64, error) {
+	value, err := getU64(src)
+	return int64(value), err
+}
+
+func appendBytes(dst, value []byte) []byte {
+	var size [4]byte
+	binary.BigEndian.PutUint32(size[:], uint32(len(value)))
+	dst = append(dst, size[:]...)
+	return append(dst, value...)
+}
+
+func appendString(dst []byte, value string) []byte { return appendBytes(dst, []byte(value)) }
+
+type decoder struct {
+	data []byte
+	pos  int
+}
+
+func (d *decoder) bytes() ([]byte, error) {
+	if d.pos+4 > len(d.data) {
+		return nil, errors.New("invalid length")
+	}
+	size := int(binary.BigEndian.Uint32(d.data[d.pos:]))
+	d.pos += 4
+	if size < 0 || d.pos+size > len(d.data) {
+		return nil, errors.New("invalid value length")
+	}
+	value := d.data[d.pos : d.pos+size]
+	d.pos += size
+	return value, nil
+}
+
+func (d *decoder) string() (string, error) {
+	value, err := d.bytes()
+	return string(value), err
+}
+
+func (d *decoder) uuid() (uuid.UUID, error) {
+	if d.pos+16 > len(d.data) {
+		return uuid.Nil(), errors.New("invalid uuid")
+	}
+	value, err := getUUID(d.data[d.pos : d.pos+16])
+	d.pos += 16
+	return value, err
+}
+
+func (d *decoder) u64() (uint64, error) {
+	if d.pos+8 > len(d.data) {
+		return 0, errors.New("invalid uint64")
+	}
+	value, err := getU64(d.data[d.pos : d.pos+8])
+	d.pos += 8
+	return value, err
+}
+
+func (d *decoder) i64() (int64, error) {
+	value, err := d.u64()
+	return int64(value), err
+}
+
+func (d *decoder) done() bool { return d.pos == len(d.data) }

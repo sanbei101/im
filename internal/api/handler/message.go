@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/sanbei101/im/internal/api/service"
 	"github.com/sanbei101/im/pkg/render"
@@ -20,9 +19,9 @@ func NewMessageHandler(svc *service.MessageService) *MessageHandler {
 func (h *MessageHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	req := service.HistoryReq{
-		RoomID:           q.Get("room_id"),
-		BeforeServerTime: parseBeforeServerTime(q.Get("before_server_time")),
-		PageSize:         parsePageSize(q.Get("page_size")),
+		RoomID: q.Get("room_id"),
+		Before: parseBeforeSequence(q.Get("before_seq")),
+		Limit:  parsePageSize(q.Get("page_size")),
 	}
 
 	resp, err := h.svc.GetHistory(r.Context(), req)
@@ -34,14 +33,13 @@ func (h *MessageHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	render.Success(w, "获取历史消息成功", resp)
 }
 
-// parseBeforeServerTime defaults to "now" when the query string is empty.
-func parseBeforeServerTime(s string) int64 {
+func parseBeforeSequence(s string) uint64 {
 	if s == "" {
-		return time.Now().UnixMicro()
+		return 0
 	}
-	v, err := strconv.ParseInt(s, 10, 64)
+	v, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		return time.Now().UnixMicro()
+		return 0
 	}
 	return v
 }

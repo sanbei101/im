@@ -2,43 +2,30 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"uuid"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/phuslu/log"
-
-	"github.com/sanbei101/im/internal/db"
+	"github.com/sanbei101/im/internal/store"
 )
 
-type RoomService struct {
-	query *db.Queries
-	db    *pgxpool.Pool
-}
-
-func NewRoomService(query *db.Queries, dbPool *pgxpool.Pool) *RoomService {
-	return &RoomService{query: query, db: dbPool}
-}
+type RoomService struct{ store *store.Store }
 
 type CreateRoomReq struct {
 	UserID2 string `json:"user_id_2" validate:"required,uuid"`
 }
-
 type CreateGroupRoomReq struct {
 	Name      string   `json:"name"`
 	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
 }
-
 type RoomResp struct {
 	RoomID string `json:"room_id"`
 }
-
 type ListRoomsResp struct {
 	Rooms []RoomInfo `json:"rooms"`
 }
-
 type RoomInfo struct {
 	RoomID    string `json:"room_id"`
 	ChatType  string `json:"chat_type"`
@@ -46,40 +33,38 @@ type RoomInfo struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
+func NewRoomService(s *store.Store) *RoomService { return &RoomService{store: s} }
+
 func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsResp, error) {
-	userUUID, err := uuid.Parse(userID)
+	id, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, err
 	}
-
-	rooms, err := s.query.GetUserRooms(ctx, userUUID)
+	rooms, err := s.store.RoomsByUser(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-
-	if len(rooms) == 0 {
-		return nil, nil
+	result := make([]RoomInfo, 0, len(rooms))
+	for _, item := range rooms {
+		result = append(
+			result,
+			RoomInfo{
+				RoomID:    item.Room.RoomID.String(),
+				ChatType:  item.Room.ChatType,
+				Name:      item.Room.Name,
+				AvatarURL: item.Room.AvatarURL,
+			},
+		)
 	}
-
-	result := make([]RoomInfo, len(rooms))
-	for i, r := range rooms {
-		result[i] = RoomInfo{
-			RoomID:    r.RoomID.String(),
-			ChatType:  string(r.ChatType),
-			Name:      r.Name,
-			AvatarURL: r.AvatarUrl,
-		}
-	}
-
 	return &ListRoomsResp{Rooms: result}, nil
 }
 
 func (s *RoomService) CreateOrGetSingleChatRoom(
 	ctx context.Context,
-	userID1 string,
+	userID string,
 	req CreateRoomReq,
 ) (*RoomResp, error) {
-	user1, err := uuid.Parse(userID1)
+	user1, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -87,107 +72,79 @@ func (s *RoomService) CreateOrGetSingleChatRoom(
 	if err != nil {
 		return nil, err
 	}
-
 	if user1 == user2 {
 		return nil, errors.New("cannot create chat room with same user")
 	}
-
-	hash := computeSingleChatHash(user1, user2)
-
-	room, err := s.query.GetRoomByHash(ctx, hash)
-	if err == nil && room != nil {
+	hash := singleHash(user1, user2)
+	if room, err := s.store.RoomBySingleHash(ctx, hash); err == nil {
+		return &RoomResp{RoomID: room.RoomID.String()}, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	roomID := uuid.NewV7()
+	name, avatar := generateRoomInfo(roomID)
+	err = s.store.CreateRoom(
+		ctx,
+		store.Room{RoomID: roomID, ChatType: "single", Name: name, AvatarURL: avatar, SingleChatHash: hash},
+		[]store.Member{{UserID: user1, Role: "member"}, {UserID: user2, Role: "member"}},
+	)
+	if errors.Is(err, store.ErrAlreadyExists) {
+		room, lookupErr := s.store.RoomBySingleHash(ctx, hash)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
 		return &RoomResp{RoomID: room.RoomID.String()}, nil
 	}
-	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			if err := tx.Rollback(ctx); err != nil {
-				log.Error().Err(err).Msg("failed to rollback transaction")
-			}
-		}
-	}()
-	txQuery := s.query.WithTx(tx)
-	roomUUID := uuid.Must(uuid.NewV7())
-	roomName, roomAvatar := generateRoomInfo(roomUUID)
-	_, err = txQuery.CreateRoom(ctx, db.CreateRoomParams{
-		RoomID:         roomUUID,
-		ChatType:       db.ChatTypeSingle,
-		Name:           roomName,
-		AvatarUrl:      roomAvatar,
-		SingleChatHash: hash,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = txQuery.AddRoomMember(ctx, db.AddRoomMemberParams{
-		RoomID: roomUUID,
-		UserID: user1,
-		Role:   db.MemberRoleMember,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = txQuery.AddRoomMember(ctx, db.AddRoomMemberParams{
-		RoomID: roomUUID,
-		UserID: user2,
-		Role:   db.MemberRoleMember,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if err = tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-	committed = true
-
-	return &RoomResp{RoomID: roomUUID.String()}, nil
+	return &RoomResp{RoomID: roomID.String()}, nil
 }
 
 func (s *RoomService) CreateGroupRoom(ctx context.Context, req CreateGroupRoomReq) (*RoomResp, error) {
 	if len(req.MemberIDs) < 2 {
 		return nil, errors.New("group room requires at least 2 members")
 	}
-
-	memberUUIDs := make([]uuid.UUID, 0, len(req.MemberIDs))
-	for _, id := range req.MemberIDs {
-		u, err := uuid.Parse(id)
+	members := make([]store.Member, 0, len(req.MemberIDs))
+	seen := make(map[uuid.UUID]struct{}, len(req.MemberIDs))
+	for _, raw := range req.MemberIDs {
+		id, err := uuid.Parse(raw)
 		if err != nil {
 			return nil, err
 		}
-		memberUUIDs = append(memberUUIDs, u)
+		if _, ok := seen[id]; ok {
+			return nil, errors.New("duplicate group member")
+		}
+		seen[id] = struct{}{}
+		role := "member"
+		if len(members) == 0 {
+			role = "owner"
+		}
+		members = append(members, store.Member{UserID: id, Role: role})
 	}
-
-	roomUUID := uuid.Must(uuid.NewV7())
-	roomName, roomURL := generateRoomInfo(roomUUID)
+	roomID := uuid.NewV7()
+	name, avatar := generateRoomInfo(roomID)
 	if req.Name != "" {
-		roomName = req.Name
+		name = req.Name
 	}
-
-	_, err := s.query.CreateGroupRoom(ctx, db.CreateGroupRoomParams{
-		RoomID:    roomUUID,
-		Name:      roomName,
-		AvatarUrl: roomURL,
-	})
-	if err != nil {
+	if err := s.store.CreateRoom(
+		ctx,
+		store.Room{RoomID: roomID, ChatType: "group", Name: name, AvatarURL: avatar},
+		members,
+	); err != nil {
 		return nil, err
 	}
+	return &RoomResp{RoomID: roomID.String()}, nil
+}
 
-	err = s.query.AddRoomMembers(ctx, db.AddRoomMembersParams{
-		RoomID:  roomUUID,
-		UserIds: memberUUIDs,
-	})
-	if err != nil {
-		return nil, err
+func singleHash(a, b uuid.UUID) []byte {
+	if a.Compare(b) > 0 {
+		a, b = b, a
 	}
-
-	return &RoomResp{RoomID: roomUUID.String()}, nil
+	hash := sha256.New()
+	hash.Write(a[:])
+	hash.Write(b[:])
+	return hash.Sum(nil)
 }
 
 var (
@@ -195,21 +152,6 @@ var (
 	nouns      = []string{"会议室", "小屋", "角落", "广场", "花园", "沙龙", "茶馆", "驿站"}
 )
 
-func generateRoomInfo(roomID uuid.UUID) (name, avatarURL string) {
-	adj := adjectives[rand.IntN(len(adjectives))]
-	noun := nouns[rand.IntN(len(nouns))]
-	name = adj + noun
-
-	avatarURL = "https://api.dicebear.com/7.x/identicon/svg?seed=" + roomID.String()
-	return name, avatarURL
-}
-
-func computeSingleChatHash(user1, user2 uuid.UUID) []byte {
-	if user1.String() > user2.String() {
-		user1, user2 = user2, user1
-	}
-	combined := make([]byte, 32)
-	copy(combined[:16], user1[:])
-	copy(combined[16:], user2[:])
-	return combined
+func generateRoomInfo(roomID uuid.UUID) (string, string) {
+	return adjectives[rand.IntN(len(adjectives))] + nouns[rand.IntN(len(nouns))], "room://" + fmt.Sprint(roomID)
 }
