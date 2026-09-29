@@ -45,7 +45,8 @@ func (s *RoomService) ListRooms(ctx context.Context, userID string) (*ListRoomsR
 		return nil, err
 	}
 	result := make([]RoomInfo, 0, len(rooms))
-	for _, item := range rooms {
+	for i := range rooms {
+		item := &rooms[i]
 		result = append(
 			result,
 			RoomInfo{

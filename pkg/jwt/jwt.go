@@ -114,6 +114,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 }
 
 func GetUserIDFromContext(r *http.Request) string {
-	id, _ := r.Context().Value(userIDKey).(string)
+	id, ok := r.Context().Value(userIDKey).(string)
+	if !ok {
+		return ""
+	}
 	return id
 }

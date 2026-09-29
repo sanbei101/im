@@ -207,7 +207,7 @@ func (s *apiStream) handleResults(batch *imv1.SendResultBatch) {
 		if !ok {
 			continue
 		}
-		client, ok := value.(*UserClient)
+		userClient, ok := value.(*UserClient)
 		if !ok {
 			continue
 		}
@@ -220,7 +220,7 @@ func (s *apiStream) handleResults(batch *imv1.SendResultBatch) {
 			log.Error().Err(err).Msg("marshal message result failed")
 			continue
 		}
-		if err := client.sendJSON(data); err != nil {
+		if err := userClient.sendJSON(data); err != nil {
 			log.Error().Err(err).Msg("send message result to websocket failed")
 		}
 	}

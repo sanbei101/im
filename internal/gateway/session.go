@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"uuid"
 
@@ -72,9 +73,13 @@ func (c *UserClient) handleFrame(ctx context.Context, payload []byte) error {
 	if requestID == "" {
 		requestID = uuid.NewV7().String()
 	}
+	msgType, err := messageType(input.MsgType)
+	if err != nil {
+		return err
+	}
 	message := &imv1.SendMessage{
 		RequestId: requestID, ClientMsgId: input.ClientMsgID, SenderId: c.UserID.String(),
-		RoomId: input.RoomID, MsgType: messageType(input.MsgType), Payload: input.Payload, Ext: input.Ext,
+		RoomId: input.RoomID, MsgType: msgType, Payload: input.Payload, Ext: input.Ext,
 		ReplyToMsgId: input.ReplyToMsgID,
 	}
 	c.gateway.pending.Store(requestID, c)
@@ -85,22 +90,24 @@ func (c *UserClient) handleFrame(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-func messageType(value string) int32 {
+func messageType(value string) (int32, error) {
 	switch value {
 	case "text":
-		return 1
+		return 1, nil
 	case "image":
-		return 2
+		return 2, nil
 	case "video":
-		return 3
+		return 3, nil
 	case "file":
-		return 4
+		return 4, nil
 	case "system":
-		return 5
+		return 5, nil
 	default:
-		var result int32
-		_, _ = fmt.Sscan(value, &result)
-		return result
+		number, err := strconv.ParseInt(value, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("invalid msg_type %q: %w", value, err)
+		}
+		return int32(number), nil
 	}
 }
 
@@ -118,7 +125,9 @@ func (c *UserClient) sendJSON(value any) error {
 }
 
 func (c *UserClient) sendError(message string) {
-	_ = c.sendJSON(map[string]any{"type": "error", "error": message})
+	if err := c.sendJSON(map[string]any{"type": "error", "error": message}); err != nil {
+		log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("send error frame failed")
+	}
 }
 
 const sessionShardCount = 256
@@ -182,7 +191,8 @@ func (manager *UserSessionManager) Load(key string) (*UserSession, bool) {
 
 func (manager *UserSessionManager) All() []uuid.UUID {
 	var result []uuid.UUID
-	for _, shard := range manager.shards {
+	for i := range manager.shards {
+		shard := manager.shards[i]
 		shard.mu.RLock()
 		for key := range shard.m {
 			if id, err := uuid.Parse(key); err == nil {

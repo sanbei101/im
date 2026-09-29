@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -24,14 +25,20 @@ import (
 
 func main() {
 	logger.InitLogger()
+	if err := run(); err != nil {
+		log.Fatal().Err(err).Msg("api server failed")
+	}
+}
+
+func run() error {
 	cfg := config.New()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	data, err := store.Open(cfg.Store.Path)
 	if err != nil {
-		cancel()
-		log.Fatal().Err(err).Msg("failed to open pebble")
+		return fmt.Errorf("open pebble store: %w", err)
 	}
 	defer data.Close()
 	userSvc := service.NewUserService(data)
@@ -44,7 +51,7 @@ func main() {
 	streamHandler := api.NewStreamHandler(data, cfg.API.NodeID, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
 	listenAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
-		log.Fatal().Err(err).Msg("resolve api stream address failed")
+		return fmt.Errorf("resolve api stream address: %w", err)
 	}
 	kitexServer := gatewayservice.NewServer(streamHandler, server.WithServiceAddr(listenAddr))
 
@@ -93,8 +100,8 @@ func main() {
 	<-ctx.Done()
 	log.Info().Msg("shutting down gracefully...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("API server forced to shutdown")
 	}
@@ -102,4 +109,5 @@ func main() {
 		log.Error().Err(err).Msg("api stream server shutdown failed")
 	}
 	log.Info().Msg("API server exited")
+	return nil
 }
