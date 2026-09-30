@@ -174,8 +174,8 @@ type RoomInfo struct {
 }
 
 type MessagePage struct {
-	Messages []Message
-	HasMore  bool
+	Messages []Message `json:"messages"`
+	HasMore  bool      `json:"hasMore"`
 }
 
 func Open(path string) (*Store, error) {
@@ -386,48 +386,31 @@ func (s *Store) Checkpoint(ctx context.Context, dir string) error {
 	return nil
 }
 
-func (s *Store) get(key []byte, decode func([]byte) error) error {
+// getRecord fetches key and decodes it into a value of T.
+func getRecord[T any](s *Store, key []byte, decode func([]byte) (T, error)) (T, error) {
+	var zero T
 	value, closer, err := s.db.Get(key)
 	if errors.Is(err, pebble.ErrNotFound) {
-		return ErrNotFound
+		return zero, ErrNotFound
 	}
 	if err != nil {
-		return err
+		return zero, err
 	}
 	defer closer.Close()
 	return decode(value)
 }
 
-// getTo fetches key and decodes it into a zero value of T.
-func getTo[T any](s *Store, key []byte, decode func([]byte) (T, error)) (T, error) {
-	var value T
-	err := s.get(key, func(data []byte) error {
-		var err error
-		value, err = decode(data)
-		return err
-	})
-	return value, err
-}
-
-// exists reports whether key resolves to a non-delivered value.
+// exists reports whether key exists in the database.
 func (s *Store) exists(key []byte) (bool, error) {
-	err := s.get(key, func([]byte) error { return nil })
-	if errors.Is(err, ErrNotFound) {
+	_, closer, err := s.db.Get(key)
+	if errors.Is(err, pebble.ErrNotFound) {
 		return false, nil
 	}
-	return err == nil, err
-}
-
-// getUUIDTo fetches a stored raw uuid value.
-func (s *Store) getUUID(key []byte) (uuid.UUID, error) {
-	return getTo(s, key, getUUID)
-}
-
-func (s *Store) set(batch *pebble.Batch, key string, value []byte) error {
-	if err := batch.Set([]byte(key), value, nil); err != nil {
-		return fmt.Errorf("set %q: %w", key, err)
+	if err != nil {
+		return false, err
 	}
-	return nil
+	closer.Close()
+	return true, nil
 }
 
 func commit(batch *pebble.Batch) error {

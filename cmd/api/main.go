@@ -15,8 +15,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/api"
-	"github.com/sanbei101/im/internal/api/handler"
-	"github.com/sanbei101/im/internal/api/service"
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/kitex_gen/im/v1/gatewayservice"
 	"github.com/sanbei101/im/pkg/config"
@@ -41,13 +39,7 @@ func run() error {
 		return fmt.Errorf("open pebble store: %w", err)
 	}
 	defer data.Close()
-	userSvc := service.NewUserService(data)
-	userHandler := handler.NewUserHandler(userSvc)
-	messageSvc := service.NewMessageService(data)
-	messageHandler := handler.NewMessageHandler(messageSvc)
-	roomSvc := service.NewRoomService(data)
-	roomHandler := handler.NewRoomHandler(roomSvc)
-	r := api.SetupRouter(userHandler, messageHandler, roomHandler)
+	r := api.NewRouter(data)
 	streamHandler := api.NewStreamHandler(data, cfg.API.NodeID, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
 	listenAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {

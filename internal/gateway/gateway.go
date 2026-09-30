@@ -233,7 +233,11 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 		if push == nil {
 			continue
 		}
-		session, ok := s.gateway.UserSessionManager.Load(push.GetUserId())
+		userID, err := uuid.Parse(push.GetUserId())
+		if err != nil {
+			continue
+		}
+		session, ok := s.gateway.UserSessionManager.Load(userID)
 		if !ok {
 			continue
 		}

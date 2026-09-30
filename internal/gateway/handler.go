@@ -71,7 +71,7 @@ func (gateway *Gateway) setupUserClient(userID uuid.UUID, conn *websocket.Conn) 
 		UserID:  userID,
 		frames:  render.NewFrameWriter(),
 	}
-	userSession := gateway.UserSessionManager.LoadOrCreate(userID.String(), NewUserSession)
+	userSession := gateway.UserSessionManager.LoadOrCreate(userID, NewUserSession)
 	userSession.Add(userClient)
 
 	return userClient, userSession
@@ -80,7 +80,7 @@ func (gateway *Gateway) setupUserClient(userID uuid.UUID, conn *websocket.Conn) 
 func (gateway *Gateway) cleanUserClient(userID uuid.UUID, c *UserClient, session *UserSession) {
 	gateway.registerUser(context.Background(), userID, false)
 	if session.Remove(c) {
-		gateway.UserSessionManager.Delete(userID.String())
+		gateway.UserSessionManager.Delete(userID)
 	}
 	c.closed.Store(true)
 }
