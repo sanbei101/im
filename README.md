@@ -27,7 +27,7 @@ proto         Protobuf 源文件
 
 ## 本地运行
 
-需要 Go 1.27、Kitex 和 protoc。Kitex 协议代码生成：
+需要 Go 1.27、Kitex 和 protoc。Kitex 协议代码生成(默认走 prutal，不再产出 `*.pb.fast.go`)：
 
 ```bash
 brew install protobuf
