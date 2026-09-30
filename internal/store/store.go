@@ -387,7 +387,7 @@ func (s *Store) Checkpoint(ctx context.Context, dir string) error {
 }
 
 // getRecord fetches key and decodes it into a value of T.
-func getRecord[T any](s *Store, key []byte, decode func([]byte) (T, error)) (T, error) {
+func (s *Store) getRecord[T any](key []byte, decode func([]byte) (T, error)) (T, error) {
 	var zero T
 	value, closer, err := s.db.Get(key)
 	if errors.Is(err, pebble.ErrNotFound) {
@@ -398,6 +398,26 @@ func getRecord[T any](s *Store, key []byte, decode func([]byte) (T, error)) (T, 
 	}
 	defer closer.Close()
 	return decode(value)
+}
+
+// scanPrefix scans all keys with the given prefix and decodes values into []T.
+func (s *Store) scanPrefix[T any](prefix []byte, decode func([]byte) (T, error)) ([]T, error) {
+	upper := prefixUpperBound(prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var result []T
+	for iter.First(); iter.Valid(); iter.Next() {
+		item, err := decode(iter.Value())
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, iter.Error()
 }
 
 // exists reports whether key exists in the database.

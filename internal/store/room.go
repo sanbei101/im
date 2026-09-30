@@ -135,7 +135,7 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	if len(room.SingleChatHash) > 0 {
 		var sKeyBuf [64]byte
 		singleKey = appendSingleRoomKey(sKeyBuf[:0], room.SingleChatHash)
-		if existing, err := getRecord(s, singleKey, getUUID); err == nil {
+		if existing, err := s.getRecord(singleKey, getUUID); err == nil {
 			if existing != room.RoomID {
 				return ErrAlreadyExists
 			}
@@ -190,7 +190,7 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 		return room, nil
 	}
 	var buf [32]byte
-	room, err := getRecord(s, appendRoomKey(buf[:0], roomID), decodeRoom)
+	room, err := s.getRecord(appendRoomKey(buf[:0], roomID), decodeRoom)
 	if err != nil {
 		return Room{}, err
 	}
@@ -207,12 +207,12 @@ func (s *Store) RoomBySingleHash(ctx context.Context, hash []byte) (Room, error)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var sKeyBuf [64]byte
-	id, err := getRecord(s, appendSingleRoomKey(sKeyBuf[:0], hash), getUUID)
+	id, err := s.getRecord(appendSingleRoomKey(sKeyBuf[:0], hash), getUUID)
 	if err != nil {
 		return Room{}, err
 	}
 	var rKeyBuf [32]byte
-	return getRecord(s, appendRoomKey(rKeyBuf[:0], id), decodeRoom)
+	return s.getRecord(appendRoomKey(rKeyBuf[:0], id), decodeRoom)
 }
 
 func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error) {
@@ -222,23 +222,7 @@ func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	prefix := appendMemberPrefix(nil, roomID)
-	upper := prefixUpperBound(prefix)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
-	if err != nil {
-		return nil, fmt.Errorf("create member iterator: %w", err)
-	}
-	defer iter.Close()
-
-	var result []Member
-	for iter.First(); iter.Valid(); iter.Next() {
-		member, err := decodeMember(iter.Value())
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, member)
-	}
-	return result, iter.Error()
+	return s.scanPrefix(appendMemberPrefix(nil, roomID), decodeMember)
 }
 
 func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, error) {
@@ -267,7 +251,7 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 		if err != nil {
 			return nil, err
 		}
-		member, err := getRecord(s, appendMemberKey(mKeyBuf[:0], roomID, userID), decodeMember)
+		member, err := s.getRecord(appendMemberKey(mKeyBuf[:0], roomID, userID), decodeMember)
 		if err != nil {
 			return nil, err
 		}
