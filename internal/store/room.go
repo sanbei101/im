@@ -174,7 +174,11 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 			return err
 		}
 	}
-	return commit(batch)
+	if err := commit(batch); err != nil {
+		return err
+	}
+	s.rooms[room.RoomID] = room
+	return nil
 }
 
 func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
@@ -182,7 +186,11 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 		return Room{}, err
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if room, ok := s.rooms[roomID]; ok {
+		s.mu.RUnlock()
+		return room, nil
+	}
+	s.mu.RUnlock()
 	var room Room
 	if err := s.get([]byte(roomKey(roomID)), func(data []byte) error {
 		var err error
@@ -191,6 +199,9 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	}); err != nil {
 		return Room{}, err
 	}
+	s.mu.Lock()
+	s.rooms[roomID] = room
+	s.mu.Unlock()
 	return room, nil
 }
 

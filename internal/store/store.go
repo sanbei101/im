@@ -15,6 +15,7 @@ import (
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 )
 
 var (
@@ -44,6 +45,8 @@ type MessageWriteResult struct {
 type Store struct {
 	db *pebble.DB
 	mu sync.RWMutex
+
+	rooms map[uuid.UUID]Room
 
 	messageQueue chan messageWriteRequest
 	closeSignal  chan struct{}
@@ -182,12 +185,26 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create store directory: %w", err)
 	}
-	db, err := pebble.Open(path, &pebble.Options{})
+	opts := &pebble.Options{
+		Cache:                       pebble.NewCache(64 << 20),
+		MemTableSize:                64 << 20,
+		MemTableStopWritesThreshold: 4,
+		MaxConcurrentCompactions:    func() int { return 4 },
+		Levels:                      make([]pebble.LevelOptions, 7),
+	}
+	for i := range opts.Levels {
+		opts.Levels[i].FilterPolicy = bloom.FilterPolicy(10)
+		opts.Levels[i].BlockSize = 32 << 10
+		opts.Levels[i].EnsureDefaults()
+	}
+	opts.EnsureDefaults()
+	db, err := pebble.Open(path, opts)
 	if err != nil {
 		return nil, fmt.Errorf("open pebble: %w", err)
 	}
 	store := &Store{
 		db:           db,
+		rooms:        make(map[uuid.UUID]Room),
 		messageQueue: make(chan messageWriteRequest, messageQueueSize),
 		closeSignal:  make(chan struct{}),
 		writerDone:   make(chan struct{}),
@@ -214,13 +231,19 @@ func (s *Store) Close() error {
 	return s.closeErr
 }
 
+var resultChanPool = sync.Pool{
+	New: func() any {
+		return make(chan []MessageWriteResult, 1)
+	},
+}
+
 func (s *Store) WriteMessages(ctx context.Context, messages []Message) []MessageWriteResult {
 	if len(messages) == 0 {
 		return nil
 	}
-	queued := append([]Message(nil), messages...)
-	result := make(chan []MessageWriteResult, 1)
-	request := messageWriteRequest{ctx: ctx, messages: queued, result: result}
+	result := resultChanPool.Get().(chan []MessageWriteResult)
+	defer resultChanPool.Put(result)
+	request := messageWriteRequest{ctx: ctx, messages: messages, result: result}
 	s.stateMu.RLock()
 	if s.closed {
 		s.stateMu.RUnlock()
@@ -266,31 +289,33 @@ func (s *Store) runMessageWriter() {
 func (s *Store) collectMessageRequests(first messageWriteRequest) []messageWriteRequest {
 	requests := []messageWriteRequest{first}
 	messageCount := len(first.messages)
-	timer := time.NewTimer(messageBatchWindow)
-	defer timer.Stop()
 	for messageCount < messageBatchSize {
 		select {
 		case request := <-s.messageQueue:
 			requests = append(requests, request)
 			messageCount += len(request.messages)
-		case <-timer.C:
+		default:
 			return requests
-		case <-s.closeSignal:
-			for messageCount < messageBatchSize {
-				select {
-				case request := <-s.messageQueue:
-					requests = append(requests, request)
-					messageCount += len(request.messages)
-				default:
-					return requests
-				}
-			}
 		}
 	}
 	return requests
 }
 
 func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
+	if len(requests) == 1 {
+		req := requests[0]
+		results := make([]MessageWriteResult, len(req.messages))
+		if err := contextErr(req.ctx); err != nil {
+			for i := range results {
+				results[i] = MessageWriteResult{Message: req.messages[i], Err: err}
+			}
+		} else {
+			s.writeMessageBatch(req.messages, results)
+		}
+		req.result <- results
+		return
+	}
+
 	total := 0
 	for _, request := range requests {
 		total += len(request.messages)
@@ -311,13 +336,14 @@ func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
 		}
 	}
 	if len(messages) > 0 {
-		committed, errs := s.writeMessageBatch(messages)
+		committedResults := make([]MessageWriteResult, len(messages))
+		s.writeMessageBatch(messages, committedResults)
 		committedIndex := 0
 		for i := range results {
 			if results[i].Err != nil {
 				continue
 			}
-			results[i] = MessageWriteResult{Message: committed[committedIndex], Err: errs[committedIndex]}
+			results[i] = committedResults[committedIndex]
 			committedIndex++
 		}
 	}
@@ -326,6 +352,13 @@ func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
 		request.result <- results[resultIndex : resultIndex+len(request.messages)]
 		resultIndex += len(request.messages)
 	}
+}
+
+func (s *Store) setBytes(batch *pebble.Batch, key, value []byte) error {
+	if err := batch.Set(key, value, nil); err != nil {
+		return fmt.Errorf("set: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Checkpoint(ctx context.Context, dir string) error {

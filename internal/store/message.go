@@ -14,8 +14,13 @@ import (
 
 func encodeMessage(message Message) []byte {
 	var id [16]byte
+	totalLen := 16*4 + 8 + 8 + 1 + 1 + 4 + len(message.Payload) + 4 + len(message.Ext)
+	if message.ReplyToMsgID != uuid.Nil() {
+		totalLen += 16
+	}
+	data := make([]byte, 0, totalLen)
 	putUUID(id[:], message.MsgID)
-	data := append(make([]byte, 0, 16*4+8+8+1+16+1), id[:]...)
+	data = append(data, id[:]...)
 	putUUID(id[:], message.ClientMsgID)
 	data = append(data, id[:]...)
 	putUUID(id[:], message.SenderID)
@@ -125,34 +130,50 @@ func (s *Store) WriteMessage(ctx context.Context, message Message) (Message, err
 	return results[0].Message, results[0].Err
 }
 
-func (s *Store) writeMessageBatch(messages []Message) ([]Message, []error) {
+type dedupLookupKey struct {
+	room   uuid.UUID
+	sender uuid.UUID
+	client uuid.UUID
+}
+
+func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResult) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	results := make([]Message, len(messages))
-	errs := make([]error, len(messages))
 	batch := s.db.NewBatch()
 	defer batch.Close()
 	rooms := make(map[uuid.UUID]Room)
 	digests := make([][32]byte, len(messages))
-	pending := make(map[string]int, len(messages))
+	pending := make(map[dedupLookupKey]int, len(messages))
+
+	var keyBuf [64]byte
+	var digestBuf [256]byte
 
 	for index, message := range messages {
-		results[index] = message
+		results[index].Message = message
 		room, ok := rooms[message.RoomID]
+		if !ok {
+			room, ok = s.rooms[message.RoomID]
+		}
 		if !ok {
 			if err := s.get([]byte(roomKey(message.RoomID)), func(data []byte) error {
 				var err error
 				room, err = decodeRoom(data)
 				return err
 			}); err != nil {
-				errs[index] = err
+				results[index].Err = err
 				continue
 			}
-			rooms[message.RoomID] = room
 		}
+		rooms[message.RoomID] = room
 
-		digestInput := make([]byte, 0, len(message.Payload)+len(message.Ext)+19)
+		var digestInput []byte
+		needLen := len(message.Payload) + len(message.Ext) + 19
+		if needLen <= len(digestBuf) {
+			digestInput = digestBuf[:0]
+		} else {
+			digestInput = make([]byte, 0, needLen)
+		}
 		digestInput = append(digestInput, byte(message.MsgType))
 		digestInput = append(digestInput, message.Payload...)
 		digestInput = append(digestInput, 0)
@@ -162,71 +183,78 @@ func (s *Store) writeMessageBatch(messages []Message) ([]Message, []error) {
 		}
 		digest := sha256.Sum256(digestInput)
 		digests[index] = digest
-		dedup := dedupKey(message.RoomID, message.SenderID, message.ClientMsgID)
-		if previous, ok := pending[dedup]; ok {
+
+		lookup := dedupLookupKey{room: message.RoomID, sender: message.SenderID, client: message.ClientMsgID}
+		if previous, ok := pending[lookup]; ok {
 			if digests[previous] != digest {
-				errs[index] = ErrConflict
-			} else if errs[previous] != nil {
-				errs[index] = errs[previous]
+				results[index].Err = ErrConflict
+			} else if results[previous].Err != nil {
+				results[index].Err = results[previous].Err
 			} else {
-				results[index] = results[previous]
+				results[index].Message = results[previous].Message
 			}
 			continue
 		}
+
+		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		var old Dedup
-		if err := s.get([]byte(dedup), func(data []byte) error {
+		if err := s.get(dedupKeyBytes, func(data []byte) error {
 			var err error
 			old, err = decodeDedup(data)
 			return err
 		}); err == nil {
 			if old.PayloadSum != digest {
-				errs[index] = ErrConflict
+				results[index].Err = ErrConflict
 			} else {
-				results[index].MsgID, results[index].RoomSeq, results[index].ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
+				results[index].Message.MsgID, results[index].Message.RoomSeq, results[index].Message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
 			}
-			pending[dedup] = index
+			pending[lookup] = index
 			continue
 		} else if !errors.Is(err, ErrNotFound) {
-			errs[index] = err
-			pending[dedup] = index
+			results[index].Err = err
+			pending[lookup] = index
 			continue
 		}
 
 		room.LastSeq++
-		results[index].RoomSeq = room.LastSeq
-		results[index].MsgID = uuid.NewV7()
-		results[index].ServerTime = time.Now().UnixMicro()
+		results[index].Message.RoomSeq = room.LastSeq
+		results[index].Message.MsgID = uuid.NewV7()
+		results[index].Message.ServerTime = time.Now().UnixMicro()
 		room.UpdatedAt = time.Now()
 		rooms[message.RoomID] = room
-		pending[dedup] = index
-		if err := s.set(batch, messageKey(message.RoomID, results[index].RoomSeq), encodeMessage(results[index])); err != nil {
-			errs[index] = err
+		pending[lookup] = index
+
+		msgKeyBytes := appendMessageKey(keyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
+		if err := s.setBytes(batch, msgKeyBytes, encodeMessage(results[index].Message)); err != nil {
+			results[index].Err = err
 			continue
 		}
-		if err := s.set(batch, dedup, encodeDedup(Dedup{
-			MsgID: results[index].MsgID, RoomSeq: results[index].RoomSeq,
-			ServerTime: results[index].ServerTime, PayloadSum: digest,
+		dedupKeyBytes = appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
+		if err := s.setBytes(batch, dedupKeyBytes, encodeDedup(Dedup{
+			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
+			ServerTime: results[index].Message.ServerTime, PayloadSum: digest,
 		})); err != nil {
-			errs[index] = err
+			results[index].Err = err
 		}
 	}
 	for roomID, room := range rooms {
-		if err := s.set(batch, roomKey(roomID), encodeRoom(room)); err != nil {
+		s.rooms[roomID] = room
+		roomKeyBytes := []byte(roomKey(roomID))
+		if err := s.setBytes(batch, roomKeyBytes, encodeRoom(room)); err != nil {
 			for index := range results {
-				if results[index].RoomID == roomID && errs[index] == nil {
-					errs[index] = err
+				if results[index].Message.RoomID == roomID && results[index].Err == nil {
+					results[index].Err = err
 				}
 			}
 		}
 	}
 	if err := commit(batch); err != nil {
-		for index := range errs {
-			if errs[index] == nil {
-				errs[index] = fmt.Errorf("commit messages: %w", err)
+		for index := range results {
+			if results[index].Err == nil {
+				results[index].Err = fmt.Errorf("commit messages: %w", err)
 			}
 		}
 	}
-	return results, errs
 }
 
 func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, limit int) (MessagePage, error) {
@@ -239,7 +267,8 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	prefix := []byte(messagePrefix(roomID))
+	var prefixBuf [32]byte
+	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
 	upperBound := messageUpperBound(prefix, before)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
