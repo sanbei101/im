@@ -579,16 +579,17 @@ func (x *PushBatch) GetPushes() []*Push {
 }
 
 type Push struct {
-	UserId      string `protobuf:"bytes,1,opt,name=user_id" json:"user_id,omitempty"`
-	RoomId      string `protobuf:"bytes,2,opt,name=room_id" json:"room_id,omitempty"`
-	RoomSeq     uint64 `protobuf:"varint,3,opt,name=room_seq" json:"room_seq,omitempty"`
-	MsgId       string `protobuf:"bytes,4,opt,name=msg_id" json:"msg_id,omitempty"`
-	SenderId    string `protobuf:"bytes,5,opt,name=sender_id" json:"sender_id,omitempty"`
-	MsgType     int32  `protobuf:"varint,6,opt,name=msg_type" json:"msg_type,omitempty"`
-	Payload     []byte `protobuf:"bytes,7,opt,name=payload" json:"payload,omitempty"`
-	ServerTime  int64  `protobuf:"varint,8,opt,name=server_time" json:"server_time,omitempty"`
-	Ext         []byte `protobuf:"bytes,9,opt,name=ext" json:"ext,omitempty"`
-	ClientMsgId string `protobuf:"bytes,10,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
+	UserId       string `protobuf:"bytes,1,opt,name=user_id" json:"user_id,omitempty"`
+	RoomId       string `protobuf:"bytes,2,opt,name=room_id" json:"room_id,omitempty"`
+	RoomSeq      uint64 `protobuf:"varint,3,opt,name=room_seq" json:"room_seq,omitempty"`
+	MsgId        string `protobuf:"bytes,4,opt,name=msg_id" json:"msg_id,omitempty"`
+	SenderId     string `protobuf:"bytes,5,opt,name=sender_id" json:"sender_id,omitempty"`
+	MsgType      int32  `protobuf:"varint,6,opt,name=msg_type" json:"msg_type,omitempty"`
+	Payload      []byte `protobuf:"bytes,7,opt,name=payload" json:"payload,omitempty"`
+	ServerTime   int64  `protobuf:"varint,8,opt,name=server_time" json:"server_time,omitempty"`
+	Ext          []byte `protobuf:"bytes,9,opt,name=ext" json:"ext,omitempty"`
+	ClientMsgId  string `protobuf:"bytes,10,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
+	ReplyToMsgId string `protobuf:"bytes,11,opt,name=reply_to_msg_id" json:"reply_to_msg_id,omitempty"`
 }
 
 func (x *Push) Reset() { *x = Push{} }
@@ -663,6 +664,13 @@ func (x *Push) GetExt() []byte {
 func (x *Push) GetClientMsgId() string {
 	if x != nil {
 		return x.ClientMsgId
+	}
+	return ""
+}
+
+func (x *Push) GetReplyToMsgId() string {
+	if x != nil {
+		return x.ReplyToMsgId
 	}
 	return ""
 }

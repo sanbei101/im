@@ -132,9 +132,10 @@ type PushFrame struct {
 	RoomID      string         `json:"room_id"`
 	RoomSeq     uint64         `json:"room_seq"`
 	ServerTime  int64          `json:"server_time"`
-	MsgType     string         `json:"msg_type"`
-	Payload     jsontext.Value `json:"payload"`
-	Ext         jsontext.Value `json:"ext"`
+	MsgType      string         `json:"msg_type"`
+	Payload      jsontext.Value `json:"payload"`
+	ReplyToMsgID string         `json:"reply_to_msg_id,omitempty"`
+	Ext          jsontext.Value `json:"ext"`
 }
 
 // ErrorFrame 下行错误帧。
