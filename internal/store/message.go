@@ -145,7 +145,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		}
 		if !ok {
 			var err error
-			if room, err = getRecord(s, appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom); err != nil {
+			if room, err = s.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom); err != nil {
 				results[index].Err = err
 				continue
 			}
@@ -182,7 +182,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 
 		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		pending[lookup] = index
-		if old, err := getRecord(s, dedupKeyBytes, decodeDedup); err == nil {
+		if old, err := s.getRecord(dedupKeyBytes, decodeDedup); err == nil {
 			if old.PayloadSum != digests[index] {
 				results[index].Err = ErrConflict
 			} else {

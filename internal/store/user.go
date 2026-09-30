@@ -86,10 +86,10 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, erro
 	defer s.mu.RUnlock()
 
 	var buf [64]byte
-	id, err := getRecord(s, appendUsernameKey(buf[:0], username), getUUID)
+	id, err := s.getRecord(appendUsernameKey(buf[:0], username), getUUID)
 	if err != nil {
 		return User{}, err
 	}
 	var uKeyBuf [32]byte
-	return getRecord(s, appendUserKey(uKeyBuf[:0], id), decodeUser)
+	return s.getRecord(appendUserKey(uKeyBuf[:0], id), decodeUser)
 }

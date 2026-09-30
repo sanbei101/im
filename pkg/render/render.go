@@ -157,7 +157,7 @@ type FrameWriter struct {
 // NewFrameWriter 构造帧编码器。
 func NewFrameWriter() *FrameWriter { return &FrameWriter{} }
 
-func (fw *FrameWriter) EncodeFrame(v any) ([]byte, error) {
+func (fw *FrameWriter) EncodeFrame[T any](v T) ([]byte, error) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 	if fw.enc == nil {

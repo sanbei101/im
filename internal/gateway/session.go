@@ -110,7 +110,7 @@ func (c *UserClient) sendFrame(frame []byte) error {
 }
 
 // encodeFrame 编码一帧并投递到 Send；编码失败或缓冲已满时返回错误。
-func (c *UserClient) encodeFrame(v any) error {
+func (c *UserClient) encodeFrame[T any](v T) error {
 	frame, err := c.frames.EncodeFrame(v)
 	if err != nil {
 		return err
