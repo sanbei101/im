@@ -112,7 +112,10 @@ func (t MsgType) Valid() bool {
 	return t >= MsgTypeText && t <= MsgTypeSystem
 }
 
-// ParseMsgType 解析客户端上行的 msg_type 名称；未知值报错。
+func (t MsgType) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return json.MarshalEncode(enc, t.String())
+}
+
 func ParseMsgType(value string) (MsgType, error) {
 	for _, known := range []struct {
 		name string
@@ -132,56 +135,27 @@ func ParseMsgType(value string) (MsgType, error) {
 }
 
 type Message struct {
-	MsgID        uuid.UUID
-	ClientMsgID  uuid.UUID
-	SenderID     uuid.UUID
-	RoomID       uuid.UUID
-	RoomSeq      uint64
-	ServerTime   int64
-	ReplyToMsgID uuid.UUID
-	MsgType      MsgType
-	Payload      jsontext.Value
-	Ext          jsontext.Value
-}
-
-// messageJSON 是历史消息的对外契约：snake_case、msg_type 为名称、payload 内联 JSON。
-// 空 Ext / 未设置 ReplyToMsgID 时省略字段，避免输出全零 UUID 或空字符串。
-type messageJSON struct {
 	MsgID        uuid.UUID      `json:"msg_id"`
 	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
 	SenderID     uuid.UUID      `json:"sender_id"`
 	RoomID       uuid.UUID      `json:"room_id"`
 	RoomSeq      uint64         `json:"room_seq"`
 	ServerTime   int64          `json:"server_time"`
-	MsgType      string         `json:"msg_type"`
 	ReplyToMsgID uuid.UUID      `json:"reply_to_msg_id,omitzero"`
+	MsgType      MsgType        `json:"msg_type"`
 	Payload      jsontext.Value `json:"payload,omitzero"`
 	Ext          jsontext.Value `json:"ext,omitzero"`
 }
 
-// MarshalJSONTo 把存储记录编码为对外 JSON。
 func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {
-	// jsontext.Value 是 []byte：nil 与空切片在 omitzero 下行为不同，
-	// 空但非 nil 会被当成\"有值\"并产出空字符串 -> 非法 JSON。这里统一归一成 nil。
-	var payload, ext jsontext.Value
-	if len(m.Payload) > 0 {
-		payload = m.Payload
+	if len(m.Payload) == 0 {
+		m.Payload = nil
 	}
-	if len(m.Ext) > 0 {
-		ext = m.Ext
+	if len(m.Ext) == 0 {
+		m.Ext = nil
 	}
-	return json.MarshalEncode(enc, messageJSON{
-		MsgID:        m.MsgID,
-		ClientMsgID:  m.ClientMsgID,
-		SenderID:     m.SenderID,
-		RoomID:       m.RoomID,
-		RoomSeq:      m.RoomSeq,
-		ServerTime:   m.ServerTime,
-		MsgType:      m.MsgType.String(),
-		ReplyToMsgID: m.ReplyToMsgID,
-		Payload:      payload,
-		Ext:          ext,
-	})
+	type plain Message
+	return json.MarshalEncode(enc, plain(m))
 }
 
 type Dedup struct {
