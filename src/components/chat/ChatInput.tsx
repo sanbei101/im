@@ -1,6 +1,6 @@
 import { ConnectionState } from "go-chat-sdk";
-import { Send, Image as ImageIcon, Paperclip, Sparkles } from "lucide-react";
-import { useState, useRef, type KeyboardEvent } from "react";
+import { Send, Image as ImageIcon, Paperclip, Sparkles, Reply, X } from "lucide-react";
+import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,9 +8,18 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChat } from "@/context/ChatContext";
+import { getMessagePreviewText } from "@/types/chat";
 
 export function ChatInput() {
-  const { sendTextMessage, sendImageMessage, sendFileMessage, connectionState } = useChat();
+  const {
+    sendTextMessage,
+    sendImageMessage,
+    sendFileMessage,
+    connectionState,
+    replyingToMessage,
+    setReplyingToMessage,
+    currentUser,
+  } = useChat();
   const [text, setText] = useState("");
   const [isSending, setIsSending] = useState(false);
 
@@ -24,6 +33,13 @@ export function ChatInput() {
   const [fileName, setFileName] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto focus when replyingToMessage is set
+  useEffect(() => {
+    if (replyingToMessage && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [replyingToMessage]);
 
   const isConnected = connectionState === ConnectionState.Connected;
 
@@ -77,6 +93,35 @@ export function ChatInput() {
     <footer className="bg-background/95 shrink-0 border-t p-3 backdrop-blur-xs">
       <div className="flex flex-col gap-2">
         <div className="bg-muted/30 focus-within:border-ring focus-within:ring-ring/20 relative rounded-lg border transition-all focus-within:ring-2">
+          {replyingToMessage && (
+            <div className="bg-muted/70 border-b flex items-center justify-between px-3 py-1.5 text-xs rounded-t-lg select-none">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-0.5 h-6 bg-primary rounded-full shrink-0" />
+                <Reply className="size-3.5 text-primary shrink-0" />
+                <div className="flex flex-col min-w-0">
+                  <span className="font-semibold text-[11px] leading-tight text-foreground truncate">
+                    Replying to {replyingToMessage.senderId === currentUser?.user_id ? "yourself" : replyingToMessage.senderId.slice(0, 8)}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground truncate leading-tight">
+                    {getMessagePreviewText(replyingToMessage)}
+                  </span>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => {
+                  setReplyingToMessage(null);
+                }}
+                className="text-muted-foreground hover:text-foreground shrink-0 size-6"
+                title="Cancel reply"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          )}
+
           <Textarea
             ref={textareaRef}
             value={text}

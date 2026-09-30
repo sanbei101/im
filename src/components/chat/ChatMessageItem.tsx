@@ -1,7 +1,8 @@
 import { MessageType } from "go-chat-sdk";
-import { Check, CheckCheck, Clock, AlertCircle, FileText, Download } from "lucide-react";
+import { Check, CheckCheck, Clock, AlertCircle, FileText, Download, Reply } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Message,
@@ -27,6 +28,7 @@ import {
   formatTime,
   formatFileSize,
   getInitials,
+  getMessagePreviewText,
 } from "@/types/chat";
 import { useChat } from "@/context/ChatContext";
 
@@ -37,7 +39,7 @@ interface ChatMessageItemProps {
 }
 
 export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMessageItemProps) {
-  const { activeRoom } = useChat();
+  const { activeRoom, messages, currentUser, setReplyingToMessage } = useChat();
   const isGroup = activeRoom ? activeRoom.chat_type === "group" : false;
 
   if (message.msgType === MessageType.System || message.msgType === "system") {
@@ -169,11 +171,71 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
     );
   };
 
+  const quotedMessage = message.replyToMsgId
+    ? messages.find(
+        (m) => m.id === message.replyToMsgId || m.clientMsgId === message.replyToMsgId,
+      ) ?? null
+    : null;
+
+  const handleScrollToOriginal = () => {
+    if (!message.replyToMsgId) {
+      return;
+    }
+    const elem =
+      document.getElementById(`msg-${message.replyToMsgId}`) ||
+      (quotedMessage?.clientMsgId
+        ? document.getElementById(`msg-${quotedMessage.clientMsgId}`)
+        : null) ||
+      (quotedMessage?.id ? document.getElementById(`msg-${quotedMessage.id}`) : null);
+    if (elem) {
+      elem.scrollIntoView({ behavior: "smooth", block: "center" });
+      elem.classList.add("ring-2", "ring-primary/40", "bg-primary/5");
+      setTimeout(() => {
+        elem.classList.remove("ring-2", "ring-primary/40", "bg-primary/5");
+      }, 1500);
+    }
+  };
+
+  const renderQuotedMessage = () => {
+    if (!message.replyToMsgId) {
+      return null;
+    }
+
+    const quotedText = quotedMessage
+      ? getMessagePreviewText(quotedMessage)
+      : "Original message";
+    const isQuotedSelf = currentUser !== null && quotedMessage?.senderId === currentUser.user_id;
+    const quotedSender = quotedMessage
+      ? (isQuotedSelf ? "You" : quotedMessage.senderId.slice(0, 8))
+      : "Message";
+
+    return (
+      <button
+        type="button"
+        onClick={handleScrollToOriginal}
+        title="Click to locate original message"
+        className="mb-1 flex max-w-full items-center gap-1.5 rounded-r-md border-l-2 border-primary/70 bg-muted/50 hover:bg-muted/80 px-2 py-1 text-left text-xs transition-colors"
+      >
+        <Reply className="size-3 text-primary shrink-0 rotate-180" />
+        <span className="font-semibold text-foreground/80 shrink-0 text-[11px]">
+          {quotedSender}:
+        </span>
+        <span className="truncate text-muted-foreground text-[11px]">
+          {quotedText}
+        </span>
+      </button>
+    );
+  };
+
   const formattedTime = formatTime(message.serverTime);
   const initials = getInitials(message.senderId);
 
   return (
-    <Message align={isSelf ? "end" : "start"} className="my-1.5">
+    <Message
+      id={`msg-${message.id || message.clientMsgId}`}
+      align={isSelf ? "end" : "start"}
+      className="group relative my-1.5 rounded-lg p-0.5 transition-colors duration-300"
+    >
       {!isSelf && showAvatar && (
         <MessageAvatar className="size-8">
           <Avatar className="size-8">
@@ -191,7 +253,45 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
           </MessageHeader>
         )}
 
-        {renderBody()}
+        <div className="relative">
+          {renderQuotedMessage()}
+          <div
+            onDoubleClick={() => {
+              setReplyingToMessage(message);
+            }}
+          >
+            {renderBody()}
+          </div>
+
+          {/* Quick Action Bar on Hover */}
+          <div
+            className={
+              isSelf
+                ? "absolute top-1 left-0 -translate-x-full pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:flex items-center z-10"
+                : "absolute top-1 right-0 translate-x-full pl-1.5 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:flex items-center z-10"
+            }
+          >
+            <div className="bg-background/95 border shadow-2xs rounded-md p-0.5 flex items-center backdrop-blur-xs">
+              <Tooltip>
+                <TooltipTrigger>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => {
+                      setReplyingToMessage(message);
+                    }}
+                    className="size-6 text-muted-foreground hover:text-foreground"
+                    title="Reply"
+                  >
+                    <Reply className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Reply</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
 
         <MessageFooter className="gap-1.5 px-1 text-[10px] text-muted-foreground select-none">
           {formattedTime && <span>{formattedTime}</span>}

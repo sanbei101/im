@@ -18,6 +18,7 @@ export interface UIMessage {
   readonly serverTime: number;
   readonly msgType: MessageType | string;
   readonly payload: unknown;
+  readonly replyToMsgId?: string;
   readonly status: MessageStatus;
   readonly errorMessage?: string;
 }
@@ -77,8 +78,31 @@ export function mapSdkMessageToUIMessage(msg: Message, status: MessageStatus = "
     serverTime: msg.server_time,
     msgType: msg.msg_type,
     payload: msg.payload,
+    replyToMsgId: msg.reply_to_msg_id || undefined,
     status,
   };
+}
+
+export function getMessagePreviewText(message: UIMessage): string {
+  if (message.msgType === "image") {
+    return "[Image]";
+  }
+  if (message.msgType === "file") {
+    if (isFilePayload(message.payload)) {
+      return `[File] ${message.payload.name}`;
+    }
+    return "[File]";
+  }
+  if (message.msgType === "video") {
+    return "[Video]";
+  }
+  if (isTextPayload(message.payload)) {
+    return message.payload.text;
+  }
+  if (typeof message.payload === "string") {
+    return message.payload;
+  }
+  return "[Message]";
 }
 
 export function formatTime(timestamp: number): string {

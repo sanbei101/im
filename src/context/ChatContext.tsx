@@ -47,18 +47,22 @@ interface ChatContextValue {
   readonly refreshRooms: () => Promise<void>;
   readonly createSingleRoom: (targetUserId: string) => Promise<string>;
   readonly createGroupRoom: (name: string, memberIds: readonly string[]) => Promise<string>;
-  readonly sendTextMessage: (text: string) => Promise<void>;
+  readonly replyingToMessage: UIMessage | null;
+  readonly setReplyingToMessage: (msg: UIMessage | null) => void;
+  readonly sendTextMessage: (text: string, replyToMsgId?: string) => Promise<void>;
   readonly sendImageMessage: (
     url: string,
     width?: number,
     height?: number,
     size?: number,
+    replyToMsgId?: string,
   ) => Promise<void>;
   readonly sendFileMessage: (
     url: string,
     name: string,
     size: number,
     mimeType?: string,
+    replyToMsgId?: string,
   ) => Promise<void>;
   readonly clearError: () => void;
 }
@@ -178,6 +182,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   const [isLoadingRooms, setIsLoadingRooms] = useState<boolean>(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<UIMessage | null>(null);
 
   const sdkRef = useRef<ChatSDK | null>(null);
 
@@ -247,6 +252,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   const selectRoom = useCallback(
     async (roomId: string) => {
       setActiveRoomId(roomId);
+      setReplyingToMessage(null);
       if (!roomId) {
         return;
       }
@@ -359,6 +365,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     setCurrentUser(null);
     setRooms([]);
     setActiveRoomId(null);
+    setReplyingToMessage(null);
     setMessagesByRoom({});
     setConnectionState(ConnectionState.Disconnected);
     removeSessionString(STORAGE_KEYS.USER);
@@ -403,10 +410,12 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
 
   // Send Text Message
   const sendTextMessage = useCallback(
-    async (text: string) => {
+    async (text: string, explicitReplyToId?: string) => {
       if (!activeRoomId || !currentUser || !text.trim()) {
         return;
       }
+      const targetReplyId =
+        explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
       const clientMsgId = sdk.generateMessageId();
       const optimisticMsg: UIMessage = {
         id: clientMsgId,
@@ -417,6 +426,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         serverTime: Date.now(),
         msgType: MessageType.Text,
         payload: { text },
+        replyToMsgId: targetReplyId,
         status: "sending",
       };
 
@@ -428,20 +438,26 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         };
       });
 
+      // Clear replying indicator
+      setReplyingToMessage(null);
+
       try {
-        await sdk.sendTextMessage({
+        const ack = await sdk.sendTextMessage({
           room_id: activeRoomId,
           client_msg_id: clientMsgId,
           text,
+          reply_to_msg_id: targetReplyId,
         });
 
-        // Update status to sent
+        // Update status and ACK server fields
         setMessagesByRoom((prev) => {
           const list = prev[activeRoomId] ?? [];
           return {
             ...prev,
             [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId ? updateMessageStatus(m, "sent") : m,
+              m.clientMsgId === clientMsgId
+                ? updateMessageAck(m, ack.msg_id, ack.room_seq, ack.server_time)
+                : m,
             ),
           };
         });
@@ -458,15 +474,23 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         });
       }
     },
-    [activeRoomId, currentUser, sdk],
+    [activeRoomId, currentUser, sdk, replyingToMessage],
   );
 
   // Send Image Message
   const sendImageMessage = useCallback(
-    async (url: string, width?: number, height?: number, size?: number) => {
+    async (
+      url: string,
+      width?: number,
+      height?: number,
+      size?: number,
+      explicitReplyToId?: string,
+    ) => {
       if (!activeRoomId || !currentUser || !url.trim()) {
         return;
       }
+      const targetReplyId =
+        explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
       const clientMsgId = sdk.generateMessageId();
       const optimisticMsg: UIMessage = {
         id: clientMsgId,
@@ -477,6 +501,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         serverTime: Date.now(),
         msgType: MessageType.Image,
         payload: { url, width, height, size },
+        replyToMsgId: targetReplyId,
         status: "sending",
       };
 
@@ -488,14 +513,17 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         };
       });
 
+      setReplyingToMessage(null);
+
       try {
-        await sdk.sendImageMessage({
+        const ack = await sdk.sendImageMessage({
           room_id: activeRoomId,
           client_msg_id: clientMsgId,
           url,
           width,
           height,
           size,
+          reply_to_msg_id: targetReplyId,
         });
 
         setMessagesByRoom((prev) => {
@@ -503,7 +531,9 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
           return {
             ...prev,
             [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId ? updateMessageStatus(m, "sent") : m,
+              m.clientMsgId === clientMsgId
+                ? updateMessageAck(m, ack.msg_id, ack.room_seq, ack.server_time)
+                : m,
             ),
           };
         });
@@ -520,15 +550,23 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         });
       }
     },
-    [activeRoomId, currentUser, sdk],
+    [activeRoomId, currentUser, sdk, replyingToMessage],
   );
 
   // Send File Message
   const sendFileMessage = useCallback(
-    async (url: string, name: string, size: number, mimeType?: string) => {
+    async (
+      url: string,
+      name: string,
+      size: number,
+      mimeType?: string,
+      explicitReplyToId?: string,
+    ) => {
       if (!activeRoomId || !currentUser || !url.trim()) {
         return;
       }
+      const targetReplyId =
+        explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
       const clientMsgId = sdk.generateMessageId();
       const optimisticMsg: UIMessage = {
         id: clientMsgId,
@@ -539,6 +577,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         serverTime: Date.now(),
         msgType: MessageType.File,
         payload: { url, name, size, mime_type: mimeType },
+        replyToMsgId: targetReplyId,
         status: "sending",
       };
 
@@ -550,14 +589,17 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         };
       });
 
+      setReplyingToMessage(null);
+
       try {
-        await sdk.sendFileMessage({
+        const ack = await sdk.sendFileMessage({
           room_id: activeRoomId,
           client_msg_id: clientMsgId,
           url,
           name,
           size,
           mime_type: mimeType,
+          reply_to_msg_id: targetReplyId,
         });
 
         setMessagesByRoom((prev) => {
@@ -565,7 +607,9 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
           return {
             ...prev,
             [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId ? updateMessageStatus(m, "sent") : m,
+              m.clientMsgId === clientMsgId
+                ? updateMessageAck(m, ack.msg_id, ack.room_seq, ack.server_time)
+                : m,
             ),
           };
         });
@@ -582,7 +626,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         });
       }
     },
-    [activeRoomId, currentUser, sdk],
+    [activeRoomId, currentUser, sdk, replyingToMessage],
   );
 
   // Attach SDK listeners
@@ -620,7 +664,11 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
                 (incoming.msg_id && m.id === incoming.msg_id) ||
                 (incoming.client_msg_id && m.clientMsgId === incoming.client_msg_id)
               ) {
-                return mapSdkMessageToUIMessage(incoming, "sent");
+                const mapped = mapSdkMessageToUIMessage(incoming, "sent");
+                return {
+                  ...mapped,
+                  replyToMsgId: mapped.replyToMsgId || m.replyToMsgId,
+                };
               }
               return m;
             }),
@@ -696,6 +744,8 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     activeRoomId,
     activeRoom,
     messages: activeMessages,
+    replyingToMessage,
+    setReplyingToMessage,
     isLoadingRooms,
     isLoadingHistory,
     error,
