@@ -2,27 +2,29 @@ import type {
   ChatEventType,
   EventListener,
   ChatEvent,
+  ChatEventDataMap,
   ErrorData,
   ConnectionState,
   ConnectionStateChangeData,
-} from './types';
+} from "./types";
 
 /**
- * 事件发射器 - 用于SDK内部事件管理
+ * 类型安全的事件发射器
  */
 export class EventEmitter {
-  private listeners: Map<ChatEventType, Set<EventListener<ChatEventType>>> = new Map();
+  private listeners: Map<ChatEventType, Set<EventListener<any>>> = new Map();
 
   /**
-   * 监听事件
+   * 监听指定事件
    */
   on<T extends ChatEventType>(event: T, listener: EventListener<T>): () => void {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
+    let set = this.listeners.get(event);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(event, set);
     }
-    this.listeners.get(event)!.add(listener as EventListener<ChatEventType>);
+    set.add(listener);
 
-    // 返回取消订阅函数
     return () => {
       this.off(event, listener);
     };
@@ -32,20 +34,20 @@ export class EventEmitter {
    * 监听一次性事件
    */
   once<T extends ChatEventType>(event: T, listener: EventListener<T>): void {
-    const onceWrapper = (e: ChatEvent<T>) => {
-      this.off(event, onceWrapper as EventListener<T>);
+    const onceWrapper: EventListener<T> = (e) => {
+      this.off(event, onceWrapper);
       listener(e);
     };
-    this.on(event, onceWrapper as EventListener<T>);
+    this.on(event, onceWrapper);
   }
 
   /**
-   * 取消监听
+   * 取消事件监听
    */
   off<T extends ChatEventType>(event: T, listener: EventListener<T>): void {
     const set = this.listeners.get(event);
     if (set) {
-      set.delete(listener as EventListener<ChatEventType>);
+      set.delete(listener);
       if (set.size === 0) {
         this.listeners.delete(event);
       }
@@ -55,9 +57,9 @@ export class EventEmitter {
   /**
    * 触发事件
    */
-  emit<T extends ChatEventType>(event: T, data: ChatEvent<T>['data']): void {
+  emit<T extends ChatEventType>(event: T, data: ChatEventDataMap[T]): void {
     const set = this.listeners.get(event);
-    if (set) {
+    if (set && set.size > 0) {
       const eventObj: ChatEvent<T> = {
         type: event,
         data,
@@ -65,9 +67,9 @@ export class EventEmitter {
       };
       set.forEach((listener) => {
         try {
-          listener(eventObj as ChatEvent<ChatEventType>);
+          listener(eventObj);
         } catch (err) {
-          console.error(`Event listener error for ${event}:`, err);
+          console.error(`[ChatSDK] Event listener error for ${event}:`, err);
         }
       });
     }
@@ -86,63 +88,41 @@ export class EventEmitter {
 }
 
 /**
- * 生成UUID v7
+ * 生成 UUID
  */
-const HEX_TABLE: string[] = [];
-for (let i = 0; i < 256; i++) {
-  HEX_TABLE.push((i + 0x100).toString(16).substring(1));
-}
-
-const buffer = new Uint8Array(16);
-
 export function generateUUID(): string {
-  crypto.getRandomValues(buffer);
-
-  const timestamp = Date.now();
-
-  buffer[0] = Math.floor(timestamp / 0x10000000000);
-  buffer[1] = Math.floor(timestamp / 0x100000000) & 0xff;
-  buffer[2] = Math.floor(timestamp / 0x1000000) & 0xff;
-  buffer[3] = Math.floor(timestamp / 0x10000) & 0xff;
-  buffer[4] = Math.floor(timestamp / 0x100) & 0xff;
-  buffer[5] = timestamp & 0xff;
-
-  buffer[6] = (buffer[6] & 0x0f) | 0x70;
-  buffer[8] = (buffer[8] & 0x3f) | 0x80;
-
-  return (
-    HEX_TABLE[buffer[0]] + HEX_TABLE[buffer[1]] + HEX_TABLE[buffer[2]] + HEX_TABLE[buffer[3]] + '-' +
-    HEX_TABLE[buffer[4]] + HEX_TABLE[buffer[5]] + '-' +
-    HEX_TABLE[buffer[6]] + HEX_TABLE[buffer[7]] + '-' +
-    HEX_TABLE[buffer[8]] + HEX_TABLE[buffer[9]] + '-' +
-    HEX_TABLE[buffer[10]] + HEX_TABLE[buffer[11]] + HEX_TABLE[buffer[12]] + HEX_TABLE[buffer[13]] + HEX_TABLE[buffer[14]] + HEX_TABLE[buffer[15]]
-  );
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * 检查字符串是否为有效的UUID
+ * 校验是否为合法的 UUID 字符串
  */
 export function isValidUUID(str: string): boolean {
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(str);
+  return UUID_REGEX.test(str);
 }
 
 /**
- * 延迟函数
+ * 延迟等待
  */
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export const sleep = delay;
+
 /**
- * 创建错误数据对象
+ * 构建规范的错误对象
  */
-export function createError(
-  code: string,
-  message: string,
-  originalError?: Error
-): ErrorData {
+export function createError(code: string, message: string, originalError?: Error): ErrorData {
   return {
     code,
     message,
@@ -151,11 +131,11 @@ export function createError(
 }
 
 /**
- * 创建连接状态变更数据
+ * 构建连接状态变更数据
  */
 export function createStateChange(
   state: ConnectionState,
-  previousState: ConnectionState
+  previousState: ConnectionState,
 ): ConnectionStateChangeData {
   return {
     state,

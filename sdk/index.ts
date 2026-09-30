@@ -1,4 +1,4 @@
-import {
+import type {
   ChatSDKOptions,
   ConnectionState,
   SendMessageRequest,
@@ -7,9 +7,7 @@ import {
   UserResponse,
   HistoryQueryParams,
   HistoryMessagesResponse,
-  ChatEventType,
   EventListener,
-  MessageSentData,
   TextPayload,
   ImagePayload,
   VideoPayload,
@@ -18,49 +16,21 @@ import {
   CreateRoomResponse,
   CreateGroupRoomRequest,
   ListRoomsResponse,
-} from './types';
+  AckFrame,
+} from "./types";
 
-import {
-  MessageType,
-} from './types';
+import { MessageType, ChatEventType } from "./types";
+import { APIClient } from "./api";
+import { WebSocketManager } from "./websocket";
+import { EventEmitter, generateUUID, isValidUUID } from "./utils";
 
-import { APIClient } from './api';
-import { WebSocketManager } from './websocket';
-import { EventEmitter, generateUUID, isValidUUID } from './utils';
-
-export * from './types';
-export * from './utils';
-export { APIClient, APIError } from './api';
-export { WebSocketManager } from './websocket';
+export * from "./types";
+export * from "./utils";
+export { APIClient, APIError } from "./api";
+export { WebSocketManager } from "./websocket";
 
 /**
- * ChatSDK - 类型安全的聊天 SDK
- *
- * 使用示例:
- * ```typescript
- * const sdk = new ChatSDK({
- *   baseURL: 'http://localhost:8080',
- *   gatewayURL: 'ws://localhost:8081/ws',
- * });
- *
- * // 注册/登录
- * await sdk.register({ username: 'test', password: '123456' });
- * await sdk.login({ username: 'test', password: '123456' });
- *
- * // 连接 WebSocket
- * await sdk.connect();
- *
- * // 监听消息
- * sdk.on(ChatEventType.MessageReceived, (event) => {
- *   console.log('收到消息:', event.data.message);
- * });
- *
- * // 发送文本消息
- * sdk.sendTextMessage({
- *   room_id: 'xxx',
- *   text: 'Hello!',
- * });
- * ```
+ * ChatSDK - 类型安全的高性能即时通讯 SDK
  */
 export class ChatSDK {
   private api: APIClient;
@@ -77,34 +47,32 @@ export class ChatSDK {
       maxReconnectAttempts: options.maxReconnectAttempts ?? 10,
       heartbeatInterval: options.heartbeatInterval ?? 30000,
       messageBufferSize: options.messageBufferSize ?? 100,
+      ackTimeout: options.ackTimeout ?? 10000,
     };
 
     this.emitter = new EventEmitter();
     this.api = new APIClient(this.options.baseURL);
     this.wsManager = new WebSocketManager(this.options, this.emitter);
-
-    // 转发 WebSocket 连接事件到 SDK 层
-    this.setupEventForwarding();
   }
 
   // ==================== 事件监听 ====================
 
   /**
-   * 监听事件 - 类型安全的事件监听
+   * 监听指定事件 (返回取消订阅函数)
    */
   on<T extends ChatEventType>(event: T, listener: EventListener<T>): () => void {
     return this.emitter.on(event, listener);
   }
 
   /**
-   * 监听一次性事件 - 类型安全的事件监听
+   * 监听一次性事件
    */
   once<T extends ChatEventType>(event: T, listener: EventListener<T>): void {
     this.emitter.once(event, listener);
   }
 
   /**
-   * 取消监听
+   * 取消事件监听
    */
   off<T extends ChatEventType>(event: T, listener: EventListener<T>): void {
     this.emitter.off(event, listener);
@@ -120,7 +88,7 @@ export class ChatSDK {
   // ==================== 用户认证 ====================
 
   /**
-   * 用户注册
+   * 用户注册并自动登录
    */
   async register(req: RegisterRequest): Promise<UserResponse> {
     const resp = await this.api.register(req);
@@ -156,7 +124,7 @@ export class ChatSDK {
   }
 
   /**
-   * 获取当前用户信息
+   * 获取当前已认证用户信息
    */
   getCurrentUser(): UserResponse | null {
     return this.currentUser;
@@ -176,13 +144,13 @@ export class ChatSDK {
    */
   async connect(): Promise<void> {
     if (!this.isAuthenticated()) {
-      throw new Error('Must be authenticated before connecting');
+      throw new Error("Must be authenticated before connecting to WebSocket");
     }
     return this.wsManager.connect();
   }
 
   /**
-   * 断开消息网关连接
+   * 断开连接
    */
   disconnect(): void {
     this.wsManager.disconnect();
@@ -196,7 +164,7 @@ export class ChatSDK {
   }
 
   /**
-   * 是否已连接
+   * 检查连接是否可用
    */
   isConnected(): boolean {
     return this.wsManager.isConnected();
@@ -205,45 +173,37 @@ export class ChatSDK {
   // ==================== 消息发送 ====================
 
   /**
-   * 发送原始消息
+   * 发送原始消息 (返回服务端持久化 ACK Promise)
    */
-  sendMessage(req: SendMessageRequest): void {
+  sendMessage(req: SendMessageRequest): Promise<AckFrame> {
     if (!req.client_msg_id) {
       req.client_msg_id = generateUUID();
     }
-    this.wsManager.sendMessage(req);
-
-    // 触发发送事件
-    this.emitter.emit(ChatEventType.MessageSent, {
-      client_msg_id: req.client_msg_id,
-    } as MessageSentData);
+    return this.wsManager.sendMessage(req);
   }
 
   /**
    * 发送文本消息
    */
   sendTextMessage(
-    params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & { text: string }
-  ): string {
+    params: Omit<SendMessageRequest, "msg_type" | "payload"> & { text: string },
+  ): Promise<AckFrame> {
     const { text, ...rest } = params;
-    const clientMsgId = generateUUID()
-    this.sendMessage({
+    return this.sendMessage({
       ...rest,
-      client_msg_id: clientMsgId,
       msg_type: MessageType.Text,
       payload: { text } as TextPayload,
     });
-    return clientMsgId
   }
 
   /**
    * 发送图片消息
    */
   sendImageMessage(
-    params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & ImagePayload
-  ): void {
+    params: Omit<SendMessageRequest, "msg_type" | "payload"> & ImagePayload,
+  ): Promise<AckFrame> {
     const { url, width, height, size, ...rest } = params;
-    this.sendMessage({
+    return this.sendMessage({
       ...rest,
       msg_type: MessageType.Image,
       payload: { url, width, height, size } as ImagePayload,
@@ -254,11 +214,10 @@ export class ChatSDK {
    * 发送视频消息
    */
   sendVideoMessage(
-    params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & VideoPayload
-  ): void {
-    const { url, duration, width, height, size, thumbnail_url, ...rest } =
-      params;
-    this.sendMessage({
+    params: Omit<SendMessageRequest, "msg_type" | "payload"> & VideoPayload,
+  ): Promise<AckFrame> {
+    const { url, duration, width, height, size, thumbnail_url, ...rest } = params;
+    return this.sendMessage({
       ...rest,
       msg_type: MessageType.Video,
       payload: { url, duration, width, height, size, thumbnail_url } as VideoPayload,
@@ -269,10 +228,10 @@ export class ChatSDK {
    * 发送文件消息
    */
   sendFileMessage(
-    params: Omit<SendMessageRequest, 'client_msg_id' | 'msg_type' | 'payload'> & FilePayload
-  ): void {
+    params: Omit<SendMessageRequest, "msg_type" | "payload"> & FilePayload,
+  ): Promise<AckFrame> {
     const { url, name, size, mime_type, ...rest } = params;
-    this.sendMessage({
+    return this.sendMessage({
       ...rest,
       msg_type: MessageType.File,
       payload: { url, name, size, mime_type } as FilePayload,
@@ -282,11 +241,9 @@ export class ChatSDK {
   // ==================== 历史消息 ====================
 
   /**
-   * 获取历史消息
+   * 获取房间历史消息
    */
-  async getHistoryMessages(
-    params: HistoryQueryParams
-  ): Promise<HistoryMessagesResponse> {
+  async getHistoryMessages(params: HistoryQueryParams): Promise<HistoryMessagesResponse> {
     return this.api.getHistoryMessages(params);
   }
 
@@ -307,36 +264,20 @@ export class ChatSDK {
   }
 
   /**
-   * 获取用户房间列表
+   * 获取当前用户的所有房间列表
    */
   async listRooms(): Promise<ListRoomsResponse> {
     return this.api.listRooms();
   }
 
-  // ==================== 工具方法 ====================
+  // ==================== 辅助工具 ====================
 
-  /**
-   * 生成 UUID(用于 client_msg_id)
-   */
   generateMessageId(): string {
     return generateUUID();
   }
 
-  /**
-   * 验证 UUID 格式
-   */
   validateMessageId(id: string): boolean {
     return isValidUUID(id);
-  }
-
-  // ==================== 私有方法 ====================
-
-  /**
-   * 设置事件转发
-   */
-  private setupEventForwarding(): void {
-    // WebSocketManager 已经通过同一个 EventEmitter 触发事件
-    // 所以不需要额外转发,SDK 层直接监听即可
   }
 }
 
