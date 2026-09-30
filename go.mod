@@ -3,8 +3,8 @@ module github.com/sanbei101/im
 go 1.27
 
 require (
-	github.com/cloudwego/fastpb v0.0.6
-	github.com/cloudwego/kitex v0.12.4
+	github.com/cloudwego/kitex v0.16.3
+	github.com/cloudwego/prutal v0.1.3
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/coder/websocket v1.8.15
 	github.com/cristalhq/jwt/v5 v5.4.0
@@ -13,7 +13,6 @@ require (
 	github.com/kamalyes/go-argus v0.3.1
 	github.com/phuslu/log v1.0.128
 	golang.org/x/crypto v0.54.0
-	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -27,6 +26,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/cloudwego/configmanager v0.2.3 // indirect
 	github.com/cloudwego/dynamicgo v0.8.0 // indirect
+	github.com/cloudwego/fastpb v0.0.6 // indirect
 	github.com/cloudwego/frugal v0.3.1 // indirect
 	github.com/cloudwego/gopkg v0.2.0 // indirect
 	github.com/cloudwego/localsession v0.2.1 // indirect
@@ -74,4 +74,5 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )

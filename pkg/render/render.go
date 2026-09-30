@@ -125,14 +125,15 @@ type AckFrame struct {
 
 // PushFrame 下行推送帧(单元素数组包裹,保持现状)。
 type PushFrame struct {
-	MsgID      string         `json:"msg_id"`
-	SenderID   string         `json:"sender_id"`
-	RoomID     string         `json:"room_id"`
-	RoomSeq    uint64         `json:"room_seq"`
-	ServerTime int64          `json:"server_time"`
-	MsgType    string         `json:"msg_type"`
-	Payload    jsontext.Value `json:"payload"`
-	Ext        jsontext.Value `json:"ext"`
+	MsgID       string         `json:"msg_id"`
+	ClientMsgID string         `json:"client_msg_id"`
+	SenderID    string         `json:"sender_id"`
+	RoomID      string         `json:"room_id"`
+	RoomSeq     uint64         `json:"room_seq"`
+	ServerTime  int64          `json:"server_time"`
+	MsgType     string         `json:"msg_type"`
+	Payload     jsontext.Value `json:"payload"`
+	Ext         jsontext.Value `json:"ext"`
 }
 
 // ErrorFrame 下行错误帧。

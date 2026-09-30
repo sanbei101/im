@@ -102,6 +102,9 @@ export class WebSocketManager {
         const wsUrl = new URL(this.options.gatewayURL);
         wsUrl.searchParams.append('token', this.token!);
         this.ws = new WebSocket(wsUrl.toString());
+        // 网关以 binary opcode 下发 JSON 帧。binaryType 必须是 arraybuffer，
+        // 否则 Node 下默认 blob 会给出 Blob，JSON.parse 拿不到文本。
+        this.ws.binaryType = 'arraybuffer';
         await this.setupWebSocketHandlers();
       } catch (error) {
         this.setState(State.Error);
@@ -195,8 +198,7 @@ export class WebSocketManager {
       };
 
       this.ws.onmessage = (event: MessageEvent) => {
-        const data = typeof event.data === 'string' ? event.data : String(event.data);
-        this.handleMessage(data);
+        this.handleMessage(event.data);
       };
 
       this.ws.onclose = (event: CloseEvent) => {
@@ -227,20 +229,39 @@ export class WebSocketManager {
   /**
    * 处理接收到的消息
    */
-  private handleMessage(data: string): void {
+  private handleMessage(data: unknown): void {
+    let text: string;
+    if (typeof data === 'string') {
+      text = data;
+    } else if (ArrayBuffer.isView(data)) {
+      text = new TextDecoder().decode(
+        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+      );
+    } else if (data instanceof ArrayBuffer) {
+      text = new TextDecoder().decode(data);
+    } else {
+      text = String(data);
+    }
+
+    let frame: unknown;
     try {
-      const messages = JSON.parse(data) as Message[];
+      frame = JSON.parse(text);
+    } catch (error) {
+      this.emitter.emit(
+        ChatEventType.Error,
+        createError(
+          'MESSAGE_PARSE_ERROR',
+          text,
+          error instanceof Error ? error : undefined
+        )
+      );
+      return;
+    }
 
-      if (!Array.isArray(messages)) {
-        this.emitter.emit(
-          ChatEventType.Error,
-          createError('INVALID_MESSAGE', 'Received non-array message format')
-        );
-        return;
-      }
-
-      for (const message of messages) {
-        if (!message.msg_id || !message.sender_id) {
+    // 推送帧是单元素数组包裹（保持现状）
+    if (Array.isArray(frame)) {
+      for (const message of frame as Message[]) {
+        if (!message?.msg_id || !message?.sender_id) {
           this.emitter.emit(
             ChatEventType.Error,
             createError('INVALID_MESSAGE', 'Received invalid message format')
@@ -252,16 +273,34 @@ export class WebSocketManager {
           message,
         } as MessageReceivedData);
       }
-    } catch (error) {
-      this.emitter.emit(
-        ChatEventType.Error,
-        createError(
-          'MESSAGE_PARSE_ERROR',
-          data,
-          error instanceof Error ? error : undefined
-        )
-      );
+      return;
     }
+
+    // ack / pong / error 是扁平对象帧，不是消息推送
+    if (frame && typeof frame === 'object' && 'type' in frame) {
+      const typed = frame as { type?: string; error?: string };
+      if (typed.type === 'error') {
+        this.emitter.emit(
+          ChatEventType.Error,
+          createError('GATEWAY_ERROR', typed.error ?? 'gateway reported an error')
+        );
+      }
+      return;
+    }
+
+    // 兼容：裸消息对象（无 type 包装）
+    const message = frame as Message;
+    if (message?.msg_id && message?.sender_id) {
+      this.emitter.emit(ChatEventType.MessageReceived, {
+        message,
+      } as MessageReceivedData);
+      return;
+    }
+
+    this.emitter.emit(
+      ChatEventType.Error,
+      createError('INVALID_MESSAGE', 'Received non-array message format')
+    );
   }
 
   /**

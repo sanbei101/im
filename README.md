@@ -56,6 +56,27 @@ Pebble Value 使用 `encoding/binary` 手写编码，不使用 JSON。消息写�
 
 消息幂等键为 `room_id + sender_id + client_msg_id`。相同请求重试返回原消息结果，使用相同键提交不同内容会返回冲突。
 
+## 消息链路
+
+一条消息从客户端到落盘的完整路径：
+
+```text
+客户端 ──WS──▶ Gateway(8800) ──Kitex bidi stream(9000)──▶ API
+                     │                                        │
+                     │                                  Pebble Batch(Sync)
+                     │                                  message/room/dedup 同批提交
+                     │◀────SendResultBatch(mid,room_seq)──────┤
+                     ▼
+              ack 帧回客户端；Pebble 提交成功才发 ack
+
+推送：API 写盘后按房间成员推送 → PushFrame{batch} → Gateway 分发到成员 WS 连接
+补拉：GET /api/v1/messages/history?room_id=&before_seq=&page_size=
+```
+
+- `before_seq` 是排他上界：返回 `room_seq < before_seq` 的消息，用于按本地最新序号向前补拉。
+- 历史消息字段与推送帧一致：`msg_id / client_msg_id / sender_id / room_id / room_seq / server_time / msg_type / payload / ext`。
+- 消息幂等键 `room_id + sender_id + client_msg_id`；推送帧带 `client_msg_id`，接收端可自去重。
+
 ## 测试、Benchmark 与 Pprof
 
 所有检查通过 `Makefile` 执行
@@ -65,4 +86,11 @@ make verify       # gofmt、go vet、全部测试、race、benchmark
 make bench        # 真实 Pebble 写入和历史读取 benchmark
 make pprof        # 真实批量写入并生成 CPU、heap、mutex、block profile
 make analyze      # 输出 pprof top 热点
+```
+
+SDK 集成测试（需先启动 `./cmd/api` 与 `./cmd/gateway`）：
+
+```bash
+cd sdk && pnpm install
+API_BASE_URL=http://127.0.0.1:8801 WS_GATEWAY_URL=ws://127.0.0.1:8800/ws pnpm test
 ```

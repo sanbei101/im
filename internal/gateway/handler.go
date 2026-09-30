@@ -33,9 +33,16 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	defer gateway.cleanUserClient(userID, userClient, userSession)
 	gateway.registerUser(r.Context(), userID, true)
 
-	go userClient.writePump(r.Context())
+	writeDone := make(chan struct{})
+	go func() {
+		defer close(writeDone)
+		userClient.writePump(r.Context())
+	}()
 
 	userClient.readPump(r.Context())
+	// readPump 返回即连接已断开：关闭 Send 唤醒 writePump，避免协程泄漏。
+	close(userClient.Send)
+	<-writeDone
 }
 
 func (gateway *Gateway) authenticate(r *http.Request) (uuid.UUID, error) {
@@ -76,5 +83,5 @@ func (gateway *Gateway) cleanUserClient(userID uuid.UUID, c *UserClient, session
 	if session.Remove(c) {
 		gateway.UserSessionManager.Delete(userID.String())
 	}
-	close(c.Send)
+	c.closed.Store(true)
 }
