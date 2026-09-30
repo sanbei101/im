@@ -249,9 +249,10 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 			RoomID:      push.GetRoomId(),
 			RoomSeq:     push.GetRoomSeq(),
 			ServerTime:  push.GetServerTime(),
-			MsgType:     store.MsgType(push.GetMsgType()).String(),
-			Payload:     jsontext.Value(push.GetPayload()),
-			Ext:         jsontext.Value(push.GetExt()),
+			MsgType:      store.MsgType(push.GetMsgType()).String(),
+			Payload:      jsontext.Value(push.GetPayload()),
+			ReplyToMsgID: push.GetReplyToMsgId(),
+			Ext:          jsontext.Value(push.GetExt()),
 		}
 		for _, client := range session.Clients() {
 			if err := client.encodeFrame(frame); err != nil {

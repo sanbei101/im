@@ -71,6 +71,7 @@ message Push {
   int64 server_time = 8;
   bytes ext = 9;
   string client_msg_id = 10;
+  string reply_to_msg_id = 11;
 }
 
 message RoutingError { string room_id = 1; string owner = 2; string topology_version = 3; }

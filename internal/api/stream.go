@@ -195,18 +195,23 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 		if member.UserID == message.SenderID {
 			continue
 		}
+		var replyToMsgID string
+		if message.ReplyToMsgID != uuid.Nil() {
+			replyToMsgID = message.ReplyToMsgID.String()
+		}
 		if connection := h.sessions[member.UserID.String()]; connection != nil {
 			pushes[connection] = append(pushes[connection], &imv1.Push{
-				UserId:      member.UserID.String(),
-				RoomId:      message.RoomID.String(),
-				RoomSeq:     message.RoomSeq,
-				MsgId:       message.MsgID.String(),
-				SenderId:    message.SenderID.String(),
-				MsgType:     int32(message.MsgType),
-				Payload:     message.Payload,
-				ServerTime:  message.ServerTime,
-				Ext:         message.Ext,
-				ClientMsgId: message.ClientMsgID.String(),
+				UserId:       member.UserID.String(),
+				RoomId:       message.RoomID.String(),
+				RoomSeq:      message.RoomSeq,
+				MsgId:        message.MsgID.String(),
+				SenderId:     message.SenderID.String(),
+				MsgType:      int32(message.MsgType),
+				Payload:      message.Payload,
+				ServerTime:   message.ServerTime,
+				Ext:          message.Ext,
+				ClientMsgId:  message.ClientMsgID.String(),
+				ReplyToMsgId: replyToMsgID,
 			})
 		}
 	}
