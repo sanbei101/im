@@ -85,19 +85,4 @@ describe('用户认证 API 集成测试', () => {
       password: randomPassword(),
     })).rejects.toThrow();
   });
-
-  it('应该批量生成测试用户', async () => {
-    const count = 5;
-    const result = await sdk.batchGenerateUsers({ count });
-
-    expect(result).toBeDefined();
-    expect(result.length).toBe(count);
-
-    result.forEach((user) => {
-      expect(user.user_id).toBeDefined();
-      expect(user.username).toBeDefined();
-      expect(user.password).toBeDefined();
-      expect(user.token).toBeDefined();
-    });
-  });
 });

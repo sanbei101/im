@@ -5,3 +5,7 @@ im-frontend/dist
 im-frontend/.vscode
 bench/node_modules/
 bench/dist/
+
+data/
+backup/
+.tmp/

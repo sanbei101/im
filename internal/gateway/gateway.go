@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/kitex/client"
 	"github.com/phuslu/log"
 
+	"github.com/sanbei101/im/internal/store"
 	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
 	"github.com/sanbei101/im/kitex_gen/im/v1/gatewayservice"
 	"github.com/sanbei101/im/pkg"
@@ -122,13 +123,13 @@ func (s *apiStream) connect(ctx context.Context) error {
 	s.mu.Lock()
 	s.client, s.stream = cli, stream
 	s.mu.Unlock()
-	if err := stream.Send(
+	if err := stream.Send(ctx,
 		&imv1.GatewayFrame{Body: &imv1.GatewayFrame_Hello{Hello: &imv1.Hello{GatewayId: s.id}}},
 	); err != nil {
 		return err
 	}
 	for _, session := range s.gateway.UserSessionManager.All() {
-		if err := stream.Send(
+		if err := stream.Send(ctx,
 			&imv1.GatewayFrame{
 				Body: &imv1.GatewayFrame_SessionBatch{
 					SessionBatch: &imv1.SessionBatch{
@@ -153,14 +154,14 @@ func (s *apiStream) loop(ctx context.Context) error {
 				return
 			case message := <-s.queue:
 				batch := &imv1.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*imv1.SendMessage{message}}
-				if err := s.stream.Send(
+				if err := s.stream.Send(ctx,
 					&imv1.GatewayFrame{Body: &imv1.GatewayFrame_SendBatch{SendBatch: batch}},
 				); err != nil {
 					done <- err
 					return
 				}
 			case session := <-s.sessions:
-				if err := s.stream.Send(
+				if err := s.stream.Send(ctx,
 					&imv1.GatewayFrame{
 						Body: &imv1.GatewayFrame_SessionBatch{
 							SessionBatch: &imv1.SessionBatch{Sessions: []*imv1.Session{session}},
@@ -175,7 +176,7 @@ func (s *apiStream) loop(ctx context.Context) error {
 	}()
 	go func() {
 		for {
-			frame, err := s.stream.Recv()
+			frame, err := s.stream.Recv(ctx)
 			if err != nil {
 				done <- err
 				return
@@ -238,37 +239,21 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 			continue
 		}
 		frame := []render.PushFrame{{
-			MsgID:      push.GetMsgId(),
-			SenderID:   push.GetSenderId(),
-			RoomID:     push.GetRoomId(),
-			RoomSeq:    push.GetRoomSeq(),
-			ServerTime: push.GetServerTime(),
-			MsgType:    messageTypeName(push.GetMsgType()),
-			Payload:    jsontext.Value(push.GetPayload()),
-			Ext:        jsontext.Value(push.GetExt()),
+			MsgID:       push.GetMsgId(),
+			ClientMsgID: push.GetClientMsgId(),
+			SenderID:    push.GetSenderId(),
+			RoomID:      push.GetRoomId(),
+			RoomSeq:     push.GetRoomSeq(),
+			ServerTime:  push.GetServerTime(),
+			MsgType:     store.MsgType(push.GetMsgType()).String(),
+			Payload:     jsontext.Value(push.GetPayload()),
+			Ext:         jsontext.Value(push.GetExt()),
 		}}
 		for _, client := range session.Clients() {
 			if err := client.encodeFrame(frame); err != nil {
 				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
 			}
 		}
-	}
-}
-
-func messageTypeName(value int32) string {
-	switch value {
-	case 1:
-		return "text"
-	case 2:
-		return "image"
-	case 3:
-		return "video"
-	case 4:
-		return "file"
-	case 5:
-		return "system"
-	default:
-		return "unknown"
 	}
 }
 

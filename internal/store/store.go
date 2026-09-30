@@ -3,10 +3,13 @@ package store
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 	"uuid"
@@ -79,6 +82,67 @@ type Member struct {
 	IsMuted  bool
 }
 
+type MsgType int8
+
+const (
+	MsgTypeText   MsgType = 1
+	MsgTypeImage  MsgType = 2
+	MsgTypeVideo  MsgType = 3
+	MsgTypeFile   MsgType = 4
+	MsgTypeSystem MsgType = 5
+)
+
+// String 返回对外 JSON/wire 使用的名称；未知值原样返回数字字符串。
+func (t MsgType) String() string {
+	switch t {
+	case MsgTypeText:
+		return "text"
+	case MsgTypeImage:
+		return "image"
+	case MsgTypeVideo:
+		return "video"
+	case MsgTypeFile:
+		return "file"
+	case MsgTypeSystem:
+		return "system"
+	default:
+		return strconv.Itoa(int(t))
+	}
+}
+
+// Valid 报告是否为已知类型。
+func (t MsgType) Valid() bool {
+	return t >= MsgTypeText && t <= MsgTypeSystem
+}
+
+// ParseMsgType 解析客户端上行的 msg_type：名称或数字字符串均可，
+// 未知值报错。名称解析失败时回退到数字，避免 "01" 之类的输入被拒。
+func ParseMsgType(value string) (MsgType, error) {
+	for _, known := range []struct {
+		name string
+		typ  MsgType
+	}{
+		{"text", MsgTypeText},
+		{"image", MsgTypeImage},
+		{"video", MsgTypeVideo},
+		{"file", MsgTypeFile},
+		{"system", MsgTypeSystem},
+	} {
+		if value == known.name {
+			return known.typ, nil
+		}
+	}
+	number, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid msg_type %q", value)
+	}
+	typ := MsgType(number)
+	if !typ.Valid() {
+		return 0, fmt.Errorf("invalid msg_type %q", value)
+	}
+	return typ, nil
+}
+
 type Message struct {
 	MsgID        uuid.UUID
 	ClientMsgID  uuid.UUID
@@ -88,9 +152,50 @@ type Message struct {
 	ServerTime   int64
 	ReplyToMsgID uuid.UUID
 	HasReply     bool
-	MsgType      string
-	Payload      []byte
-	Ext          []byte
+	MsgType      MsgType
+	Payload      jsontext.Value
+	Ext          jsontext.Value
+}
+
+// messageJSON 是历史消息的对外契约：snake_case、msg_type 为名称、payload 内联 JSON。
+// 空 Ext / 未设置 ReplyToMsgID 时省略字段，避免输出全零 UUID 或空字符串。
+type messageJSON struct {
+	MsgID        uuid.UUID      `json:"msg_id"`
+	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
+	SenderID     uuid.UUID      `json:"sender_id"`
+	RoomID       uuid.UUID      `json:"room_id"`
+	RoomSeq      uint64         `json:"room_seq"`
+	ServerTime   int64          `json:"server_time"`
+	MsgType      string         `json:"msg_type"`
+	ReplyToMsgID uuid.UUID      `json:"reply_to_msg_id,omitzero"`
+	Payload      jsontext.Value `json:"payload,omitzero"`
+	Ext          jsontext.Value `json:"ext,omitzero"`
+}
+
+// MarshalJSONTo 把存储记录编码为对外 JSON。HasReply 只是 ReplyToMsgID 的冗余标记，
+// wire 上不输出。
+func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {
+	// jsontext.Value 是 []byte：nil 与空切片在 omitzero 下行为不同，
+	// 空但非 nil 会被当成\"有值\"并产出空字符串 -> 非法 JSON。这里统一归一成 nil。
+	var payload, ext jsontext.Value
+	if len(m.Payload) > 0 {
+		payload = m.Payload
+	}
+	if len(m.Ext) > 0 {
+		ext = m.Ext
+	}
+	return json.MarshalEncode(enc, messageJSON{
+		MsgID:        m.MsgID,
+		ClientMsgID:  m.ClientMsgID,
+		SenderID:     m.SenderID,
+		RoomID:       m.RoomID,
+		RoomSeq:      m.RoomSeq,
+		ServerTime:   m.ServerTime,
+		MsgType:      m.MsgType.String(),
+		ReplyToMsgID: m.ReplyToMsgID,
+		Payload:      payload,
+		Ext:          ext,
+	})
 }
 
 type Dedup struct {

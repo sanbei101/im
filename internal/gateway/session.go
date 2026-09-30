@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"sync"
+	"sync/atomic"
 	"uuid"
 
 	"github.com/coder/websocket"
 	"github.com/phuslu/log"
 
+	"github.com/sanbei101/im/internal/store"
 	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
 	"github.com/sanbei101/im/pkg/render"
 )
@@ -22,9 +23,15 @@ type UserClient struct {
 	Send    chan []byte
 	UserID  uuid.UUID
 	frames  *render.FrameWriter
+
+	closed atomic.Bool
 }
 
 func (c *UserClient) writePump(ctx context.Context) {
+	defer func() {
+		c.closed.Store(true)
+		_ = c.Conn.Close(websocket.StatusNormalClosure, "")
+	}()
 	for frame := range c.Send {
 		if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
 			return
@@ -42,10 +49,13 @@ func (c *UserClient) readPump(ctx context.Context) {
 			return
 		}
 		// 硬性不变量：无论 decode 成败，reader 必须被读尽，
-		// 否则下一条消息报 "previous message not read to completion"。
-		defer func() { _, _ = io.Copy(io.Discard, r) }()
+		// 否则 coder/websocket 会把剩余字节当成下一帧头，直接判协议错误断开连接。
+		// drain 必须在本次迭代内同步完成，不能用 defer（循环里的 defer 只在函数返回时才执行）。
 		if err := c.handleFrame(ctx, r); err != nil {
 			c.sendError(err.Error())
+		}
+		if _, err := io.Copy(io.Discard, r); err != nil && ctx.Err() == nil {
+			log.Error().Err(err).Str("user_id", c.UserID.String()).Msg("drain client frame failed")
 		}
 	}
 }
@@ -69,13 +79,13 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	if requestID == "" {
 		requestID = uuid.NewV7().String()
 	}
-	msgType, err := messageType(input.MsgType)
+	msgType, err := store.ParseMsgType(input.MsgType)
 	if err != nil {
 		return err
 	}
 	message := &imv1.SendMessage{
 		RequestId: requestID, ClientMsgId: input.ClientMsgID, SenderId: c.UserID.String(),
-		RoomId: input.RoomID, MsgType: msgType, Payload: input.Payload, Ext: input.Ext,
+		RoomId: input.RoomID, MsgType: int32(msgType), Payload: input.Payload, Ext: input.Ext,
 		ReplyToMsgId: input.ReplyToMsgID,
 	}
 	c.gateway.pending.Store(requestID, c)
@@ -86,29 +96,11 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
-func messageType(value string) (int32, error) {
-	switch value {
-	case "text":
-		return 1, nil
-	case "image":
-		return 2, nil
-	case "video":
-		return 3, nil
-	case "file":
-		return 4, nil
-	case "system":
-		return 5, nil
-	default:
-		number, err := strconv.ParseInt(value, 10, 32)
-		if err != nil {
-			return 0, fmt.Errorf("invalid msg_type %q: %w", value, err)
-		}
-		return int32(number), nil
-	}
-}
-
-// sendFrame 非阻塞投递已编码帧；缓冲区满返回错误。
+// sendFrame 非阻塞投递已编码帧；客户端已拆除或缓冲已满返回错误。
 func (c *UserClient) sendFrame(frame []byte) error {
+	if c.closed.Load() {
+		return errors.New("client is closed")
+	}
 	select {
 	case c.Send <- frame:
 		return nil

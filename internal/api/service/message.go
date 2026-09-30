@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"time"
 	"uuid"
 
 	"github.com/sanbei101/im/internal/store"
@@ -33,11 +32,4 @@ func (s *MessageService) GetHistory(ctx context.Context, req HistoryReq) (*Histo
 		return nil, err
 	}
 	return &HistoryResp{Messages: page.Messages, HasMore: page.HasMore}, nil
-}
-
-func (s *MessageService) Write(ctx context.Context, message store.Message) (store.Message, error) {
-	if message.ServerTime == 0 {
-		message.ServerTime = time.Now().UnixMicro()
-	}
-	return s.store.WriteMessage(ctx, message)
 }

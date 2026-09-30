@@ -5,8 +5,6 @@ import {
   RegisterRequest,
   LoginRequest,
   UserResponse,
-  BatchGenerateRequest,
-  BatchUserResponse,
   HistoryQueryParams,
   HistoryMessagesResponse,
   ChatEventType,
@@ -137,16 +135,6 @@ export class ChatSDK {
     const resp = await this.api.login(req);
     this.setAuth(resp);
     return resp;
-  }
-
-  /**
-   * 批量生成用户(测试/管理用途)
-   */
-  async batchGenerateUsers(
-    req: BatchGenerateRequest
-  ): Promise<BatchUserResponse[]> {
-    const resp = await this.api.batchGenerate(req);
-    return resp.users;
   }
 
   /**

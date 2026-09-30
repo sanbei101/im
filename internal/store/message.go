@@ -35,9 +35,8 @@ func encodeMessage(message Message) []byte {
 	} else {
 		data = append(data, 0)
 	}
-	data = appendString(data, message.MsgType)
-	data = appendBytes(data, message.Payload)
-	return appendBytes(data, message.Ext)
+	data = append(data, byte(message.MsgType))
+	return appendBytes(appendBytes(data, message.Payload), message.Ext)
 }
 
 func decodeMessage(data []byte) (Message, error) {
@@ -75,9 +74,11 @@ func decodeMessage(data []byte) (Message, error) {
 			return Message{}, err
 		}
 	}
-	if message.MsgType, err = d.string(); err != nil {
-		return Message{}, err
+	if d.pos >= len(d.data) {
+		return Message{}, errors.New("invalid msg_type")
 	}
+	message.MsgType = MsgType(d.data[d.pos])
+	d.pos++
 	if message.Payload, err = d.bytes(); err != nil {
 		return Message{}, err
 	}
@@ -155,9 +156,8 @@ func (s *Store) writeMessageBatch(messages []Message) ([]Message, []error) {
 			rooms[message.RoomID] = room
 		}
 
-		digestInput := make([]byte, 0, len(message.MsgType)+len(message.Payload)+len(message.Ext)+18)
-		digestInput = append(digestInput, message.MsgType...)
-		digestInput = append(digestInput, 0)
+		digestInput := make([]byte, 0, len(message.Payload)+len(message.Ext)+19)
+		digestInput = append(digestInput, byte(message.MsgType))
 		digestInput = append(digestInput, message.Payload...)
 		digestInput = append(digestInput, 0)
 		digestInput = append(digestInput, message.Ext...)

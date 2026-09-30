@@ -38,13 +38,12 @@ func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCo
 	}
 }
 
-func (h *StreamHandler) Connect(stream imv1.GatewayService_ConnectServer) error {
-	ctx := context.Background()
+func (h *StreamHandler) Connect(ctx context.Context, stream imv1.GatewayService_ConnectServer) error {
 	connection := &apiConnection{stream: stream, users: make(map[string]struct{})}
 	defer h.removeConnection(connection)
 
 	for {
-		frame, err := stream.Recv()
+		frame, err := stream.Recv(ctx)
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -54,6 +53,7 @@ func (h *StreamHandler) Connect(stream imv1.GatewayService_ConnectServer) error 
 		switch {
 		case frame.GetHello() != nil:
 			if err := connection.send(
+				ctx,
 				&imv1.APIFrame{
 					Body: &imv1.APIFrame_HelloAck{
 						HelloAck: &imv1.HelloAck{NodeId: h.nodeID, TopologyVersion: strconv.Itoa(h.slots)},
@@ -70,6 +70,7 @@ func (h *StreamHandler) Connect(stream imv1.GatewayService_ConnectServer) error 
 				return err
 			}
 			if err := connection.send(
+				ctx,
 				&imv1.APIFrame{Body: &imv1.APIFrame_SendResultBatch{SendResultBatch: result}},
 			); err != nil {
 				return fmt.Errorf("send result batch: %w", err)
@@ -83,10 +84,10 @@ func (h *StreamHandler) Connect(stream imv1.GatewayService_ConnectServer) error 
 	}
 }
 
-func (c *apiConnection) send(frame *imv1.APIFrame) error {
+func (c *apiConnection) send(ctx context.Context, frame *imv1.APIFrame) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.stream.Send(frame)
+	return c.stream.Send(ctx, frame)
 }
 
 func (h *StreamHandler) updateSessions(connection *apiConnection, batch *imv1.SessionBatch) {
@@ -172,10 +173,6 @@ func (h *StreamHandler) writeBatch(
 }
 
 func (h *StreamHandler) push(ctx context.Context, message *store.Message) error {
-	msgType, err := messageTypeNumber(message.MsgType)
-	if err != nil {
-		return fmt.Errorf("push room message: %w", err)
-	}
 	members, err := h.store.Members(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
@@ -191,36 +188,29 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 			pushes[connection] = append(
 				pushes[connection],
 				&imv1.Push{
-					UserId:     member.UserID.String(),
-					RoomId:     message.RoomID.String(),
-					RoomSeq:    message.RoomSeq,
-					MsgId:      message.MsgID.String(),
-					SenderId:   message.SenderID.String(),
-					MsgType:    msgType,
-					Payload:    message.Payload,
-					ServerTime: message.ServerTime,
-					Ext:        message.Ext,
+					UserId:      member.UserID.String(),
+					RoomId:      message.RoomID.String(),
+					RoomSeq:     message.RoomSeq,
+					MsgId:       message.MsgID.String(),
+					SenderId:    message.SenderID.String(),
+					MsgType:     int32(message.MsgType),
+					Payload:     message.Payload,
+					ServerTime:  message.ServerTime,
+					Ext:         message.Ext,
+					ClientMsgId: message.ClientMsgID.String(),
 				},
 			)
 		}
 	}
 	h.mu.RUnlock()
 	for connection, items := range pushes {
-		if err := connection.send(
+		if err := connection.send(ctx,
 			&imv1.APIFrame{Body: &imv1.APIFrame_PushBatch{PushBatch: &imv1.PushBatch{Pushes: items}}},
 		); err != nil {
 			return fmt.Errorf("push room message: %w", err)
 		}
 	}
 	return nil
-}
-
-func messageTypeNumber(value string) (int32, error) {
-	number, err := strconv.ParseInt(value, 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("invalid message type %q: %w", value, err)
-	}
-	return int32(number), nil
 }
 
 func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) {
@@ -240,9 +230,12 @@ func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) 
 		ClientMsgID: client,
 		SenderID:    sender,
 		RoomID:      room,
-		MsgType:     strconv.Itoa(int(input.GetMsgType())),
+		MsgType:     store.MsgType(input.GetMsgType()),
 		Payload:     input.GetPayload(),
 		Ext:         input.GetExt(),
+	}
+	if !message.MsgType.Valid() {
+		return store.Message{}, fmt.Errorf("invalid msg_type %d", input.GetMsgType())
 	}
 	if input.GetReplyToMsgId() != "" {
 		message.ReplyToMsgID, err = uuid.Parse(input.GetReplyToMsgId())

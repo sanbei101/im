@@ -102,19 +102,6 @@ export interface UserResponse {
   token: string;
 }
 
-// 批量生成用户请求
-export interface BatchGenerateRequest {
-  count: number;
-}
-
-// 批量生成用户响应
-export interface BatchUserResponse {
-  user_id: string;
-  username: string;
-  password: string;
-  token: string;
-}
-
 // SDK配置选项
 export interface ChatSDKOptions {
   /** API基础URL */
@@ -212,7 +199,7 @@ export type EventListener<T extends ChatEventType = ChatEventType> = (
 export interface HistoryQueryParams {
   /** 房间ID */
   room_id: string;
-  /** 查询此时间戳之前的消息(微秒级,默认为当前时间) */
+  /** 只返回 room_seq 小于该值的消息（排他上界），用于按本地最新序号向前补拉 */
   before_seq?: number;
   /** 每页数量(默认20) */
   page_size?: number;
