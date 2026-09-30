@@ -13,29 +13,23 @@ import (
 )
 
 func encodeMessage(message Message) []byte {
-	var id [16]byte
+	var number [8]byte
 	totalLen := 16*4 + 8 + 8 + 1 + 1 + 4 + len(message.Payload) + 4 + len(message.Ext)
 	if message.ReplyToMsgID != uuid.Nil() {
 		totalLen += 16
 	}
 	data := make([]byte, 0, totalLen)
-	putUUID(id[:], message.MsgID)
-	data = append(data, id[:]...)
-	putUUID(id[:], message.ClientMsgID)
-	data = append(data, id[:]...)
-	putUUID(id[:], message.SenderID)
-	data = append(data, id[:]...)
-	putUUID(id[:], message.RoomID)
-	data = append(data, id[:]...)
-	var number [8]byte
+	data = putUUID(data, message.MsgID)
+	data = putUUID(data, message.ClientMsgID)
+	data = putUUID(data, message.SenderID)
+	data = putUUID(data, message.RoomID)
 	putU64(number[:], message.RoomSeq)
 	data = append(data, number[:]...)
 	putI64(number[:], message.ServerTime)
 	data = append(data, number[:]...)
 	if message.ReplyToMsgID != uuid.Nil() {
 		data = append(data, 1)
-		putUUID(id[:], message.ReplyToMsgID)
-		data = append(data, id[:]...)
+		data = putUUID(data, message.ReplyToMsgID)
 	} else {
 		data = append(data, 0)
 	}
@@ -65,21 +59,12 @@ func decodeMessage(data []byte) (Message, error) {
 	if message.ServerTime, err = d.i64(); err != nil {
 		return Message{}, err
 	}
-	if d.pos >= len(d.data) {
-		return Message{}, errors.New("invalid reply marker")
-	}
-	hasReply := d.data[d.pos] != 0
-	d.pos++
-	if hasReply {
+	if d.byte() == 1 {
 		if message.ReplyToMsgID, err = d.uuid(); err != nil {
 			return Message{}, err
 		}
 	}
-	if d.pos >= len(d.data) {
-		return Message{}, errors.New("invalid msg_type")
-	}
-	message.MsgType = MsgType(d.data[d.pos])
-	d.pos++
+	message.MsgType = MsgType(d.byte())
 	if message.Payload, err = d.bytes(); err != nil {
 		return Message{}, err
 	}
@@ -90,11 +75,9 @@ func decodeMessage(data []byte) (Message, error) {
 }
 
 func encodeDedup(value Dedup) []byte {
-	var id [16]byte
-	putUUID(id[:], value.MsgID)
-	data := make([]byte, 0, 16+8+8+32)
-	data = append(data, id[:]...)
 	var number [8]byte
+	data := make([]byte, 0, 16+8+8+32)
+	data = putUUID(data, value.MsgID)
 	putU64(number[:], value.RoomSeq)
 	data = append(data, number[:]...)
 	putI64(number[:], value.ServerTime)
@@ -147,31 +130,31 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 	pending := make(map[dedupLookupKey]int, len(messages))
 
 	var keyBuf [64]byte
+	var msgKeyBuf [25]byte
 	var digestBuf [256]byte
 
-	for index, message := range messages {
-		results[index].Message = message
+	for index := range messages {
+		if results[index].Err != nil {
+			continue
+		}
+		message := &messages[index]
+		results[index].Message = *message
 		room, ok := rooms[message.RoomID]
 		if !ok {
 			room, ok = s.rooms[message.RoomID]
 		}
 		if !ok {
-			if err := s.get([]byte(roomKey(message.RoomID)), func(data []byte) error {
-				var err error
-				room, err = decodeRoom(data)
-				return err
-			}); err != nil {
+			var err error
+			if room, err = getTo(s, []byte(roomKey(message.RoomID)), decodeRoom); err != nil {
 				results[index].Err = err
 				continue
 			}
 		}
 		rooms[message.RoomID] = room
 
-		var digestInput []byte
+		digestInput := digestBuf[:0]
 		needLen := len(message.Payload) + len(message.Ext) + 19
-		if needLen <= len(digestBuf) {
-			digestInput = digestBuf[:0]
-		} else {
+		if needLen > len(digestBuf) {
 			digestInput = make([]byte, 0, needLen)
 		}
 		digestInput = append(digestInput, byte(message.MsgType))
@@ -186,33 +169,35 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 
 		lookup := dedupLookupKey{room: message.RoomID, sender: message.SenderID, client: message.ClientMsgID}
 		if previous, ok := pending[lookup]; ok {
-			if digests[previous] != digest {
+			switch {
+			case digests[previous] != digests[index]:
 				results[index].Err = ErrConflict
-			} else if results[previous].Err != nil {
+			case results[previous].Err != nil:
 				results[index].Err = results[previous].Err
-			} else {
+			default:
 				results[index].Message = results[previous].Message
 			}
 			continue
 		}
 
 		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
+		pending[lookup] = index
 		var old Dedup
 		if err := s.get(dedupKeyBytes, func(data []byte) error {
 			var err error
 			old, err = decodeDedup(data)
 			return err
-		}); err == nil {
-			if old.PayloadSum != digest {
+		}); err != nil {
+			if !errors.Is(err, ErrNotFound) {
+				results[index].Err = err
+				continue
+			}
+		} else {
+			if old.PayloadSum != digests[index] {
 				results[index].Err = ErrConflict
 			} else {
 				results[index].Message.MsgID, results[index].Message.RoomSeq, results[index].Message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
 			}
-			pending[lookup] = index
-			continue
-		} else if !errors.Is(err, ErrNotFound) {
-			results[index].Err = err
-			pending[lookup] = index
 			continue
 		}
 
@@ -222,22 +207,21 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		results[index].Message.ServerTime = time.Now().UnixMicro()
 		room.UpdatedAt = time.Now()
 		rooms[message.RoomID] = room
-		pending[lookup] = index
 
-		msgKeyBytes := appendMessageKey(keyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
-		if err := s.setBytes(batch, msgKeyBytes, encodeMessage(results[index].Message)); err != nil {
+		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
+		if err := s.setBytes(batch, msgKey, encodeMessage(results[index].Message)); err != nil {
 			results[index].Err = err
 			continue
 		}
-		dedupKeyBytes = appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		if err := s.setBytes(batch, dedupKeyBytes, encodeDedup(Dedup{
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
-			ServerTime: results[index].Message.ServerTime, PayloadSum: digest,
+			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
 		})); err != nil {
 			results[index].Err = err
 		}
 	}
-	for roomID, room := range rooms {
+	for roomID := range rooms {
+		room := rooms[roomID]
 		s.rooms[roomID] = room
 		roomKeyBytes := []byte(roomKey(roomID))
 		if err := s.setBytes(batch, roomKeyBytes, encodeRoom(room)); err != nil {

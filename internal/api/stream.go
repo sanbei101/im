@@ -135,13 +135,7 @@ func (h *StreamHandler) writeBatch(
 		result.Results = append(result.Results, item)
 		message, err := h.message(input)
 		if err == nil {
-			if slot, slotErr := pkg.RoomSlot(message.RoomID, h.slots); slotErr != nil {
-				err = slotErr
-			} else if owner, ownerErr := pkg.NodeIndex(slot, h.slots, h.nodeCount); ownerErr != nil {
-				err = ownerErr
-			} else if owner != h.nodeIndex {
-				err = fmt.Errorf("room is owned by api node index %d", owner)
-			}
+			err = h.checkRoomOwned(message.RoomID)
 		}
 		if err != nil {
 			item.Code = 1
@@ -156,7 +150,8 @@ func (h *StreamHandler) writeBatch(
 		return result, written, nil
 	}
 	writeResults := h.store.WriteMessages(ctx, messages)
-	for index, writtenResult := range writeResults {
+	for index := range writeResults {
+		writtenResult := &writeResults[index]
 		item := result.Results[resultIndexes[index]]
 		if writtenResult.Err != nil {
 			item.Code = 1
@@ -172,34 +167,47 @@ func (h *StreamHandler) writeBatch(
 	return result, written, nil
 }
 
+// checkRoomOwned rejects rooms whose shard slot is not served by this node.
+func (h *StreamHandler) checkRoomOwned(roomID uuid.UUID) error {
+	slot, err := pkg.RoomSlot(roomID, h.slots)
+	if err != nil {
+		return err
+	}
+	owner, err := pkg.NodeIndex(slot, h.slots, h.nodeCount)
+	if err != nil {
+		return err
+	}
+	if owner != h.nodeIndex {
+		return fmt.Errorf("room is owned by api node index %d", owner)
+	}
+	return nil
+}
+
 func (h *StreamHandler) push(ctx context.Context, message *store.Message) error {
 	members, err := h.store.Members(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
 	}
+	// Map connection -> pushes so every gateway stream receives one batch per room fan-out.
 	pushes := make(map[*apiConnection][]*imv1.Push)
 	h.mu.RLock()
 	for _, member := range members {
 		if member.UserID == message.SenderID {
 			continue
 		}
-		connection := h.sessions[member.UserID.String()]
-		if connection != nil {
-			pushes[connection] = append(
-				pushes[connection],
-				&imv1.Push{
-					UserId:      member.UserID.String(),
-					RoomId:      message.RoomID.String(),
-					RoomSeq:     message.RoomSeq,
-					MsgId:       message.MsgID.String(),
-					SenderId:    message.SenderID.String(),
-					MsgType:     int32(message.MsgType),
-					Payload:     message.Payload,
-					ServerTime:  message.ServerTime,
-					Ext:         message.Ext,
-					ClientMsgId: message.ClientMsgID.String(),
-				},
-			)
+		if connection := h.sessions[member.UserID.String()]; connection != nil {
+			pushes[connection] = append(pushes[connection], &imv1.Push{
+				UserId:      member.UserID.String(),
+				RoomId:      message.RoomID.String(),
+				RoomSeq:     message.RoomSeq,
+				MsgId:       message.MsgID.String(),
+				SenderId:    message.SenderID.String(),
+				MsgType:     int32(message.MsgType),
+				Payload:     message.Payload,
+				ServerTime:  message.ServerTime,
+				Ext:         message.Ext,
+				ClientMsgId: message.ClientMsgID.String(),
+			})
 		}
 	}
 	h.mu.RUnlock()
@@ -213,18 +221,26 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 	return nil
 }
 
+func parseUUID(field, raw string) (uuid.UUID, error) {
+	value, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil(), fmt.Errorf("invalid %s: %w", field, err)
+	}
+	return value, nil
+}
+
 func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) {
-	sender, err := uuid.Parse(input.GetSenderId())
+	sender, err := parseUUID("sender_id", input.GetSenderId())
 	if err != nil {
-		return store.Message{}, fmt.Errorf("invalid sender_id: %w", err)
+		return store.Message{}, err
 	}
-	room, err := uuid.Parse(input.GetRoomId())
+	room, err := parseUUID("room_id", input.GetRoomId())
 	if err != nil {
-		return store.Message{}, fmt.Errorf("invalid room_id: %w", err)
+		return store.Message{}, err
 	}
-	client, err := uuid.Parse(input.GetClientMsgId())
+	client, err := parseUUID("client_msg_id", input.GetClientMsgId())
 	if err != nil {
-		return store.Message{}, fmt.Errorf("invalid client_msg_id: %w", err)
+		return store.Message{}, err
 	}
 	message := store.Message{
 		ClientMsgID: client,
@@ -238,10 +254,11 @@ func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) 
 		return store.Message{}, fmt.Errorf("invalid msg_type %d", input.GetMsgType())
 	}
 	if input.GetReplyToMsgId() != "" {
-		message.ReplyToMsgID, err = uuid.Parse(input.GetReplyToMsgId())
+		reply, err := parseUUID("reply_to_msg_id", input.GetReplyToMsgId())
 		if err != nil {
-			return store.Message{}, fmt.Errorf("invalid reply_to_msg_id: %w", err)
+			return store.Message{}, err
 		}
+		message.ReplyToMsgID = reply
 	}
 	return message, nil
 }

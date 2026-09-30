@@ -76,7 +76,6 @@ type apiStream struct {
 	gateway  *Gateway
 	id       string
 	address  string
-	client   gatewayservice.Client
 	stream   gatewayservice.GatewayService_ConnectClient
 	queue    chan *imv1.SendMessage
 	sessions chan *imv1.Session
@@ -121,7 +120,7 @@ func (s *apiStream) connect(ctx context.Context) error {
 		return err
 	}
 	s.mu.Lock()
-	s.client, s.stream = cli, stream
+	s.stream = stream
 	s.mu.Unlock()
 	if err := stream.Send(ctx,
 		&imv1.GatewayFrame{Body: &imv1.GatewayFrame_Hello{Hello: &imv1.Hello{GatewayId: s.id}}},
@@ -153,21 +152,16 @@ func (s *apiStream) loop(ctx context.Context) error {
 				done <- ctx.Err()
 				return
 			case message := <-s.queue:
-				batch := &imv1.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*imv1.SendMessage{message}}
-				if err := s.stream.Send(ctx,
-					&imv1.GatewayFrame{Body: &imv1.GatewayFrame_SendBatch{SendBatch: batch}},
-				); err != nil {
+				if err := s.sendFrame(ctx, &imv1.GatewayFrame{Body: &imv1.GatewayFrame_SendBatch{
+					SendBatch: &imv1.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*imv1.SendMessage{message}},
+				}}); err != nil {
 					done <- err
 					return
 				}
 			case session := <-s.sessions:
-				if err := s.stream.Send(ctx,
-					&imv1.GatewayFrame{
-						Body: &imv1.GatewayFrame_SessionBatch{
-							SessionBatch: &imv1.SessionBatch{Sessions: []*imv1.Session{session}},
-						},
-					},
-				); err != nil {
+				if err := s.sendFrame(ctx, &imv1.GatewayFrame{Body: &imv1.GatewayFrame_SessionBatch{
+					SessionBatch: &imv1.SessionBatch{Sessions: []*imv1.Session{session}},
+				}}); err != nil {
 					done <- err
 					return
 				}
@@ -181,15 +175,20 @@ func (s *apiStream) loop(ctx context.Context) error {
 				done <- err
 				return
 			}
-			if result := frame.GetSendResultBatch(); result != nil {
-				s.handleResults(result)
-			}
-			if push := frame.GetPushBatch(); push != nil {
-				s.handlePush(push)
+			switch {
+			case frame.GetSendResultBatch() != nil:
+				s.handleResults(frame.GetSendResultBatch())
+			case frame.GetPushBatch() != nil:
+				s.handlePush(frame.GetPushBatch())
 			}
 		}
 	}()
 	return <-done
+}
+
+// sendFrame sends one frame on the live stream.
+func (s *apiStream) sendFrame(ctx context.Context, frame *imv1.GatewayFrame) error {
+	return s.snapshot().Send(ctx, frame)
 }
 
 func (s *apiStream) register(ctx context.Context, userID uuid.UUID, online bool) error {
@@ -266,4 +265,15 @@ func (s *apiStream) enqueue(ctx context.Context, message *imv1.SendMessage) erro
 	}
 }
 
-func (s *apiStream) close() { s.mu.Lock(); s.stream = nil; s.client = nil; s.mu.Unlock() }
+func (s *apiStream) close() {
+	s.mu.Lock()
+	s.stream = nil
+	s.mu.Unlock()
+}
+
+// snapshot returns the live stream; nil means the stream was torn down by close().
+func (s *apiStream) snapshot() gatewayservice.GatewayService_ConnectClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stream
+}

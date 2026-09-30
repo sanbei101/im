@@ -231,38 +231,52 @@ func (s *Store) Close() error {
 	return s.closeErr
 }
 
-var resultChanPool = sync.Pool{
-	New: func() any {
+// freeResultChans recycles per-request reply channels. Channels are put back
+// only after their result has been received, so every handed-out channel is
+// empty; a bounded free list avoids both the allocation and the type assertion.
+var freeResultChans = make(chan chan []MessageWriteResult, 64)
+
+func getResultChan() chan []MessageWriteResult {
+	select {
+	case channel := <-freeResultChans:
+		return channel
+	default:
 		return make(chan []MessageWriteResult, 1)
-	},
+	}
+}
+
+func putResultChan(channel chan []MessageWriteResult) {
+	select {
+	case freeResultChans <- channel:
+	default: // free list full: let the collector reclaim the channel
+	}
 }
 
 func (s *Store) WriteMessages(ctx context.Context, messages []Message) []MessageWriteResult {
 	if len(messages) == 0 {
 		return nil
 	}
-	result := resultChanPool.Get().(chan []MessageWriteResult)
-	defer resultChanPool.Put(result)
+	failed := func(err error) []MessageWriteResult {
+		results := make([]MessageWriteResult, len(messages))
+		for i := range results {
+			results[i] = MessageWriteResult{Message: messages[i], Err: err}
+		}
+		return results
+	}
+	result := getResultChan()
+	defer putResultChan(result)
 	request := messageWriteRequest{ctx: ctx, messages: messages, result: result}
 	s.stateMu.RLock()
 	if s.closed {
 		s.stateMu.RUnlock()
-		results := make([]MessageWriteResult, len(messages))
-		for i := range results {
-			results[i].Err = ErrClosed
-		}
-		return results
+		return failed(ErrClosed)
 	}
 	select {
 	case s.messageQueue <- request:
 		s.stateMu.RUnlock()
 	case <-ctx.Done():
 		s.stateMu.RUnlock()
-		results := make([]MessageWriteResult, len(messages))
-		for i := range results {
-			results[i].Err = ctx.Err()
-		}
-		return results
+		return failed(ctx.Err())
 	}
 	return <-result
 }
@@ -302,55 +316,48 @@ func (s *Store) collectMessageRequests(first messageWriteRequest) []messageWrite
 }
 
 func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
-	if len(requests) == 1 {
-		req := requests[0]
-		results := make([]MessageWriteResult, len(req.messages))
-		if err := contextErr(req.ctx); err != nil {
-			for i := range results {
-				results[i] = MessageWriteResult{Message: req.messages[i], Err: err}
-			}
-		} else {
-			s.writeMessageBatch(req.messages, results)
-		}
-		req.result <- results
-		return
-	}
-
 	total := 0
 	for _, request := range requests {
 		total += len(request.messages)
 	}
-	results := make([]MessageWriteResult, total)
-	messages := make([]Message, 0, total)
-	resultIndex := 0
-	for _, request := range requests {
-		for _, message := range request.messages {
-			result := &results[resultIndex]
-			result.Message = message
-			if err := contextErr(request.ctx); err != nil {
-				result.Err = err
-			} else {
-				messages = append(messages, message)
-			}
-			resultIndex++
-		}
+	if total == 0 {
+		return
 	}
-	if len(messages) > 0 {
-		committedResults := make([]MessageWriteResult, len(messages))
-		s.writeMessageBatch(messages, committedResults)
-		committedIndex := 0
-		for i := range results {
-			if results[i].Err != nil {
+	// Single request: reuse the caller's slice, no copy.
+	if len(requests) == 1 {
+		request := &requests[0]
+		results := make([]MessageWriteResult, len(request.messages))
+		for index := range request.messages {
+			results[index].Message = request.messages[index]
+			if err := contextErr(request.ctx); err != nil {
+				results[index].Err = err
+			}
+		}
+		s.writeMessageBatch(request.messages, results)
+		request.result <- results
+		return
+	}
+	results := make([]MessageWriteResult, total)
+	messages := make([]Message, total)
+	offset := 0
+	for i := range requests {
+		request := &requests[i]
+		for j := range request.messages {
+			// Contexts that already died fail locally and leave a zero Message slot;
+			// writeMessageBatch skips pre-errored entries, keeping the two slices aligned.
+			if err := contextErr(request.ctx); err != nil {
+				results[offset+j] = MessageWriteResult{Message: request.messages[j], Err: err}
 				continue
 			}
-			results[i] = committedResults[committedIndex]
-			committedIndex++
+			messages[offset+j] = request.messages[j]
 		}
+		offset += len(request.messages)
 	}
-	resultIndex = 0
-	for _, request := range requests {
-		request.result <- results[resultIndex : resultIndex+len(request.messages)]
-		resultIndex += len(request.messages)
+	s.writeMessageBatch(messages, results)
+	offset = 0
+	for i := range requests {
+		requests[i].result <- results[offset : offset+len(requests[i].messages)]
+		offset += len(requests[i].messages)
 	}
 }
 
@@ -391,6 +398,31 @@ func (s *Store) get(key []byte, decode func([]byte) error) error {
 	return decode(value)
 }
 
+// getTo fetches key and decodes it into a zero value of T.
+func getTo[T any](s *Store, key []byte, decode func([]byte) (T, error)) (T, error) {
+	var value T
+	err := s.get(key, func(data []byte) error {
+		var err error
+		value, err = decode(data)
+		return err
+	})
+	return value, err
+}
+
+// exists reports whether key resolves to a non-delivered value.
+func (s *Store) exists(key []byte) (bool, error) {
+	err := s.get(key, func([]byte) error { return nil })
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// getUUIDTo fetches a stored raw uuid value.
+func (s *Store) getUUID(key []byte) (uuid.UUID, error) {
+	return getTo(s, key, getUUID)
+}
+
 func (s *Store) set(batch *pebble.Batch, key string, value []byte) error {
 	if err := batch.Set([]byte(key), value, nil); err != nil {
 		return fmt.Errorf("set %q: %w", key, err)
@@ -411,7 +443,7 @@ func contextErr(ctx context.Context) error {
 	}
 }
 
-func putUUID(dst []byte, value uuid.UUID) { copy(dst, value[:]) }
+func putUUID(dst []byte, value uuid.UUID) []byte { return append(dst, value[:]...) }
 
 func getUUID(src []byte) (uuid.UUID, error) {
 	if len(src) < 16 {
@@ -442,6 +474,13 @@ func appendBytes(dst, value []byte) []byte {
 
 func appendString(dst []byte, value string) []byte { return appendBytes(dst, []byte(value)) }
 
+func boolByte(v bool) byte {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 type decoder struct {
 	data []byte
 	pos  int
@@ -453,7 +492,7 @@ func (d *decoder) bytes() ([]byte, error) {
 	}
 	size := int(binary.BigEndian.Uint32(d.data[d.pos:]))
 	d.pos += 4
-	if size < 0 || d.pos+size > len(d.data) {
+	if d.pos+size > len(d.data) {
 		return nil, errors.New("invalid value length")
 	}
 	value := d.data[d.pos : d.pos+size]
@@ -490,3 +529,13 @@ func (d *decoder) i64() (int64, error) {
 }
 
 func (d *decoder) done() bool { return d.pos == len(d.data) }
+
+// byte consumes one trailing byte, returning 0 when the record is exhausted.
+func (d *decoder) byte() byte {
+	if d.pos >= len(d.data) {
+		return 0
+	}
+	value := d.data[d.pos]
+	d.pos++
+	return value
+}
