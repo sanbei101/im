@@ -2,8 +2,6 @@ import type {
   RegisterRequest,
   LoginRequest,
   UserResponse,
-  BatchGenerateRequest,
-  BatchUserResponse,
   HistoryQueryParams,
   HistoryMessagesResponse,
   Message,
@@ -83,11 +81,16 @@ export class APIClient {
     const response = await fetch(url, options);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorData: unknown = await response.json().catch(() => ({}));
+      const fields =
+        errorData && typeof errorData === 'object' && !Array.isArray(errorData)
+          ? (errorData as Record<string, unknown>)
+          : {};
+      const reason = fields.msg ?? fields.error;
       throw new APIError(
         response.status,
-        errorData.error || `HTTP ${response.status}: ${response.statusText}`,
-        errorData
+        typeof reason === 'string' ? reason : `HTTP ${response.status}: ${response.statusText}`,
+        fields
       );
     }
 
@@ -96,7 +99,18 @@ export class APIClient {
       return undefined as T;
     }
 
-    return response.json() as Promise<T>;
+    const payload: unknown = await response.json();
+
+    // 服务端统一返回 {code,msg,data} 信封；剥掉信封暴露 data，
+    // 已是裸数据的响应原样返回。
+    if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+      const candidate: Record<string, unknown> = payload as Record<string, unknown>;
+      if (typeof candidate.code === 'number' && 'data' in candidate) {
+        return candidate.data as T;
+      }
+    }
+
+    return payload as T;
   }
 
   // ==================== 用户相关 API ====================
@@ -115,13 +129,6 @@ export class APIClient {
     const resp = await this.request<UserResponse>('POST', '/api/v1/users/login', req);
     this.setToken(resp.token);
     return resp;
-  }
-
-  /**
-   * 批量生成用户
-   */
-  async batchGenerate(req: BatchGenerateRequest): Promise<{ users: BatchUserResponse[] }> {
-    return this.request<{ users: BatchUserResponse[] }>('POST', '/api/v1/users/batch', req);
   }
 
   // ==================== 消息相关 API ====================

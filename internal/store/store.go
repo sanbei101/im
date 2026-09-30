@@ -92,7 +92,6 @@ const (
 	MsgTypeSystem MsgType = 5
 )
 
-// String 返回对外 JSON/wire 使用的名称；未知值原样返回数字字符串。
 func (t MsgType) String() string {
 	switch t {
 	case MsgTypeText:
@@ -110,13 +109,10 @@ func (t MsgType) String() string {
 	}
 }
 
-// Valid 报告是否为已知类型。
 func (t MsgType) Valid() bool {
 	return t >= MsgTypeText && t <= MsgTypeSystem
 }
 
-// ParseMsgType 解析客户端上行的 msg_type：名称或数字字符串均可，
-// 未知值报错。名称解析失败时回退到数字，避免 "01" 之类的输入被拒。
 func ParseMsgType(value string) (MsgType, error) {
 	for _, known := range []struct {
 		name string

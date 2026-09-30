@@ -40,7 +40,6 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	}()
 
 	userClient.readPump(r.Context())
-	// readPump 返回即连接已断开：关闭 Send 唤醒 writePump，避免协程泄漏。
 	close(userClient.Send)
 	<-writeDone
 }

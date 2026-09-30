@@ -1,12 +1,69 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
 	"uuid"
 )
+
+// TestMessageJSONOmitsEmptyExt 回归：Ext 为空但非 nil（客户端带了空 ext）时，
+// omitzero 仍会把它当成\"有值\"并输出空字符串，整条 JSON 直接非法。
+func TestMessageJSONOmitsEmptyExt(t *testing.T) {
+	for _, ext := range []jsontext.Value{nil, jsontext.Value(""), jsontext.Value{}} {
+		m := Message{
+			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), RoomSeq: 1,
+			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"hi"}`), Ext: ext,
+		}
+		encoded, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal with ext=%q: %v", string(ext), err)
+		}
+		if bytes.Contains(encoded, []byte(`"ext"`)) {
+			t.Fatalf("empty ext should be omitted, got %s", encoded)
+		}
+		var out map[string]any
+		if err := json.Unmarshal(encoded, &out); err != nil {
+			t.Fatalf("output is not valid JSON: %s: %v", encoded, err)
+		}
+	}
+}
+
+// TestMessageBinaryRoundTrip 覆盖 int8 MsgType 与可变长 ReplyToMsgID 的二进制布局，
+// 以及截断记录必须报错而不是静默解码。
+func TestMessageBinaryRoundTrip(t *testing.T) {
+	for _, m := range []Message{
+		{MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			RoomSeq: 9, ServerTime: 123, MsgType: MsgTypeSystem, Payload: jsontext.Value(`{"s":1}`)},
+		{MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			RoomSeq: 10, ServerTime: 456, ReplyToMsgID: uuid.NewV7(), HasReply: true,
+			MsgType: MsgTypeFile, Payload: jsontext.Value(`{"u":"x"}`), Ext: jsontext.Value(`{"e":1}`)},
+	} {
+		got, err := decodeMessage(encodeMessage(m))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.MsgID != m.MsgID || got.ClientMsgID != m.ClientMsgID || got.SenderID != m.SenderID ||
+			got.RoomID != m.RoomID || got.RoomSeq != m.RoomSeq || got.ServerTime != m.ServerTime ||
+			got.MsgType != m.MsgType || string(got.Payload) != string(m.Payload) ||
+			string(got.Ext) != string(m.Ext) || got.HasReply != m.HasReply || got.ReplyToMsgID != m.ReplyToMsgID {
+			t.Fatalf("round trip mismatch:\nwant %+v\ngot  %+v", m, got)
+		}
+	}
+	// truncated records must be rejected, not silently decoded
+	for _, bad := range [][]byte{
+		{1},
+		append([]byte{1}, make([]byte, 60)...),
+	} {
+		if _, err := decodeMessage(bad); err == nil {
+			t.Fatalf("expected error for %d-byte record", len(bad))
+		}
+	}
+}
 
 func TestStoreMessageIdempotencyPaginationAndCheckpoint(t *testing.T) {
 	ctx := context.Background()
@@ -30,7 +87,7 @@ func TestStoreMessageIdempotencyPaginationAndCheckpoint(t *testing.T) {
 		ClientMsgID: clientID,
 		SenderID:    userID,
 		RoomID:      roomID,
-		MsgType:     "1",
+		MsgType:     MsgTypeText,
 		Payload:     []byte(`{"text":"first"}`),
 	})
 	if err != nil {
@@ -40,7 +97,7 @@ func TestStoreMessageIdempotencyPaginationAndCheckpoint(t *testing.T) {
 		ClientMsgID: clientID,
 		SenderID:    userID,
 		RoomID:      roomID,
-		MsgType:     "1",
+		MsgType:     MsgTypeText,
 		Payload:     []byte(`{"text":"first"}`),
 	})
 	if err != nil {
@@ -53,7 +110,7 @@ func TestStoreMessageIdempotencyPaginationAndCheckpoint(t *testing.T) {
 		ClientMsgID: clientID,
 		SenderID:    userID,
 		RoomID:      roomID,
-		MsgType:     "1",
+		MsgType:     MsgTypeText,
 		Payload:     []byte(`{"text":"changed"}`),
 	})
 	if !errors.Is(err, ErrConflict) {
@@ -65,7 +122,7 @@ func TestStoreMessageIdempotencyPaginationAndCheckpoint(t *testing.T) {
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    userID,
 			RoomID:      roomID,
-			MsgType:     "1",
+			MsgType:     MsgTypeText,
 			Payload:     []byte(`{"text":"` + text + `"}`),
 		}); err != nil {
 			t.Fatal(err)
@@ -148,7 +205,7 @@ func TestStoreConcurrentMessageWrites(t *testing.T) {
 					ClientMsgID: uuid.NewV7(),
 					SenderID:    senderID,
 					RoomID:      roomID,
-					MsgType:     "1",
+					MsgType:     MsgTypeText,
 					Payload:     []byte("concurrent"),
 				}); err != nil {
 					t.Errorf("concurrent WriteMessage: %v", err)
@@ -187,9 +244,9 @@ func TestStoreBatchWriteDedupAndClose(t *testing.T) {
 	}
 	clientID := uuid.NewV7()
 	results := data.WriteMessages(context.Background(), []Message{
-		{ClientMsgID: clientID, SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("same")},
-		{ClientMsgID: clientID, SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("same")},
-		{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("next")},
+		{ClientMsgID: clientID, SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("same")},
+		{ClientMsgID: clientID, SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("same")},
+		{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("next")},
 	})
 	if len(results) != 3 || results[0].Err != nil || results[1].Err != nil || results[2].Err != nil {
 		t.Fatalf("batch results = %+v", results)
@@ -225,7 +282,7 @@ func BenchmarkWriteMessagesBatch(b *testing.B) {
 	for b.Loop() {
 		messages := make([]Message, 32)
 		for i := range messages {
-			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("batch")}
+			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("batch")}
 		}
 		results := data.WriteMessages(context.Background(), messages)
 		for i := range results {
@@ -252,7 +309,7 @@ func BenchmarkWriteMessages100Batch(b *testing.B) {
 	for b.Loop() {
 		messages := make([]Message, 100)
 		for i := range messages {
-			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: "1", Payload: []byte("batch")}
+			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("batch")}
 		}
 		results := data.WriteMessages(context.Background(), messages)
 		for i := range results {
@@ -289,7 +346,7 @@ func BenchmarkWriteMessage(b *testing.B) {
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    senderID,
 			RoomID:      roomID,
-			MsgType:     "1",
+			MsgType:     MsgTypeText,
 			Payload:     payload,
 		}); err != nil {
 			b.Fatal(err)
@@ -319,7 +376,7 @@ func BenchmarkReadMessages(b *testing.B) {
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    senderID,
 			RoomID:      roomID,
-			MsgType:     "1",
+			MsgType:     MsgTypeText,
 			Payload:     []byte("payload"),
 		}); err != nil {
 			b.Fatal(err)
