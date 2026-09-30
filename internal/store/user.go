@@ -7,17 +7,13 @@ import (
 	"strings"
 	"time"
 	"uuid"
-
-	"github.com/cockroachdb/pebble"
 )
 
 func encodeUser(user User) []byte {
-	var id [16]byte
-	putUUID(id[:], user.UserID)
 	var timestamp [8]byte
 	putI64(timestamp[:], user.CreatedAt.UnixMicro())
 	data := make([]byte, 0, 16+8+4+len(user.Username)+4+len(user.Password))
-	data = append(data, id[:]...)
+	data = putUUID(data, user.UserID)
 	data = append(data, timestamp[:]...)
 	data = appendString(data, user.Username)
 	return appendString(data, user.Password)
@@ -54,11 +50,10 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (User
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, closer, err := s.db.Get([]byte(usernameKey(username))); err == nil {
-		closer.Close()
-		return User{}, ErrAlreadyExists
-	} else if !errors.Is(err, pebble.ErrNotFound) {
+	if exists, err := s.exists([]byte(usernameKey(username))); err != nil {
 		return User{}, fmt.Errorf("check username: %w", err)
+	} else if exists {
+		return User{}, ErrAlreadyExists
 	}
 	user := User{UserID: uuid.NewV7(), Username: username, Password: password, CreatedAt: time.Now()}
 	batch := s.db.NewBatch()
@@ -81,21 +76,9 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, erro
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var id uuid.UUID
-	if err := s.get([]byte(usernameKey(username)), func(value []byte) error {
-		var err error
-		id, err = getUUID(value)
-		return err
-	}); err != nil {
+	id, err := s.getUUID([]byte(usernameKey(username)))
+	if err != nil {
 		return User{}, err
 	}
-	var user User
-	if err := s.get([]byte(userKey(id)), func(value []byte) error {
-		var err error
-		user, err = decodeUser(value)
-		return err
-	}); err != nil {
-		return User{}, err
-	}
-	return user, nil
+	return getTo(s, []byte(userKey(id)), decodeUser)
 }

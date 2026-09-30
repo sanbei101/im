@@ -12,15 +12,15 @@ import (
 )
 
 func encodeRoom(room Room) []byte {
-	var id [16]byte
-	putUUID(id[:], room.RoomID)
-	data := make([]byte, 0, 16+4+len(room.ChatType)+4+len(room.Name)+4+len(room.AvatarURL)+4+len(room.SingleChatHash)+8*3)
-	data = append(data, id[:]...)
+	var number [8]byte
+	capacity := 16 + 4*4 + len(room.ChatType) + len(room.Name) + len(room.AvatarURL) +
+		len(room.SingleChatHash) + 8*3
+	data := make([]byte, 0, capacity)
+	data = putUUID(data, room.RoomID)
 	data = appendString(data, room.ChatType)
 	data = appendString(data, room.Name)
 	data = appendString(data, room.AvatarURL)
 	data = appendBytes(data, room.SingleChatHash)
-	var number [8]byte
 	putU64(number[:], room.LastSeq)
 	data = append(data, number[:]...)
 	putI64(number[:], room.CreatedAt.UnixMicro())
@@ -76,23 +76,11 @@ func decodeRoom(data []byte) (Room, error) {
 }
 
 func encodeMember(member Member) []byte {
-	var id [16]byte
-	putUUID(id[:], member.RoomID)
 	data := make([]byte, 0, 16*2+4+len(member.Role)+2)
-	data = append(data, id[:]...)
-	putUUID(id[:], member.UserID)
-	data = append(data, id[:]...)
+	data = putUUID(data, member.RoomID)
+	data = putUUID(data, member.UserID)
 	data = appendString(data, member.Role)
-	if member.IsHidden {
-		data = append(data, 1)
-	} else {
-		data = append(data, 0)
-	}
-	if member.IsMuted {
-		data = append(data, 1)
-	} else {
-		data = append(data, 0)
-	}
+	data = append(data, boolByte(member.IsHidden), boolByte(member.IsMuted))
 	return data
 }
 
@@ -107,17 +95,16 @@ func decodeMember(data []byte) (Member, error) {
 		return Member{}, err
 	}
 	role, err := d.string()
-	if err != nil || d.pos+2 > len(d.data) {
+	if err != nil {
 		return Member{}, errors.New("invalid member record")
 	}
 	member := Member{
 		RoomID:   roomID,
 		UserID:   userID,
 		Role:     role,
-		IsHidden: d.data[d.pos] != 0,
-		IsMuted:  d.data[d.pos+1] != 0,
+		IsHidden: d.byte() != 0,
+		IsMuted:  d.byte() != 0,
 	}
-	d.pos += 2
 	if !d.done() {
 		return Member{}, errors.New("invalid member record")
 	}
@@ -133,19 +120,17 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, closer, err := s.db.Get([]byte(roomKey(room.RoomID))); err == nil {
-		closer.Close()
-		return ErrAlreadyExists
-	} else if !errors.Is(err, pebble.ErrNotFound) {
+	if exists, err := s.exists([]byte(roomKey(room.RoomID))); err != nil {
 		return fmt.Errorf("check room: %w", err)
+	} else if exists {
+		return ErrAlreadyExists
 	}
 	if len(room.SingleChatHash) > 0 {
-		if value, closer, err := s.db.Get([]byte(singleRoomKey(room.SingleChatHash))); err == nil {
-			closer.Close()
-			if existing, parseErr := getUUID(value); parseErr == nil && existing != room.RoomID {
+		if existing, err := s.getUUID([]byte(singleRoomKey(room.SingleChatHash))); err == nil {
+			if existing != room.RoomID {
 				return ErrAlreadyExists
 			}
-		} else if !errors.Is(err, pebble.ErrNotFound) {
+		} else if !errors.Is(err, ErrNotFound) {
 			return fmt.Errorf("check single room index: %w", err)
 		}
 	}
@@ -186,12 +171,11 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 		return Room{}, err
 	}
 	s.mu.RLock()
-	if room, ok := s.rooms[roomID]; ok {
-		s.mu.RUnlock()
+	room, ok := s.rooms[roomID]
+	s.mu.RUnlock()
+	if ok {
 		return room, nil
 	}
-	s.mu.RUnlock()
-	var room Room
 	if err := s.get([]byte(roomKey(roomID)), func(data []byte) error {
 		var err error
 		room, err = decodeRoom(data)
@@ -211,23 +195,11 @@ func (s *Store) RoomBySingleHash(ctx context.Context, hash []byte) (Room, error)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var id uuid.UUID
-	if err := s.get([]byte(singleRoomKey(hash)), func(data []byte) error {
-		var err error
-		id, err = getUUID(data)
-		return err
-	}); err != nil {
+	id, err := s.getUUID([]byte(singleRoomKey(hash)))
+	if err != nil {
 		return Room{}, err
 	}
-	var room Room
-	if err := s.get([]byte(roomKey(id)), func(data []byte) error {
-		var err error
-		room, err = decodeRoom(data)
-		return err
-	}); err != nil {
-		return Room{}, err
-	}
-	return room, nil
+	return getTo(s, []byte(roomKey(id)), decodeRoom)
 }
 
 func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error) {
@@ -273,24 +245,16 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 		if !strings.HasPrefix(string(iter.Key()), string(prefix)) {
 			break
 		}
-		roomID, err := getUUID(iter.Value())
+		roomID, err := s.getUUID(iter.Value())
 		if err != nil {
 			return nil, err
 		}
-		var room Room
-		if err := s.get([]byte(roomKey(roomID)), func(data []byte) error {
-			var err error
-			room, err = decodeRoom(data)
-			return err
-		}); err != nil {
+		room, err := getTo(s, []byte(roomKey(roomID)), decodeRoom)
+		if err != nil {
 			return nil, err
 		}
-		var member Member
-		if err := s.get([]byte(roomMemberKey(roomID, userID)), func(data []byte) error {
-			var err error
-			member, err = decodeMember(data)
-			return err
-		}); err != nil {
+		member, err := getTo(s, []byte(roomMemberKey(roomID, userID)), decodeMember)
+		if err != nil {
 			return nil, err
 		}
 		result = append(result, RoomInfo{Room: room, Member: member})

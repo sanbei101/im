@@ -19,27 +19,16 @@ func userRoomKey(user, room uuid.UUID) string {
 }
 func userRoomPrefix(user uuid.UUID) string { return "user_room/" + user.String() + "/" }
 func singleRoomKey(hash []byte) string     { return fmt.Sprintf("single/%x", hash) }
-func messageKey(room uuid.UUID, seq uint64) string {
-	var suffix [8]byte
-	binary.BigEndian.PutUint64(suffix[:], seq)
-	return "message/" + room.String() + "/" + string(suffix[:])
-}
-func messagePrefix(room uuid.UUID) string { return "message/" + room.String() + "/" }
-func dedupKey(room, sender, client uuid.UUID) string {
-	return "dedup/" + room.String() + "/" + sender.String() + "/" + client.String()
-}
-
-func appendMessageKey(dst []byte, room uuid.UUID, seq uint64) []byte {
-	dst = append(dst, 'm')
-	dst = append(dst, room[:]...)
-	var suffix [8]byte
-	binary.BigEndian.PutUint64(suffix[:], seq)
-	return append(dst, suffix[:]...)
-}
 
 func appendMessagePrefix(dst []byte, room uuid.UUID) []byte {
 	dst = append(dst, 'm')
 	return append(dst, room[:]...)
+}
+
+func appendMessageKey(dst []byte, room uuid.UUID, seq uint64) []byte {
+	var suffix [8]byte
+	binary.BigEndian.PutUint64(suffix[:], seq)
+	return append(appendMessagePrefix(dst, room), suffix[:]...)
 }
 
 func appendDedupKey(dst []byte, room, sender, client uuid.UUID) []byte {
