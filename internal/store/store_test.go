@@ -14,7 +14,7 @@ import (
 // TestMessageJSONOmitsEmptyExt 回归：Ext 为空但非 nil（客户端带了空 ext）时，
 // omitzero 仍会把它当成\"有值\"并输出空字符串，整条 JSON 直接非法。
 func TestMessageJSONOmitsEmptyExt(t *testing.T) {
-	for _, ext := range []jsontext.Value{nil, jsontext.Value(""), jsontext.Value{}} {
+	for _, ext := range []jsontext.Value{nil, jsontext.Value(""), {}} {
 		m := Message{
 			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), RoomSeq: 1,
 			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"hi"}`), Ext: ext,
@@ -37,11 +37,15 @@ func TestMessageJSONOmitsEmptyExt(t *testing.T) {
 // 以及截断记录必须报错而不是静默解码。
 func TestMessageBinaryRoundTrip(t *testing.T) {
 	for _, m := range []Message{
-		{MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
-			RoomSeq: 9, ServerTime: 123, MsgType: MsgTypeSystem, Payload: jsontext.Value(`{"s":1}`)},
-		{MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+		{
+			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			RoomSeq: 9, ServerTime: 123, MsgType: MsgTypeSystem, Payload: jsontext.Value(`{"s":1}`),
+		},
+		{
+			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
 			RoomSeq: 10, ServerTime: 456, ReplyToMsgID: uuid.NewV7(),
-			MsgType: MsgTypeFile, Payload: jsontext.Value(`{"u":"x"}`), Ext: jsontext.Value(`{"e":1}`)},
+			MsgType: MsgTypeFile, Payload: jsontext.Value(`{"u":"x"}`), Ext: jsontext.Value(`{"e":1}`),
+		},
 	} {
 		got, err := decodeMessage(encodeMessage(m))
 		if err != nil {
@@ -78,7 +82,11 @@ func TestStoreMessageIdempotencyPaginationAndCheckpoint(t *testing.T) {
 	if _, err := data.CreateUser(ctx, "alice", "password"); err != nil {
 		t.Fatal(err)
 	}
-	if err := data.CreateRoom(ctx, Room{RoomID: roomID, ChatType: "single"}, []Member{{UserID: userID, Role: "member"}}); err != nil {
+	if err := data.CreateRoom(
+		ctx,
+		Room{RoomID: roomID, ChatType: "single"},
+		[]Member{{UserID: userID, Role: "member"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +197,11 @@ func TestStoreConcurrentMessageWrites(t *testing.T) {
 
 	roomID := uuid.NewV7()
 	senderID := uuid.NewV7()
-	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+	if err := data.CreateRoom(
+		context.Background(),
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +240,11 @@ func TestStoreConcurrentMessageWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(page.Messages) != 100 || page.Messages[0].RoomSeq != want {
-		t.Fatalf("unexpected concurrent message page: len=%d first_seq=%d", len(page.Messages), page.Messages[0].RoomSeq)
+		t.Fatalf(
+			"unexpected concurrent message page: len=%d first_seq=%d",
+			len(page.Messages),
+			page.Messages[0].RoomSeq,
+		)
 	}
 }
 
@@ -239,7 +255,11 @@ func TestStoreBatchWriteDedupAndClose(t *testing.T) {
 	}
 	roomID := uuid.NewV7()
 	senderID := uuid.NewV7()
-	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+	if err := data.CreateRoom(
+		context.Background(),
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	clientID := uuid.NewV7()
@@ -251,7 +271,8 @@ func TestStoreBatchWriteDedupAndClose(t *testing.T) {
 	if len(results) != 3 || results[0].Err != nil || results[1].Err != nil || results[2].Err != nil {
 		t.Fatalf("batch results = %+v", results)
 	}
-	if results[0].Message.MsgID != results[1].Message.MsgID || results[0].Message.RoomSeq != results[1].Message.RoomSeq {
+	if results[0].Message.MsgID != results[1].Message.MsgID ||
+		results[0].Message.RoomSeq != results[1].Message.RoomSeq {
 		t.Fatalf("duplicate batch result changed: %+v", results)
 	}
 	if results[2].Message.RoomSeq != 2 {
@@ -274,7 +295,11 @@ func BenchmarkWriteMessagesBatch(b *testing.B) {
 	defer data.Close()
 	roomID := uuid.NewV7()
 	senderID := uuid.NewV7()
-	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+	if err := data.CreateRoom(
+		context.Background(),
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
@@ -282,7 +307,13 @@ func BenchmarkWriteMessagesBatch(b *testing.B) {
 	for b.Loop() {
 		messages := make([]Message, 32)
 		for i := range messages {
-			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("batch")}
+			messages[i] = Message{
+				ClientMsgID: uuid.NewV7(),
+				SenderID:    senderID,
+				RoomID:      roomID,
+				MsgType:     MsgTypeText,
+				Payload:     []byte("batch"),
+			}
 		}
 		results := data.WriteMessages(context.Background(), messages)
 		for i := range results {
@@ -301,7 +332,11 @@ func BenchmarkWriteMessages100Batch(b *testing.B) {
 	defer data.Close()
 	roomID := uuid.NewV7()
 	senderID := uuid.NewV7()
-	if err := data.CreateRoom(context.Background(), Room{RoomID: roomID, ChatType: "group"}, []Member{{UserID: senderID, Role: "owner"}}); err != nil {
+	if err := data.CreateRoom(
+		context.Background(),
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
@@ -309,7 +344,13 @@ func BenchmarkWriteMessages100Batch(b *testing.B) {
 	for b.Loop() {
 		messages := make([]Message, 100)
 		for i := range messages {
-			messages[i] = Message{ClientMsgID: uuid.NewV7(), SenderID: senderID, RoomID: roomID, MsgType: MsgTypeText, Payload: []byte("batch")}
+			messages[i] = Message{
+				ClientMsgID: uuid.NewV7(),
+				SenderID:    senderID,
+				RoomID:      roomID,
+				MsgType:     MsgTypeText,
+				Payload:     []byte("batch"),
+			}
 		}
 		results := data.WriteMessages(context.Background(), messages)
 		for i := range results {

@@ -128,70 +128,64 @@ const sessionShardCount = 256
 
 type sessionShard struct {
 	mu sync.RWMutex
-	m  map[string]*UserSession
+	m  map[uuid.UUID]*UserSession
 }
 
 type UserSessionManager struct {
-	shards [sessionShardCount]*sessionShard
+	shards [sessionShardCount]sessionShard
 }
 
 func NewSessionManager() *UserSessionManager {
 	manager := &UserSessionManager{}
 	for i := range manager.shards {
-		manager.shards[i] = &sessionShard{m: make(map[string]*UserSession)}
+		manager.shards[i].m = make(map[uuid.UUID]*UserSession)
 	}
 	return manager
 }
 
-func (manager *UserSessionManager) shard(key string) *sessionShard {
-	var hash uint32 = 2166136261
-	for i := range key {
-		hash = (hash ^ uint32(key[i])) * 16777619
-	}
-	return manager.shards[hash%sessionShardCount]
+func (manager *UserSessionManager) shard(id uuid.UUID) *sessionShard {
+	return &manager.shards[id[15]]
 }
 
-func (manager *UserSessionManager) LoadOrCreate(key string, create func() *UserSession) *UserSession {
-	shard := manager.shard(key)
+func (manager *UserSessionManager) LoadOrCreate(id uuid.UUID, create func() *UserSession) *UserSession {
+	shard := manager.shard(id)
 	shard.mu.RLock()
-	session := shard.m[key]
+	session := shard.m[id]
 	shard.mu.RUnlock()
 	if session != nil {
 		return session
 	}
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
-	if session = shard.m[key]; session == nil {
+	if session = shard.m[id]; session == nil {
 		session = create()
-		shard.m[key] = session
+		shard.m[id] = session
 	}
 	return session
 }
 
-func (manager *UserSessionManager) Delete(key string) {
-	shard := manager.shard(key)
+func (manager *UserSessionManager) Delete(id uuid.UUID) {
+	shard := manager.shard(id)
 	shard.mu.Lock()
-	delete(shard.m, key)
+	delete(shard.m, id)
 	shard.mu.Unlock()
 }
 
-func (manager *UserSessionManager) Load(key string) (*UserSession, bool) {
-	shard := manager.shard(key)
+func (manager *UserSessionManager) Load(id uuid.UUID) (*UserSession, bool) {
+	shard := manager.shard(id)
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
-	value, ok := shard.m[key]
+	value, ok := shard.m[id]
 	return value, ok
 }
 
 func (manager *UserSessionManager) All() []uuid.UUID {
 	var result []uuid.UUID
 	for i := range manager.shards {
-		shard := manager.shards[i]
+		shard := &manager.shards[i]
 		shard.mu.RLock()
-		for key := range shard.m {
-			if id, err := uuid.Parse(key); err == nil {
-				result = append(result, id)
-			}
+		for id := range shard.m {
+			result = append(result, id)
 		}
 		shard.mu.RUnlock()
 	}

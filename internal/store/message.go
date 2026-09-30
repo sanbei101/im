@@ -145,7 +145,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		}
 		if !ok {
 			var err error
-			if room, err = getTo(s, []byte(roomKey(message.RoomID)), decodeRoom); err != nil {
+			if room, err = getRecord(s, appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom); err != nil {
 				results[index].Err = err
 				continue
 			}
@@ -182,22 +182,15 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 
 		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		pending[lookup] = index
-		var old Dedup
-		if err := s.get(dedupKeyBytes, func(data []byte) error {
-			var err error
-			old, err = decodeDedup(data)
-			return err
-		}); err != nil {
-			if !errors.Is(err, ErrNotFound) {
-				results[index].Err = err
-				continue
-			}
-		} else {
+		if old, err := getRecord(s, dedupKeyBytes, decodeDedup); err == nil {
 			if old.PayloadSum != digests[index] {
 				results[index].Err = ErrConflict
 			} else {
 				results[index].Message.MsgID, results[index].Message.RoomSeq, results[index].Message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
 			}
+			continue
+		} else if !errors.Is(err, ErrNotFound) {
+			results[index].Err = err
 			continue
 		}
 
@@ -223,7 +216,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 	for roomID := range rooms {
 		room := rooms[roomID]
 		s.rooms[roomID] = room
-		roomKeyBytes := []byte(roomKey(roomID))
+		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
 		if err := s.setBytes(batch, roomKeyBytes, encodeRoom(room)); err != nil {
 			for index := range results {
 				if results[index].Message.RoomID == roomID && results[index].Err == nil {

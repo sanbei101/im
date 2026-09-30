@@ -1,10 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 	"uuid"
 
@@ -68,7 +68,7 @@ func decodeRoom(data []byte) (Room, error) {
 		ChatType:       chatType,
 		Name:           name,
 		AvatarURL:      avatar,
-		SingleChatHash: hash,
+		SingleChatHash: bytes.Clone(hash),
 		LastSeq:        seq,
 		CreatedAt:      time.UnixMicro(created),
 		UpdatedAt:      time.UnixMicro(updated),
@@ -120,13 +120,22 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if exists, err := s.exists([]byte(roomKey(room.RoomID))); err != nil {
+
+	var buf [64]byte
+	roomKeyBytes := appendRoomKey(buf[:0], room.RoomID)
+	exists, err := s.exists(roomKeyBytes)
+	if err != nil {
 		return fmt.Errorf("check room: %w", err)
-	} else if exists {
+	}
+	if exists {
 		return ErrAlreadyExists
 	}
+
+	var singleKey []byte
 	if len(room.SingleChatHash) > 0 {
-		if existing, err := s.getUUID([]byte(singleRoomKey(room.SingleChatHash))); err == nil {
+		var sKeyBuf [64]byte
+		singleKey = appendSingleRoomKey(sKeyBuf[:0], room.SingleChatHash)
+		if existing, err := getRecord(s, singleKey, getUUID); err == nil {
 			if existing != room.RoomID {
 				return ErrAlreadyExists
 			}
@@ -142,20 +151,24 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	}
 	batch := s.db.NewBatch()
 	defer batch.Close()
-	if err := s.set(batch, roomKey(room.RoomID), encodeRoom(room)); err != nil {
+	if err := s.setBytes(batch, roomKeyBytes, encodeRoom(room)); err != nil {
 		return err
 	}
-	if len(room.SingleChatHash) > 0 {
-		if err := s.set(batch, singleRoomKey(room.SingleChatHash), room.RoomID[:]); err != nil {
+	if len(singleKey) > 0 {
+		if err := s.setBytes(batch, singleKey, room.RoomID[:]); err != nil {
 			return err
 		}
 	}
+	var mKeyBuf [64]byte
+	var uKeyBuf [64]byte
 	for _, member := range members {
 		member.RoomID = room.RoomID
-		if err := s.set(batch, roomMemberKey(room.RoomID, member.UserID), encodeMember(member)); err != nil {
+		mKey := appendMemberKey(mKeyBuf[:0], room.RoomID, member.UserID)
+		if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
 			return err
 		}
-		if err := s.set(batch, userRoomKey(member.UserID, room.RoomID), room.RoomID[:]); err != nil {
+		uKey := appendUserRoomKey(uKeyBuf[:0], member.UserID, room.RoomID)
+		if err := s.setBytes(batch, uKey, room.RoomID[:]); err != nil {
 			return err
 		}
 	}
@@ -176,11 +189,9 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if ok {
 		return room, nil
 	}
-	if err := s.get([]byte(roomKey(roomID)), func(data []byte) error {
-		var err error
-		room, err = decodeRoom(data)
-		return err
-	}); err != nil {
+	var buf [32]byte
+	room, err := getRecord(s, appendRoomKey(buf[:0], roomID), decodeRoom)
+	if err != nil {
 		return Room{}, err
 	}
 	s.mu.Lock()
@@ -195,11 +206,13 @@ func (s *Store) RoomBySingleHash(ctx context.Context, hash []byte) (Room, error)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	id, err := s.getUUID([]byte(singleRoomKey(hash)))
+	var sKeyBuf [64]byte
+	id, err := getRecord(s, appendSingleRoomKey(sKeyBuf[:0], hash), getUUID)
 	if err != nil {
 		return Room{}, err
 	}
-	return getTo(s, []byte(roomKey(id)), decodeRoom)
+	var rKeyBuf [32]byte
+	return getRecord(s, appendRoomKey(rKeyBuf[:0], id), decodeRoom)
 }
 
 func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error) {
@@ -208,17 +221,17 @@ func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	prefix := []byte(roomMemberPrefix(roomID))
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix})
+
+	prefix := appendMemberPrefix(nil, roomID)
+	upper := prefixUpperBound(prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
 	if err != nil {
 		return nil, fmt.Errorf("create member iterator: %w", err)
 	}
 	defer iter.Close()
+
 	var result []Member
 	for iter.First(); iter.Valid(); iter.Next() {
-		if !strings.HasPrefix(string(iter.Key()), string(prefix)) {
-			break
-		}
 		member, err := decodeMember(iter.Value())
 		if err != nil {
 			return nil, err
@@ -234,26 +247,27 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	prefix := []byte(userRoomPrefix(userID))
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix})
+
+	prefix := appendUserRoomPrefix(nil, userID)
+	upper := prefixUpperBound(prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
+
 	var result []RoomInfo
+	var mKeyBuf [64]byte
 	for iter.First(); iter.Valid(); iter.Next() {
-		if !strings.HasPrefix(string(iter.Key()), string(prefix)) {
-			break
-		}
-		roomID, err := s.getUUID(iter.Value())
+		roomID, err := getUUID(iter.Value())
 		if err != nil {
 			return nil, err
 		}
-		room, err := getTo(s, []byte(roomKey(roomID)), decodeRoom)
+		room, err := s.Room(ctx, roomID)
 		if err != nil {
 			return nil, err
 		}
-		member, err := getTo(s, []byte(roomMemberKey(roomID, userID)), decodeMember)
+		member, err := getRecord(s, appendMemberKey(mKeyBuf[:0], roomID, userID), decodeMember)
 		if err != nil {
 			return nil, err
 		}

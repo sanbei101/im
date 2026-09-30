@@ -50,18 +50,26 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (User
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if exists, err := s.exists([]byte(usernameKey(username))); err != nil {
+
+	var buf [64]byte
+	unameKey := appendUsernameKey(buf[:0], username)
+	exists, err := s.exists(unameKey)
+	if err != nil {
 		return User{}, fmt.Errorf("check username: %w", err)
-	} else if exists {
+	}
+	if exists {
 		return User{}, ErrAlreadyExists
 	}
+
 	user := User{UserID: uuid.NewV7(), Username: username, Password: password, CreatedAt: time.Now()}
 	batch := s.db.NewBatch()
 	defer batch.Close()
-	if err := s.set(batch, userKey(user.UserID), encodeUser(user)); err != nil {
+
+	var uKeyBuf [32]byte
+	if err := s.setBytes(batch, appendUserKey(uKeyBuf[:0], user.UserID), encodeUser(user)); err != nil {
 		return User{}, err
 	}
-	if err := s.set(batch, usernameKey(username), user.UserID[:]); err != nil {
+	if err := s.setBytes(batch, unameKey, user.UserID[:]); err != nil {
 		return User{}, err
 	}
 	if err := commit(batch); err != nil {
@@ -76,9 +84,12 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, erro
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	id, err := s.getUUID([]byte(usernameKey(username)))
+
+	var buf [64]byte
+	id, err := getRecord(s, appendUsernameKey(buf[:0], username), getUUID)
 	if err != nil {
 		return User{}, err
 	}
-	return getTo(s, []byte(userKey(id)), decodeUser)
+	var uKeyBuf [32]byte
+	return getRecord(s, appendUserKey(uKeyBuf[:0], id), decodeUser)
 }
