@@ -241,7 +241,8 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 		if !ok {
 			continue
 		}
-		frame := []render.PushFrame{{
+		frame := render.PushFrame{
+			Type:        "message",
 			MsgID:       push.GetMsgId(),
 			ClientMsgID: push.GetClientMsgId(),
 			SenderID:    push.GetSenderId(),
@@ -251,7 +252,7 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 			MsgType:     store.MsgType(push.GetMsgType()).String(),
 			Payload:     jsontext.Value(push.GetPayload()),
 			Ext:         jsontext.Value(push.GetExt()),
-		}}
+		}
 		for _, client := range session.Clients() {
 			if err := client.encodeFrame(frame); err != nil {
 				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")

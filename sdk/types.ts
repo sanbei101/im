@@ -10,40 +10,79 @@ export enum MessageType {
   Image = 'image',
   Video = 'video',
   File = 'file',
+  System = 'system',
 }
 
 // 消息数据结构
 export interface Message {
   /** 服务器生成的消息ID */
   msg_id: string;
-  /** 客户端生成的消息ID(用于去重) */
+  /** 客户端生成的消息ID(用于去重与ACK对齐) */
   client_msg_id: string;
   /** 发送者ID */
   sender_id: string;
   /** 房间ID */
   room_id: string;
+  /** 房间内的自增单调递增消息序号 */
+  room_seq: number;
   /** 服务器时间戳(微秒级) */
   server_time: number;
   /** 回复的消息ID(可选) */
   reply_to_msg_id?: string;
-  /** 消息类型: text/image/video/file */
-  msg_type: MessageType;
+  /** 消息类型: text/image/video/file/system */
+  msg_type: MessageType | string;
   /** 消息内容负载 */
   payload: unknown;
   /** 扩展字段 */
   ext?: Record<string, unknown>;
-  /** 创建时间 */
-  created_at?: string;
 }
 
-// 发送消息的请求结构(客户端需要构造的)
+// WebSocket 下行帧判别联合 (Discriminated Union)
+export interface MessagePushFrame {
+  type: 'message';
+  msg_id: string;
+  client_msg_id: string;
+  sender_id: string;
+  room_id: string;
+  room_seq: number;
+  server_time: number;
+  msg_type: string;
+  payload: unknown;
+  reply_to_msg_id?: string;
+  ext?: Record<string, unknown>;
+}
+
+export interface AckFrame {
+  type: 'ack';
+  request_id: string;
+  client_msg_id: string;
+  msg_id: string;
+  room_id: string;
+  room_seq: number;
+  server_time: number;
+  code: number;
+  error?: string;
+}
+
+export interface PongFrame {
+  type: 'pong';
+}
+
+export interface ErrorFrame {
+  type: 'error';
+  error: string;
+}
+
+export type GatewayFrame = MessagePushFrame | AckFrame | PongFrame | ErrorFrame;
+
+// 发送消息的请求结构
 export interface SendMessageRequest {
   /** 客户端生成的唯一消息ID(可选,不提供时自动生成) */
   client_msg_id?: string;
   /** 房间ID */
   room_id: string;
   /** 消息类型 */
-  msg_type: MessageType;
+  msg_type: MessageType | string;
   /** 消息内容负载 */
   payload: unknown;
   /** 回复的消息ID(可选) */
@@ -116,6 +155,8 @@ export interface ChatSDKOptions {
   heartbeatInterval?: number;
   /** 消息缓冲区大小,默认100 */
   messageBufferSize?: number;
+  /** 消息 ACK 超时时间(毫秒),默认10000ms */
+  ackTimeout?: number;
 }
 
 // 连接状态
@@ -142,11 +183,13 @@ export interface MessageReceivedData {
   message: Message;
 }
 
-// 消息发送成功事件数据
+// 消息发送成功事件数据 (ACK)
 export interface MessageSentData {
   client_msg_id: string;
-  server_msg_id?: string;
-  server_time?: number;
+  msg_id: string;
+  room_id: string;
+  room_seq: number;
+  server_time: number;
 }
 
 // 连接状态变更事件数据
@@ -173,7 +216,7 @@ export interface DisconnectData {
   reason?: string;
 }
 
-// 事件数据映射表 - 用于类型推导
+// 事件数据映射表
 export interface ChatEventDataMap {
   [ChatEventType.MessageReceived]: MessageReceivedData;
   [ChatEventType.MessageSent]: MessageSentData;
@@ -183,10 +226,10 @@ export interface ChatEventDataMap {
   [ChatEventType.Disconnect]: DisconnectData;
 }
 
-// 聊天事件 - 使用映射表实现类型安全
+// 聊天事件
 export type ChatEvent<T extends ChatEventType = ChatEventType> = {
   type: T;
-  data: T extends keyof ChatEventDataMap ? ChatEventDataMap[T] : unknown;
+  data: ChatEventDataMap[T];
   timestamp: number;
 };
 

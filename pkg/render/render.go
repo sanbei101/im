@@ -123,8 +123,9 @@ type AckFrame struct {
 	Error       string `json:"error"`
 }
 
-// PushFrame 下行推送帧(单元素数组包裹,保持现状)。
+// PushFrame 下行消息推送帧
 type PushFrame struct {
+	Type        string         `json:"type"`
 	MsgID       string         `json:"msg_id"`
 	ClientMsgID string         `json:"client_msg_id"`
 	SenderID    string         `json:"sender_id"`

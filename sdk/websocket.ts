@@ -3,13 +3,21 @@ import type {
   ConnectionState,
   Message,
   SendMessageRequest,
-  MessageReceivedData,
+  GatewayFrame,
+  AckFrame,
+  MessagePushFrame,
 } from './types';
 import { ChatEventType, ConnectionState as State } from './types';
-import { EventEmitter, createError, createStateChange } from './utils';
+import { EventEmitter, createError, createStateChange, generateUUID } from './utils';
+
+interface PendingMessage {
+  resolve: (ack: AckFrame) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 /**
- * WebSocket 连接管理器
+ * WebSocket 长连接管理器
  */
 export class WebSocketManager {
   private ws: WebSocket | null = null;
@@ -19,9 +27,11 @@ export class WebSocketManager {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private messageQueue: SendMessageRequest[] = [];
+  private messageQueue: { req: SendMessageRequest; resolve: (ack: AckFrame) => void; reject: (err: Error) => void }[] = [];
+  private pendingRequests: Map<string, PendingMessage> = new Map();
   private token: string | null = null;
   private intentionalClose = false;
+  private connectPromise: Promise<void> | null = null;
 
   constructor(options: ChatSDKOptions, emitter: EventEmitter) {
     this.options = {
@@ -31,52 +41,38 @@ export class WebSocketManager {
       maxReconnectAttempts: options.maxReconnectAttempts ?? 10,
       heartbeatInterval: options.heartbeatInterval ?? 30000,
       messageBufferSize: options.messageBufferSize ?? 100,
+      ackTimeout: options.ackTimeout ?? 10000,
     };
     this.emitter = emitter;
   }
 
-  /**
-   * 设置认证 Token
-   */
   setToken(token: string): void {
     this.token = token;
   }
 
-  /**
-   * 清除认证 Token
-   */
   clearToken(): void {
     this.token = null;
   }
 
-  /**
-   * 获取当前连接状态
-   */
   getState(): ConnectionState {
     return this.currentState;
   }
 
-  /**
-   * 是否已连接
-   */
   isConnected(): boolean {
     return this.currentState === State.Connected && this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * 更新连接状态并触发事件
-   */
   private setState(newState: ConnectionState): void {
+    if (this.currentState === newState) {
+      return;
+    }
     const previousState = this.currentState;
     this.currentState = newState;
-
     this.emitter.emit(ChatEventType.ConnectionStateChange, createStateChange(newState, previousState));
   }
 
-  private connectPromise: Promise<void> | null = null;
-
   /**
-   * 连接到 WebSocket 网关
+   * 建立 WebSocket 连接
    */
   async connect(): Promise<void> {
     if (this.isConnected()) {
@@ -98,23 +94,20 @@ export class WebSocketManager {
       try {
         if (this.ws) {
           this.ws.close();
+          this.ws = null;
         }
         const wsUrl = new URL(this.options.gatewayURL);
-        wsUrl.searchParams.append('token', this.token!);
+        wsUrl.searchParams.set('token', this.token!);
+
         this.ws = new WebSocket(wsUrl.toString());
-        // 网关以 binary opcode 下发 JSON 帧。binaryType 必须是 arraybuffer，
-        // 否则 Node 下默认 blob 会给出 Blob，JSON.parse 拿不到文本。
         this.ws.binaryType = 'arraybuffer';
+
         await this.setupWebSocketHandlers();
       } catch (error) {
         this.setState(State.Error);
         this.emitter.emit(
           ChatEventType.Error,
-          createError(
-            'WS_CONNECT_FAILED',
-            'Failed to connect to WebSocket',
-            error instanceof Error ? error : undefined
-          )
+          createError('WS_CONNECT_FAILED', 'Failed to connect to WebSocket', error instanceof Error ? error : undefined)
         );
         this.scheduleReconnect();
         throw error;
@@ -127,11 +120,12 @@ export class WebSocketManager {
   }
 
   /**
-   * 断开 WebSocket 连接
+   * 断开连接
    */
   disconnect(): void {
     this.intentionalClose = true;
     this.clearTimers();
+    this.rejectAllPending(new Error('Client disconnected'));
 
     if (this.ws) {
       if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
@@ -146,40 +140,58 @@ export class WebSocketManager {
   }
 
   /**
-   * 发送消息
+   * 发送消息并返回 ACK Promise
    */
-  sendMessage(req: SendMessageRequest): void {
-    if (!this.isConnected()) {
-      // 如果未连接,将消息加入队列
-      this.messageQueue.push(req);
-      this.emitter.emit(
-        ChatEventType.Error,
-        createError('WS_NOT_CONNECTED', 'WebSocket not connected, message queued')
-      );
-      return;
-    }
+  sendMessage(req: SendMessageRequest): Promise<AckFrame> {
+    const clientMsgId = req.client_msg_id || generateUUID();
+    req.client_msg_id = clientMsgId;
 
-    const message = this.buildMessage(req);
-    this.ws!.send(JSON.stringify(message));
+    return new Promise<AckFrame>((resolve, reject) => {
+      if (!this.isConnected()) {
+        if (this.messageQueue.length >= this.options.messageBufferSize) {
+          reject(new Error('WebSocket message buffer overflow'));
+          return;
+        }
+        this.messageQueue.push({ req, resolve, reject });
+        return;
+      }
+
+      this.dispatchMessage(req, resolve, reject);
+    });
   }
 
-  /**
-   * 构建发送的消息对象
-   */
-  private buildMessage(req: SendMessageRequest): Record<string, unknown> {
-    return {
-      client_msg_id: req.client_msg_id,
+  private dispatchMessage(
+    req: SendMessageRequest,
+    resolve: (ack: AckFrame) => void,
+    reject: (err: Error) => void
+  ): void {
+    const clientMsgId = req.client_msg_id!;
+
+    const timer = setTimeout(() => {
+      this.pendingRequests.delete(clientMsgId);
+      reject(new Error(`Message ACK timeout (${this.options.ackTimeout}ms) for client_msg_id: ${clientMsgId}`));
+    }, this.options.ackTimeout);
+
+    this.pendingRequests.set(clientMsgId, { resolve, reject, timer });
+
+    const payload = {
+      client_msg_id: clientMsgId,
       room_id: req.room_id,
       msg_type: req.msg_type,
       payload: req.payload,
-      ...(req.reply_to_msg_id && { reply_to_msg_id: req.reply_to_msg_id }),
-      ...(req.ext && { ext: req.ext }),
+      ...(req.reply_to_msg_id ? { reply_to_msg_id: req.reply_to_msg_id } : {}),
+      ...(req.ext ? { ext: req.ext } : {}),
     };
+
+    try {
+      this.ws!.send(JSON.stringify(payload));
+    } catch (err) {
+      clearTimeout(timer);
+      this.pendingRequests.delete(clientMsgId);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   }
 
-  /**
-   * 设置 WebSocket 事件处理器
-   */
   private setupWebSocketHandlers(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.ws) {
@@ -187,7 +199,6 @@ export class WebSocketManager {
         return;
       }
 
-      // 连接打开
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.setState(State.Connected);
@@ -203,6 +214,7 @@ export class WebSocketManager {
 
       this.ws.onclose = (event: CloseEvent) => {
         this.clearTimers();
+        this.rejectAllPending(new Error(`WebSocket closed (code: ${event.code})`));
 
         if (this.intentionalClose) {
           this.setState(State.Disconnected);
@@ -217,106 +229,133 @@ export class WebSocketManager {
       };
 
       this.ws.onerror = (_event: Event) => {
-        this.emitter.emit(
-          ChatEventType.Error,
-          createError('WS_ERROR', 'WebSocket error occurred')
-        );
+        this.emitter.emit(ChatEventType.Error, createError('WS_ERROR', 'WebSocket error occurred'));
         reject(new Error('WebSocket error occurred'));
       };
     });
   }
 
   /**
-   * 处理接收到的消息
+   * 解码收到的下行数据
    */
-  private handleMessage(data: unknown): void {
-    let text: string;
+  private decodeData(data: unknown): string {
     if (typeof data === 'string') {
-      text = data;
-    } else if (ArrayBuffer.isView(data)) {
-      text = new TextDecoder().decode(
-        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-      );
-    } else if (data instanceof ArrayBuffer) {
-      text = new TextDecoder().decode(data);
-    } else {
-      text = String(data);
+      return data;
     }
-
-    let frame: unknown;
-    try {
-      frame = JSON.parse(text);
-    } catch (error) {
-      this.emitter.emit(
-        ChatEventType.Error,
-        createError(
-          'MESSAGE_PARSE_ERROR',
-          text,
-          error instanceof Error ? error : undefined
-        )
-      );
-      return;
+    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      return new TextDecoder().decode(data);
     }
-
-    // 推送帧是单元素数组包裹（保持现状）
-    if (Array.isArray(frame)) {
-      for (const message of frame as Message[]) {
-        if (!message?.msg_id || !message?.sender_id) {
-          this.emitter.emit(
-            ChatEventType.Error,
-            createError('INVALID_MESSAGE', 'Received invalid message format')
-          );
-          continue;
-        }
-
-        this.emitter.emit(ChatEventType.MessageReceived, {
-          message,
-        } as MessageReceivedData);
-      }
-      return;
-    }
-
-    // ack / pong / error 是扁平对象帧，不是消息推送
-    if (frame && typeof frame === 'object' && 'type' in frame) {
-      const typed = frame as { type?: string; error?: string };
-      if (typed.type === 'error') {
-        this.emitter.emit(
-          ChatEventType.Error,
-          createError('GATEWAY_ERROR', typed.error ?? 'gateway reported an error')
-        );
-      }
-      return;
-    }
-
-    // 兼容：裸消息对象（无 type 包装）
-    const message = frame as Message;
-    if (message?.msg_id && message?.sender_id) {
-      this.emitter.emit(ChatEventType.MessageReceived, {
-        message,
-      } as MessageReceivedData);
-      return;
-    }
-
-    this.emitter.emit(
-      ChatEventType.Error,
-      createError('INVALID_MESSAGE', 'Received non-array message format')
-    );
+    return String(data);
   }
 
   /**
-   * 启动心跳
+   * 处理 WebSocket 下行帧
    */
+  private handleMessage(data: unknown): void {
+    const text = this.decodeData(data);
+
+    let frame: GatewayFrame;
+    try {
+      frame = JSON.parse(text) as GatewayFrame;
+    } catch (error) {
+      this.emitter.emit(
+        ChatEventType.Error,
+        createError('MESSAGE_PARSE_ERROR', text, error instanceof Error ? error : undefined)
+      );
+      return;
+    }
+
+    if (!frame || typeof frame !== 'object' || !('type' in frame)) {
+      this.emitter.emit(ChatEventType.Error, createError('INVALID_FRAME', 'Received frame without type field'));
+      return;
+    }
+
+    switch (frame.type) {
+      case 'message':
+        this.handlePushMessage(frame);
+        break;
+
+      case 'ack':
+        this.handleAck(frame);
+        break;
+
+      case 'pong':
+        // 心跳应答正常
+        break;
+
+      case 'error':
+        this.emitter.emit(
+          ChatEventType.Error,
+          createError('GATEWAY_ERROR', frame.error || 'Gateway reported an error')
+        );
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  private handlePushMessage(push: MessagePushFrame): void {
+    const message: Message = {
+      msg_id: push.msg_id,
+      client_msg_id: push.client_msg_id,
+      sender_id: push.sender_id,
+      room_id: push.room_id,
+      room_seq: push.room_seq,
+      server_time: push.server_time,
+      msg_type: push.msg_type,
+      payload: push.payload,
+      reply_to_msg_id: push.reply_to_msg_id,
+      ext: push.ext,
+    };
+
+    this.emitter.emit(ChatEventType.MessageReceived, { message });
+  }
+
+  private handleAck(ack: AckFrame): void {
+    const pending = this.pendingRequests.get(ack.client_msg_id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(ack.client_msg_id);
+
+      if (ack.code === 0) {
+        pending.resolve(ack);
+      } else {
+        pending.reject(new Error(ack.error || `Server returned error code: ${ack.code}`));
+      }
+    }
+
+    if (ack.code === 0) {
+      this.emitter.emit(ChatEventType.MessageSent, {
+        client_msg_id: ack.client_msg_id,
+        msg_id: ack.msg_id,
+        room_id: ack.room_id,
+        room_seq: ack.room_seq,
+        server_time: ack.server_time,
+      });
+    }
+  }
+
+  private rejectAllPending(err: Error): void {
+    for (const [, pending] of this.pendingRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(err);
+    }
+    this.pendingRequests.clear();
+  }
+
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected()) {
-        this.ws!.send(JSON.stringify({ type: 'ping' }));
+        try {
+          this.ws!.send(JSON.stringify({ type: 'ping' }));
+        } catch {
+          // ignore write errors, onclose will trigger
+        }
       }
     }, this.options.heartbeatInterval);
   }
 
-  /**
-   * 安排重连
-   */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
       this.setState(State.Error);
@@ -328,17 +367,16 @@ export class WebSocketManager {
     }
 
     this.reconnectAttempts++;
+    const delayMs = Math.min(
+      this.options.reconnectInterval * Math.pow(1.5, this.reconnectAttempts - 1),
+      30000
+    );
 
     this.reconnectTimer = setTimeout(() => {
-      this.connect().catch(() => {
-        // 重连失败,会继续触发 onclose 事件,从而再次安排重连
-      });
-    }, this.options.reconnectInterval * this.reconnectAttempts); // 指数退避
+      this.connect().catch(() => {});
+    }, delayMs);
   }
 
-  /**
-   * 清空定时器
-   */
   private clearTimers(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -350,14 +388,11 @@ export class WebSocketManager {
     }
   }
 
-  /**
-   * 刷新消息队列(连接成功后发送缓存的消息)
-   */
   private flushMessageQueue(): void {
-    while (this.messageQueue.length > 0) {
-      const req = this.messageQueue.shift();
-      if (req) {
-        this.sendMessage(req);
+    while (this.messageQueue.length > 0 && this.isConnected()) {
+      const item = this.messageQueue.shift();
+      if (item) {
+        this.dispatchMessage(item.req, item.resolve, item.reject);
       }
     }
   }

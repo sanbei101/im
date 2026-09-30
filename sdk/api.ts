@@ -11,69 +11,65 @@ import type {
   ListRoomsResponse,
 } from './types';
 
+interface ApiResponse<T = unknown> {
+  code: number;
+  msg: string;
+  data?: T;
+}
+
 /**
- * API 客户端 - 处理所有 HTTP 请求
+ * API 错误类
+ */
+export class APIError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    message: string,
+    public readonly data?: unknown
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+/**
+ * HTTP API 客户端
  */
 export class APIClient {
   private baseURL: string;
   private token: string | null = null;
 
   constructor(baseURL: string) {
-    // 移除末尾的斜杠
-    this.baseURL = baseURL.replace(/\/$/, '');
+    this.baseURL = baseURL.replace(/\/+$/, '');
   }
 
-  /**
-   * 设置认证 Token
-   */
   setToken(token: string): void {
     this.token = token;
   }
 
-  /**
-   * 清除认证 Token
-   */
   clearToken(): void {
     this.token = null;
   }
 
-  /**
-   * 获取当前 Token
-   */
   getToken(): string | null {
     return this.token;
   }
 
-  /**
-   * 构建请求头
-   */
   private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
-
     return headers;
   }
 
-  /**
-   * 发送 HTTP 请求
-   */
-  private async request<T>(
-    method: string,
-    endpoint: string,
-    body?: unknown
-  ): Promise<T> {
+  private async request<T>(method: string, endpoint: string, body?: unknown): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-
     const options: RequestInit = {
       method,
       headers: this.getHeaders(),
     };
-
     if (body !== undefined) {
       options.body = JSON.stringify(body);
     }
@@ -81,36 +77,23 @@ export class APIClient {
     const response = await fetch(url, options);
 
     if (!response.ok) {
-      const errorData: unknown = await response.json().catch(() => ({}));
-      const fields =
-        errorData && typeof errorData === 'object' && !Array.isArray(errorData)
-          ? (errorData as Record<string, unknown>)
-          : {};
-      const reason = fields.msg ?? fields.error;
-      throw new APIError(
-        response.status,
-        typeof reason === 'string' ? reason : `HTTP ${response.status}: ${response.statusText}`,
-        fields
-      );
+      const errorJson = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      const reason =
+        (typeof errorJson.msg === 'string' && errorJson.msg) ||
+        (typeof errorJson.error === 'string' && errorJson.error) ||
+        `HTTP ${response.status}: ${response.statusText}`;
+      throw new APIError(response.status, reason, errorJson);
     }
 
-    // 204 No Content
     if (response.status === 204) {
       return undefined as T;
     }
 
-    const payload: unknown = await response.json();
-
-    // 服务端统一返回 {code,msg,data} 信封；剥掉信封暴露 data，
-    // 已是裸数据的响应原样返回。
-    if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
-      const candidate: Record<string, unknown> = payload as Record<string, unknown>;
-      if (typeof candidate.code === 'number' && 'data' in candidate) {
-        return candidate.data as T;
-      }
+    const res = (await response.json()) as ApiResponse<T>;
+    if (res && typeof res === 'object' && 'data' in res) {
+      return res.data as T;
     }
-
-    return payload as T;
+    return res as unknown as T;
   }
 
   // ==================== 用户相关 API ====================
@@ -134,28 +117,25 @@ export class APIClient {
   // ==================== 消息相关 API ====================
 
   /**
-   * 获取历史消息
-   * 注意:后端目前只提供了按 conversation 查询的接口
+   * 获取房间历史消息
    */
   async getHistoryMessages(params: HistoryQueryParams): Promise<HistoryMessagesResponse> {
-    // 构建查询参数
-    const queryParams = new URLSearchParams();
-    queryParams.append('room_id', params.room_id);
-
+    const query = new URLSearchParams();
+    query.set('room_id', params.room_id);
     if (params.before_seq !== undefined) {
-      queryParams.append('before_seq', params.before_seq.toString());
+      query.set('before_seq', params.before_seq.toString());
     }
     if (params.page_size !== undefined) {
-      queryParams.append('page_size', params.page_size.toString());
+      query.set('page_size', params.page_size.toString());
     }
 
-    const resp = await this.request<{ messages: Message[], hasMore: boolean }>(
+    const resp = await this.request<{ messages?: Message[]; hasMore?: boolean }>(
       'GET',
-      `/api/v1/messages/history?${queryParams.toString()}`
+      `/api/v1/messages/history?${query.toString()}`
     );
 
     return {
-      messages: resp?.messages || [],
+      messages: resp?.messages ?? [],
       hasMore: resp?.hasMore ?? false,
     };
   }
@@ -181,20 +161,5 @@ export class APIClient {
    */
   async listRooms(): Promise<ListRoomsResponse> {
     return this.request<ListRoomsResponse>('POST', '/api/v1/rooms/list');
-  }
-}
-
-/**
- * API 错误类
- */
-export class APIError extends Error {
-  statusCode: number;
-  data: Record<string, unknown>;
-
-  constructor(statusCode: number, message: string, data: Record<string, unknown> = {}) {
-    super(message);
-    this.name = 'APIError';
-    this.statusCode = statusCode;
-    this.data = data;
   }
 }

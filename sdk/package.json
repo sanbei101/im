@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run"
+    "test": "vitest run test/unit.test.ts",
+    "test:integration": "vitest run test/*.test.ts"
   },
   "keywords": [
     "chat",
