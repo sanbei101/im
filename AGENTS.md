@@ -47,7 +47,7 @@ proto         Kitex/fastpb 协议源文件
 - 消息使用 `room_seq` 做历史分页和断线补拉，不使用时间戳作为唯一游标。
 - 消息幂等键为 `room_id + sender_id + client_msg_id`，相同键不同内容必须返回冲突。
 - 客户端成功 ACK 表示消息已写入本地 Pebble；进入 channel、进入 gRPC 流或开始处理不代表成功。
-- 任何新增字段必须考虑旧 checkpoint 的 schema 版本和恢复行为。
+- 不需要考虑任何的兼容性行为,一切以代码最优雅简洁,性能为目标
 
 ## 验证
 
