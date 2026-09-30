@@ -12,9 +12,9 @@ import (
 )
 
 func encodeRoom(room Room) []byte {
-	data := []byte{recordVersion}
 	var id [16]byte
 	putUUID(id[:], room.RoomID)
+	data := make([]byte, 0, 16+4+len(room.ChatType)+4+len(room.Name)+4+len(room.AvatarURL)+4+len(room.SingleChatHash)+8*3)
 	data = append(data, id[:]...)
 	data = appendString(data, room.ChatType)
 	data = appendString(data, room.Name)
@@ -30,10 +30,7 @@ func encodeRoom(room Room) []byte {
 }
 
 func decodeRoom(data []byte) (Room, error) {
-	if len(data) < 1 || data[0] != recordVersion {
-		return Room{}, errors.New("invalid room record version")
-	}
-	d := decoder{data: data[1:]}
+	d := decoder{data: data}
 	id, err := d.uuid()
 	if err != nil {
 		return Room{}, err
@@ -79,9 +76,9 @@ func decodeRoom(data []byte) (Room, error) {
 }
 
 func encodeMember(member Member) []byte {
-	data := []byte{recordVersion}
 	var id [16]byte
 	putUUID(id[:], member.RoomID)
+	data := make([]byte, 0, 16*2+4+len(member.Role)+2)
 	data = append(data, id[:]...)
 	putUUID(id[:], member.UserID)
 	data = append(data, id[:]...)
@@ -100,10 +97,7 @@ func encodeMember(member Member) []byte {
 }
 
 func decodeMember(data []byte) (Member, error) {
-	if len(data) < 1 || data[0] != recordVersion {
-		return Member{}, errors.New("invalid member record version")
-	}
-	d := decoder{data: data[1:]}
+	d := decoder{data: data}
 	roomID, err := d.uuid()
 	if err != nil {
 		return Member{}, err

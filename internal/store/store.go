@@ -25,10 +25,9 @@ var (
 )
 
 const (
-	recordVersion      byte = 1
-	messageQueueSize        = 4096
-	messageBatchSize        = 128
-	messageBatchWindow      = time.Millisecond
+	messageQueueSize   = 4096
+	messageBatchSize   = 128
+	messageBatchWindow = time.Millisecond
 )
 
 type messageWriteRequest struct {
@@ -113,6 +112,7 @@ func (t MsgType) Valid() bool {
 	return t >= MsgTypeText && t <= MsgTypeSystem
 }
 
+// ParseMsgType 解析客户端上行的 msg_type 名称；未知值报错。
 func ParseMsgType(value string) (MsgType, error) {
 	for _, known := range []struct {
 		name string
@@ -128,15 +128,7 @@ func ParseMsgType(value string) (MsgType, error) {
 			return known.typ, nil
 		}
 	}
-	number, err := strconv.ParseInt(value, 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("invalid msg_type %q", value)
-	}
-	typ := MsgType(number)
-	if !typ.Valid() {
-		return 0, fmt.Errorf("invalid msg_type %q", value)
-	}
-	return typ, nil
+	return 0, fmt.Errorf("invalid msg_type %q", value)
 }
 
 type Message struct {
@@ -147,7 +139,6 @@ type Message struct {
 	RoomSeq      uint64
 	ServerTime   int64
 	ReplyToMsgID uuid.UUID
-	HasReply     bool
 	MsgType      MsgType
 	Payload      jsontext.Value
 	Ext          jsontext.Value
@@ -168,8 +159,7 @@ type messageJSON struct {
 	Ext          jsontext.Value `json:"ext,omitzero"`
 }
 
-// MarshalJSONTo 把存储记录编码为对外 JSON。HasReply 只是 ReplyToMsgID 的冗余标记，
-// wire 上不输出。
+// MarshalJSONTo 把存储记录编码为对外 JSON。
 func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {
 	// jsontext.Value 是 []byte：nil 与空切片在 omitzero 下行为不同，
 	// 空但非 nil 会被当成\"有值\"并产出空字符串 -> 非法 JSON。这里统一归一成 nil。

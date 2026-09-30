@@ -13,10 +13,9 @@ import (
 )
 
 func encodeMessage(message Message) []byte {
-	data := []byte{recordVersion}
 	var id [16]byte
 	putUUID(id[:], message.MsgID)
-	data = append(data, id[:]...)
+	data := append(make([]byte, 0, 16*4+8+8+1+16+1), id[:]...)
 	putUUID(id[:], message.ClientMsgID)
 	data = append(data, id[:]...)
 	putUUID(id[:], message.SenderID)
@@ -28,7 +27,7 @@ func encodeMessage(message Message) []byte {
 	data = append(data, number[:]...)
 	putI64(number[:], message.ServerTime)
 	data = append(data, number[:]...)
-	if message.HasReply {
+	if message.ReplyToMsgID != uuid.Nil() {
 		data = append(data, 1)
 		putUUID(id[:], message.ReplyToMsgID)
 		data = append(data, id[:]...)
@@ -40,10 +39,7 @@ func encodeMessage(message Message) []byte {
 }
 
 func decodeMessage(data []byte) (Message, error) {
-	if len(data) < 1 || data[0] != recordVersion {
-		return Message{}, errors.New("invalid message record version")
-	}
-	d := decoder{data: data[1:]}
+	d := decoder{data: data}
 	message := Message{}
 	var err error
 	if message.MsgID, err = d.uuid(); err != nil {
@@ -67,9 +63,9 @@ func decodeMessage(data []byte) (Message, error) {
 	if d.pos >= len(d.data) {
 		return Message{}, errors.New("invalid reply marker")
 	}
-	message.HasReply = d.data[d.pos] != 0
+	hasReply := d.data[d.pos] != 0
 	d.pos++
-	if message.HasReply {
+	if hasReply {
 		if message.ReplyToMsgID, err = d.uuid(); err != nil {
 			return Message{}, err
 		}
@@ -89,9 +85,9 @@ func decodeMessage(data []byte) (Message, error) {
 }
 
 func encodeDedup(value Dedup) []byte {
-	data := []byte{recordVersion}
 	var id [16]byte
 	putUUID(id[:], value.MsgID)
+	data := make([]byte, 0, 16+8+8+32)
 	data = append(data, id[:]...)
 	var number [8]byte
 	putU64(number[:], value.RoomSeq)
@@ -102,10 +98,10 @@ func encodeDedup(value Dedup) []byte {
 }
 
 func decodeDedup(data []byte) (Dedup, error) {
-	if len(data) != 1+16+8+8+32 || data[0] != recordVersion {
+	if len(data) != 16+8+8+32 {
 		return Dedup{}, errors.New("invalid dedup record")
 	}
-	d := decoder{data: data[1:]}
+	d := decoder{data: data}
 	value := Dedup{}
 	var err error
 	if value.MsgID, err = d.uuid(); err != nil {
@@ -161,7 +157,7 @@ func (s *Store) writeMessageBatch(messages []Message) ([]Message, []error) {
 		digestInput = append(digestInput, message.Payload...)
 		digestInput = append(digestInput, 0)
 		digestInput = append(digestInput, message.Ext...)
-		if message.HasReply {
+		if message.ReplyToMsgID != uuid.Nil() {
 			digestInput = append(digestInput, message.ReplyToMsgID[:]...)
 		}
 		digest := sha256.Sum256(digestInput)

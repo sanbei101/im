@@ -40,7 +40,7 @@ func TestMessageBinaryRoundTrip(t *testing.T) {
 		{MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
 			RoomSeq: 9, ServerTime: 123, MsgType: MsgTypeSystem, Payload: jsontext.Value(`{"s":1}`)},
 		{MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
-			RoomSeq: 10, ServerTime: 456, ReplyToMsgID: uuid.NewV7(), HasReply: true,
+			RoomSeq: 10, ServerTime: 456, ReplyToMsgID: uuid.NewV7(),
 			MsgType: MsgTypeFile, Payload: jsontext.Value(`{"u":"x"}`), Ext: jsontext.Value(`{"e":1}`)},
 	} {
 		got, err := decodeMessage(encodeMessage(m))
@@ -50,14 +50,14 @@ func TestMessageBinaryRoundTrip(t *testing.T) {
 		if got.MsgID != m.MsgID || got.ClientMsgID != m.ClientMsgID || got.SenderID != m.SenderID ||
 			got.RoomID != m.RoomID || got.RoomSeq != m.RoomSeq || got.ServerTime != m.ServerTime ||
 			got.MsgType != m.MsgType || string(got.Payload) != string(m.Payload) ||
-			string(got.Ext) != string(m.Ext) || got.HasReply != m.HasReply || got.ReplyToMsgID != m.ReplyToMsgID {
+			string(got.Ext) != string(m.Ext) || got.ReplyToMsgID != m.ReplyToMsgID {
 			t.Fatalf("round trip mismatch:\nwant %+v\ngot  %+v", m, got)
 		}
 	}
 	// truncated records must be rejected, not silently decoded
 	for _, bad := range [][]byte{
-		{1},
-		append([]byte{1}, make([]byte, 60)...),
+		{},
+		make([]byte, 60),
 	} {
 		if _, err := decodeMessage(bad); err == nil {
 			t.Fatalf("expected error for %d-byte record", len(bad))

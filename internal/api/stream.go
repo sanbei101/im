@@ -239,7 +239,6 @@ func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) 
 	}
 	if input.GetReplyToMsgId() != "" {
 		message.ReplyToMsgID, err = uuid.Parse(input.GetReplyToMsgId())
-		message.HasReply = err == nil
 		if err != nil {
 			return store.Message{}, fmt.Errorf("invalid reply_to_msg_id: %w", err)
 		}
