@@ -12,22 +12,19 @@ import (
 )
 
 func encodeUser(user User) []byte {
-	data := []byte{recordVersion}
 	var id [16]byte
 	putUUID(id[:], user.UserID)
-	data = append(data, id[:]...)
 	var timestamp [8]byte
 	putI64(timestamp[:], user.CreatedAt.UnixMicro())
+	data := make([]byte, 0, 16+8+4+len(user.Username)+4+len(user.Password))
+	data = append(data, id[:]...)
 	data = append(data, timestamp[:]...)
 	data = appendString(data, user.Username)
 	return appendString(data, user.Password)
 }
 
 func decodeUser(data []byte) (User, error) {
-	if len(data) < 1 || data[0] != recordVersion {
-		return User{}, errors.New("invalid user record version")
-	}
-	d := decoder{data: data[1:]}
+	d := decoder{data: data}
 	id, err := d.uuid()
 	if err != nil {
 		return User{}, err
