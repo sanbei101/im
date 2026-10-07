@@ -18,8 +18,16 @@ func NewRouter(s *store.Store) http.Handler {
 	r.Use(chimw.Recoverer)
 
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead, http.MethodOptions},
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+			http.MethodHead,
+			http.MethodOptions,
+		},
 		AllowedHeaders:   []string{"*"},
 		ExposedHeaders:   []string{"*"},
 		AllowCredentials: true,

@@ -242,13 +242,13 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 			continue
 		}
 		frame := render.PushFrame{
-			Type:        "message",
-			MsgID:       push.GetMsgId(),
-			ClientMsgID: push.GetClientMsgId(),
-			SenderID:    push.GetSenderId(),
-			RoomID:      push.GetRoomId(),
-			RoomSeq:     push.GetRoomSeq(),
-			ServerTime:  push.GetServerTime(),
+			Type:         "message",
+			MsgID:        push.GetMsgId(),
+			ClientMsgID:  push.GetClientMsgId(),
+			SenderID:     push.GetSenderId(),
+			RoomID:       push.GetRoomId(),
+			RoomSeq:      push.GetRoomSeq(),
+			ServerTime:   push.GetServerTime(),
 			MsgType:      store.MsgType(push.GetMsgType()).String(),
 			Payload:      jsontext.Value(push.GetPayload()),
 			ReplyToMsgID: push.GetReplyToMsgId(),

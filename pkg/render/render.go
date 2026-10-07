@@ -125,13 +125,13 @@ type AckFrame struct {
 
 // PushFrame 下行消息推送帧
 type PushFrame struct {
-	Type        string         `json:"type"`
-	MsgID       string         `json:"msg_id"`
-	ClientMsgID string         `json:"client_msg_id"`
-	SenderID    string         `json:"sender_id"`
-	RoomID      string         `json:"room_id"`
-	RoomSeq     uint64         `json:"room_seq"`
-	ServerTime  int64          `json:"server_time"`
+	Type         string         `json:"type"`
+	MsgID        string         `json:"msg_id"`
+	ClientMsgID  string         `json:"client_msg_id"`
+	SenderID     string         `json:"sender_id"`
+	RoomID       string         `json:"room_id"`
+	RoomSeq      uint64         `json:"room_seq"`
+	ServerTime   int64          `json:"server_time"`
 	MsgType      string         `json:"msg_type"`
 	Payload      jsontext.Value `json:"payload"`
 	ReplyToMsgID string         `json:"reply_to_msg_id,omitempty"`
