@@ -36,7 +36,7 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 		MaxAge:           86400,
 	}))
 	userAPI := &UserAPI{store: s, streamHandler: streamHandler}
-	roomAPI := &RoomAPI{store: s}
+	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler}
 	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
 	friendAPI := &FriendAPI{store: s}
 	conversationAPI := &ConversationAPI{store: s}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"time"
 	"uuid"
 
 	"github.com/sanbei101/im/internal/store"
@@ -21,8 +22,19 @@ type StreamHandler struct {
 	nodeIndex int
 	nodeCount int
 
-	mu       sync.RWMutex
-	sessions map[string]*apiConnection
+	mu          sync.RWMutex
+	sessions    map[string]*apiConnection
+	memberCache sync.Map
+}
+
+type roomMemberCacheEntry struct {
+	members []cachedMember
+	expires time.Time
+}
+
+type cachedMember struct {
+	userID    uuid.UUID
+	userIDStr string
 }
 
 type apiConnection struct {
@@ -36,6 +48,35 @@ func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCo
 		store: data, nodeID: nodeID, slots: slots, nodeIndex: nodeIndex, nodeCount: nodeCount,
 		sessions: make(map[string]*apiConnection),
 	}
+}
+
+func (h *StreamHandler) InvalidateRoomMembers(roomID uuid.UUID) {
+	h.memberCache.Delete(roomID)
+}
+
+func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([]cachedMember, error) {
+	now := time.Now()
+	if val, ok := h.memberCache.Load(roomID); ok {
+		if entry, ok := val.(*roomMemberCacheEntry); ok && now.Before(entry.expires) {
+			return entry.members, nil
+		}
+	}
+	rawMembers, err := h.store.Members(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	cached := make([]cachedMember, len(rawMembers))
+	for i, m := range rawMembers {
+		cached[i] = cachedMember{
+			userID:    m.UserID,
+			userIDStr: m.UserID.String(),
+		}
+	}
+	h.memberCache.Store(roomID, &roomMemberCacheEntry{
+		members: cached,
+		expires: now.Add(30 * time.Second),
+	})
+	return cached, nil
 }
 
 func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_ConnectServer) error {
@@ -184,34 +225,40 @@ func (h *StreamHandler) checkRoomOwned(roomID uuid.UUID) error {
 }
 
 func (h *StreamHandler) push(ctx context.Context, message *store.Message) error {
-	members, err := h.store.Members(ctx, message.RoomID)
+	members, err := h.getRoomMembers(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
 	}
+
+	roomIDStr := message.RoomID.String()
+	msgIDStr := message.MsgID.String()
+	senderIDStr := message.SenderID.String()
+	clientMsgIDStr := message.ClientMsgID.String()
+	var replyToMsgIDStr string
+	if message.ReplyToMsgID != uuid.Nil() {
+		replyToMsgIDStr = message.ReplyToMsgID.String()
+	}
+
 	// Map connection -> pushes so every gateway stream receives one batch per room fan-out.
 	pushes := make(map[*apiConnection][]*pb.Push)
 	h.mu.RLock()
 	for _, member := range members {
-		if member.UserID == message.SenderID {
+		if member.userID == message.SenderID {
 			continue
 		}
-		var replyToMsgID string
-		if message.ReplyToMsgID != uuid.Nil() {
-			replyToMsgID = message.ReplyToMsgID.String()
-		}
-		if connection := h.sessions[member.UserID.String()]; connection != nil {
+		if connection := h.sessions[member.userIDStr]; connection != nil {
 			pushes[connection] = append(pushes[connection], &pb.Push{
-				UserId:       member.UserID.String(),
-				RoomId:       message.RoomID.String(),
+				UserId:       member.userIDStr,
+				RoomId:       roomIDStr,
 				RoomSeq:      message.RoomSeq,
-				MsgId:        message.MsgID.String(),
-				SenderId:     message.SenderID.String(),
+				MsgId:        msgIDStr,
+				SenderId:     senderIDStr,
 				MsgType:      int32(message.MsgType),
 				Payload:      message.Payload,
 				ServerTime:   message.ServerTime,
 				Ext:          message.Ext,
-				ClientMsgId:  message.ClientMsgID.String(),
-				ReplyToMsgId: replyToMsgID,
+				ClientMsgId:  clientMsgIDStr,
+				ReplyToMsgId: replyToMsgIDStr,
 			})
 		}
 	}

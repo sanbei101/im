@@ -16,7 +16,8 @@ import (
 )
 
 type RoomAPI struct {
-	store *store.Store
+	store         *store.Store
+	streamHandler *StreamHandler
 }
 
 type CreateSingleRoomReq struct {
@@ -406,6 +407,9 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 			render.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if a.streamHandler != nil {
+			a.streamHandler.InvalidateRoomMembers(roomID)
+		}
 	}
 
 	render.SuccessNoData(w, http.StatusOK, "添加群成员成功")
@@ -453,6 +457,9 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if a.streamHandler != nil {
+		a.streamHandler.InvalidateRoomMembers(roomID)
+	}
 
 	render.SuccessNoData(w, http.StatusOK, "移除群成员成功")
 }
@@ -483,6 +490,9 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.RemoveMember(r.Context(), roomID, myID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if a.streamHandler != nil {
+		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
 
 	render.SuccessNoData(w, http.StatusOK, "退出群聊成功")
@@ -558,6 +568,9 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.DissolveRoom(r.Context(), roomID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if a.streamHandler != nil {
+		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
 
 	render.SuccessNoData(w, http.StatusOK, "解散群聊成功")

@@ -96,9 +96,6 @@ func (s *Store) ApplyFriend(ctx context.Context, fromID, toID uuid.UUID, greetin
 		return errors.New("cannot apply to add yourself as friend")
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var buf [64]byte
 	friendKey := appendFriendKey(buf[:0], fromID, toID)
 	exists, err := s.exists(friendKey)
@@ -130,8 +127,6 @@ func (s *Store) AuditFriend(ctx context.Context, toID, fromID uuid.UUID, accept 
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [64]byte
 	appKey := appendApplicationKey(buf[:0], toID, fromID)
@@ -171,8 +166,6 @@ func (s *Store) Applications(ctx context.Context, toID uuid.UUID) ([]FriendAppli
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [32]byte
 	return s.scanPrefix(appendApplicationPrefix(buf[:0], toID), decodeApplication)
@@ -182,8 +175,6 @@ func (s *Store) Friends(ctx context.Context, userID uuid.UUID) ([]Friend, error)
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [32]byte
 	return s.scanPrefix(appendFriendPrefix(buf[:0], userID), decodeFriend)
@@ -193,8 +184,6 @@ func (s *Store) DeleteFriend(ctx context.Context, userID, friendID uuid.UUID) er
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -214,8 +203,6 @@ func (s *Store) UpdateFriendRemark(ctx context.Context, userID, friendID uuid.UU
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [64]byte
 	key := appendFriendKey(buf[:0], userID, friendID)
@@ -240,8 +227,6 @@ func (s *Store) AddBlacklist(ctx context.Context, userID, targetID uuid.UUID) er
 	if userID == targetID {
 		return errors.New("cannot blacklist yourself")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var timestamp [8]byte
 	putI64(timestamp[:], time.Now().UnixMicro())
@@ -261,8 +246,6 @@ func (s *Store) RemoveBlacklist(ctx context.Context, userID, targetID uuid.UUID)
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [64]byte
 	key := appendBlacklistKey(buf[:0], userID, targetID)
@@ -279,8 +262,6 @@ func (s *Store) Blacklist(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, e
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [32]byte
 	prefix := appendBlacklistPrefix(buf[:0], userID)
@@ -310,8 +291,6 @@ func (s *Store) IsBlacklisted(ctx context.Context, userID, targetID uuid.UUID) (
 	if err := contextErr(ctx); err != nil {
 		return false, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [64]byte
 	return s.exists(appendBlacklistKey(buf[:0], userID, targetID))

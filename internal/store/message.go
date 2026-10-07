@@ -122,9 +122,6 @@ type dedupLookupKey struct {
 }
 
 func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResult) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	batch := s.db.NewBatch()
 	defer batch.Close()
 	rooms := make(map[uuid.UUID]Room)
@@ -143,7 +140,9 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		results[index].Message = *message
 		room, ok := rooms[message.RoomID]
 		if !ok {
+			s.roomsMu.RLock()
 			room, ok = s.rooms[message.RoomID]
+			s.roomsMu.RUnlock()
 		}
 		if !ok {
 			var err error
@@ -223,6 +222,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			results[index].Err = err
 		}
 	}
+	s.roomsMu.Lock()
 	for roomID := range rooms {
 		room := rooms[roomID]
 		s.rooms[roomID] = room
@@ -235,6 +235,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			}
 		}
 	}
+	s.roomsMu.Unlock()
 	if err := commit(batch); err != nil {
 		for index := range results {
 			if results[index].Err == nil {
@@ -251,8 +252,6 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var prefixBuf [32]byte
 	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
@@ -303,8 +302,6 @@ func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Messa
 	if err := contextErr(ctx); err != nil {
 		return Message{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var indexKeyBuf [33]byte
 	indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID)
@@ -334,8 +331,6 @@ func (s *Store) RecallMessage(
 	if err := contextErr(ctx); err != nil {
 		return Message{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var indexKeyBuf [33]byte
 	indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID)
@@ -394,8 +389,6 @@ func (s *Store) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUID
 	if emoji == "" {
 		return errors.New("emoji cannot be empty")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -411,8 +404,6 @@ func (s *Store) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.U
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -428,8 +419,6 @@ func (s *Store) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]React
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	prefix := appendReactionPrefix(nil, roomID, msgID)
 	upperBound := prefixUpperBound(prefix)
@@ -480,9 +469,6 @@ func (s *Store) ReadUsers(ctx context.Context, roomID, msgID uuid.UUID) ([]uuid.
 		return nil, err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var readUsers []uuid.UUID
 	var keyBuf [33]byte
 	for _, m := range members {
@@ -510,8 +496,6 @@ func (s *Store) PinMessage(ctx context.Context, roomID, msgID, operatorID uuid.U
 	if _, err := s.MessageByID(ctx, roomID, msgID); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -531,8 +515,6 @@ func (s *Store) UnpinMessage(ctx context.Context, roomID, msgID uuid.UUID) error
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -548,8 +530,6 @@ func (s *Store) PinnedMessages(ctx context.Context, roomID uuid.UUID) ([]Message
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	prefix := appendPinPrefix(nil, roomID)
 	upperBound := prefixUpperBound(prefix)
@@ -604,8 +584,6 @@ func (s *Store) SaveDeviceToken(ctx context.Context, userID uuid.UUID, info Devi
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -625,8 +603,6 @@ func (s *Store) DeleteDeviceToken(ctx context.Context, userID uuid.UUID) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -642,8 +618,6 @@ func (s *Store) DeviceToken(ctx context.Context, userID uuid.UUID) (DeviceInfo, 
 	if err := contextErr(ctx); err != nil {
 		return DeviceInfo{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	key := appendDeviceKey(nil, userID)
 	data, closer, err := s.db.Get(key)

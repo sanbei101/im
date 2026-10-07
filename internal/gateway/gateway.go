@@ -26,6 +26,7 @@ type Gateway struct {
 	streams            []*apiStream
 	pending            sync.Map
 	roomUsers          sync.Map
+	frames             *render.FrameWriter
 }
 
 type roomUserSet struct {
@@ -34,7 +35,11 @@ type roomUserSet struct {
 }
 
 func NewGateway(cfg *config.Config) *Gateway {
-	g := &Gateway{UserSessionManager: NewSessionManager(), Config: cfg}
+	g := &Gateway{
+		UserSessionManager: NewSessionManager(),
+		Config:             cfg,
+		frames:             render.NewFrameWriter(),
+	}
 	for index, address := range cfg.Gateway.APIAddrs {
 		g.streams = append(g.streams, newAPIStream(g, fmt.Sprintf("gateway-%d", index), address))
 	}
@@ -71,15 +76,24 @@ func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
 	}
 	set.mu.RUnlock()
 
+	if len(targets) == 0 {
+		return
+	}
+
 	frame := render.TypingFrame{
 		Type:   "typing",
 		RoomID: roomID,
 		UserID: senderID.String(),
 	}
+	frameBytes, err := g.frames.EncodeFrame(frame)
+	if err != nil {
+		log.Error().Err(err).Msg("encode typing frame failed")
+		return
+	}
 	for _, targetID := range targets {
 		if session, ok := g.UserSessionManager.Load(targetID); ok {
 			for _, client := range session.Clients() {
-				if err := client.encodeFrame(frame); err != nil {
+				if err := client.sendFrame(frameBytes); err != nil {
 					log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send typing frame failed")
 				}
 			}
@@ -132,6 +146,7 @@ type apiStream struct {
 	queue    chan *pb.SendMessage
 	sessions chan *pb.Session
 	mu       sync.RWMutex
+	frames   *render.FrameWriter
 }
 
 func newAPIStream(g *Gateway, id, address string) *apiStream {
@@ -141,6 +156,7 @@ func newAPIStream(g *Gateway, id, address string) *apiStream {
 		address:  address,
 		queue:    make(chan *pb.SendMessage, 1024),
 		sessions: make(chan *pb.Session, 256),
+		frames:   render.NewFrameWriter(),
 	}
 }
 
@@ -293,6 +309,10 @@ func (s *apiStream) handlePush(batch *pb.PushBatch) {
 		if !ok {
 			continue
 		}
+		clients := session.Clients()
+		if len(clients) == 0 {
+			continue
+		}
 		frame := render.PushFrame{
 			Type:         "message",
 			MsgID:        push.GetMsgId(),
@@ -306,8 +326,13 @@ func (s *apiStream) handlePush(batch *pb.PushBatch) {
 			ReplyToMsgID: push.GetReplyToMsgId(),
 			Ext:          jsontext.Value(push.GetExt()),
 		}
-		for _, client := range session.Clients() {
-			if err := client.encodeFrame(frame); err != nil {
+		frameBytes, err := s.frames.EncodeFrame(frame)
+		if err != nil {
+			log.Error().Err(err).Msg("encode push frame failed")
+			continue
+		}
+		for _, client := range clients {
+			if err := client.sendFrame(frameBytes); err != nil {
 				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
 			}
 		}

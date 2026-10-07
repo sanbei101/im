@@ -67,8 +67,6 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (User
 	if username == "" {
 		return User{}, errors.New("username is required")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [64]byte
 	unameKey := appendUsernameKey(buf[:0], username)
@@ -108,8 +106,6 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, erro
 	if err := contextErr(ctx); err != nil {
 		return User{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [64]byte
 	id, err := s.getRecord(appendUsernameKey(buf[:0], username), getUUID)
@@ -124,8 +120,6 @@ func (s *Store) UserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	if err := contextErr(ctx); err != nil {
 		return User{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [32]byte
 	return s.getRecord(appendUserKey(buf[:0], id), decodeUser)
@@ -135,8 +129,6 @@ func (s *Store) UpdateUserProfile(ctx context.Context, id uuid.UUID, nickname, a
 	if err := contextErr(ctx); err != nil {
 		return User{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [32]byte
 	userKey := appendUserKey(buf[:0], id)
@@ -174,9 +166,6 @@ func (s *Store) SearchUsers(ctx context.Context, keyword string, limit int) ([]U
 	if keyword == "" {
 		return nil, nil
 	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	prefix := []byte{'u'}
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})

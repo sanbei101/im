@@ -126,8 +126,6 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	if room.RoomID == uuid.Nil() {
 		return errors.New("room id is required")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [64]byte
 	roomKeyBytes := appendRoomKey(buf[:0], room.RoomID)
@@ -183,7 +181,9 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	if err := commit(batch); err != nil {
 		return err
 	}
+	s.roomsMu.Lock()
 	s.rooms[room.RoomID] = room
+	s.roomsMu.Unlock()
 	return nil
 }
 
@@ -191,9 +191,9 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if err := contextErr(ctx); err != nil {
 		return Room{}, err
 	}
-	s.mu.RLock()
+	s.roomsMu.RLock()
 	room, ok := s.rooms[roomID]
-	s.mu.RUnlock()
+	s.roomsMu.RUnlock()
 	if ok {
 		return room, nil
 	}
@@ -202,9 +202,9 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
-	s.mu.Lock()
+	s.roomsMu.Lock()
 	s.rooms[roomID] = room
-	s.mu.Unlock()
+	s.roomsMu.Unlock()
 	return room, nil
 }
 
@@ -212,8 +212,6 @@ func (s *Store) RoomBySingleHash(ctx context.Context, hash []byte) (Room, error)
 	if err := contextErr(ctx); err != nil {
 		return Room{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	var sKeyBuf [64]byte
 	id, err := s.getRecord(appendSingleRoomKey(sKeyBuf[:0], hash), getUUID)
 	if err != nil {
@@ -227,8 +225,6 @@ func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error)
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	return s.scanPrefix(appendMemberPrefix(nil, roomID), decodeMember)
 }
@@ -237,8 +233,6 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	prefix := appendUserRoomPrefix(nil, userID)
 	upper := prefixUpperBound(prefix)
@@ -272,8 +266,6 @@ func (s *Store) Member(ctx context.Context, roomID, userID uuid.UUID) (Member, e
 	if err := contextErr(ctx); err != nil {
 		return Member{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var mKeyBuf [64]byte
 	return s.getRecord(appendMemberKey(mKeyBuf[:0], roomID, userID), decodeMember)
@@ -283,8 +275,6 @@ func (s *Store) UpdateRoom(ctx context.Context, roomID uuid.UUID, name, avatarUR
 	if err := contextErr(ctx); err != nil {
 		return Room{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [32]byte
 	key := appendRoomKey(buf[:0], roomID)
@@ -312,7 +302,9 @@ func (s *Store) UpdateRoom(ctx context.Context, roomID uuid.UUID, name, avatarUR
 	if err := commit(batch); err != nil {
 		return Room{}, err
 	}
+	s.roomsMu.Lock()
 	s.rooms[roomID] = room
+	s.roomsMu.Unlock()
 	return room, nil
 }
 
@@ -320,8 +312,6 @@ func (s *Store) AddMembers(ctx context.Context, roomID uuid.UUID, newMembers []M
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -346,8 +336,6 @@ func (s *Store) RemoveMember(ctx context.Context, roomID, userID uuid.UUID) erro
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -367,8 +355,6 @@ func (s *Store) UpdateMemberRole(ctx context.Context, roomID, userID uuid.UUID, 
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var mKeyBuf [64]byte
 	mKey := appendMemberKey(mKeyBuf[:0], roomID, userID)
@@ -390,8 +376,6 @@ func (s *Store) UpdateMemberSettings(ctx context.Context, roomID, userID uuid.UU
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var mKeyBuf [64]byte
 	mKey := appendMemberKey(mKeyBuf[:0], roomID, userID)
@@ -424,9 +408,6 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 		return err
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	batch := s.db.NewBatch()
 	defer batch.Close()
 
@@ -445,16 +426,19 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 			return err
 		}
 	}
+	if err := commit(batch); err != nil {
+		return err
+	}
+	s.roomsMu.Lock()
 	delete(s.rooms, roomID)
-	return commit(batch)
+	s.roomsMu.Unlock()
+	return nil
 }
 
 func (s *Store) MarkRoomRead(ctx context.Context, userID, roomID uuid.UUID, readSeq uint64) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var buf [64]byte
 	key := appendReadSeqKey(buf[:0], userID, roomID)
@@ -473,8 +457,6 @@ func (s *Store) ReadSeq(ctx context.Context, userID, roomID uuid.UUID) (uint64, 
 	if err := contextErr(ctx); err != nil {
 		return 0, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	var buf [64]byte
 	key := appendReadSeqKey(buf[:0], userID, roomID)
@@ -493,9 +475,6 @@ func (s *Store) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversa
 	result := make([]ConversationInfo, 0, len(rooms))
 	var qKeyBuf [64]byte
 	var mKeyBuf [64]byte
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	for i := range rooms {
 		room := rooms[i].Room

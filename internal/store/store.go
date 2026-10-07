@@ -46,9 +46,9 @@ type MessageWriteResult struct {
 
 type Store struct {
 	db *pebble.DB
-	mu sync.RWMutex
 
-	rooms map[uuid.UUID]Room
+	roomsMu sync.RWMutex
+	rooms   map[uuid.UUID]Room
 
 	messageQueue chan messageWriteRequest
 	closeSignal  chan struct{}
@@ -432,8 +432,6 @@ func (s *Store) Checkpoint(ctx context.Context, dir string) error {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return fmt.Errorf("create checkpoint parent: %w", err)
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("remove old checkpoint: %w", err)
 	}
