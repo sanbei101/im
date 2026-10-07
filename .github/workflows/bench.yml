@@ -1,257 +1,56 @@
-name: 集成测试
+name: 测试与基准
 on:
-  workflow_call:
   workflow_dispatch:
   push:
     branches:
-      - main
-    paths-ignore:
-      - 'im-frontend/**'
-      - 'sdk/**'
-env:
-  SERVER_HOST: bench-server-${{ github.run_id }}
-  BENCH_HOST: bench-${{ github.run_id }}
+      - dev
 
 jobs:
-  server:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 15
+    services:
+      rustfs:
+        image: rustfs/rustfs:latest
+        ports:
+          - 19901:9000
+        env:
+          RUSTFS_ACCESS_KEY: rustfsadmin
+          RUSTFS_SECRET_KEY: rustfsadmin
+          RUSTFS_CONSOLE_ENABLE: "false"
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: setup go
-        uses: actions/setup-go@v6
+      - name: Setup go
+        uses: actions/setup-go@v7
         with:
           go-version: stable
           cache: true
           cache-dependency-path: 'go.sum'
 
-      - name: build server
-        run: |
-          go build -trimpath -ldflags="-s -w" -o worker  ./cmd/worker
-          go build -trimpath -ldflags="-s -w" -o gateway ./cmd/gateway
-          go build -trimpath -ldflags="-s -w" -o api     ./cmd/api
-          du -h worker gateway api
-        env:
-          GOEXPERIMENT: jsonv2
-          CGO_ENABLED: 0
-          GOOS: linux
+      - name: Lint
+        run: make lint
 
-      - name: Connect to Tailscale network
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-action
-          hostname: ${{ env.SERVER_HOST }}
+      - name: Test
+        run: make test
 
-      - name: Start services with docker-compose
-        run: |
-          docker compose up -d --wait postgres redis
+      - name: Benchmark
+        shell: bash
+        run: set -o pipefail; make bench 2>&1 | tee bench.txt
 
-      - name: run server
-        run: |
-          touch server.log
-
-          nohup ./worker >> server.log 2>&1 &
-          WORKER_PID=$!
-          echo $WORKER_PID > worker.pid
-
-          nohup ./gateway >> server.log 2>&1 &
-          GATEWAY_PID=$!
-          echo $GATEWAY_PID > gateway.pid
-
-          nohup ./api >> server.log 2>&1 &
-          API_PID=$!
-          echo $API_PID > api.pid
-
-          sleep 3
-
-          for pid in $WORKER_PID $GATEWAY_PID $API_PID; do
-            if ! kill -0 $pid 2>/dev/null; then
-              echo "❌ 进程 $pid 已退出!"
-              echo "=== Server Log ==="
-              cat server.log
-              exit 1
-            fi
-          done
-
-          echo "✅ 所有服务已启动"
-        env:
-          POSTGRES_DSN: "host=localhost port=5432 user=myuser password=mypassword dbname=database sslmode=disable"
-          REDIS_ADDR: "localhost:6379"
-          REDIS_PASSWORD: "123456"
-          REDIS_DB: "0"
-
-      - name: 触发压测
-        run: |
-          echo "通知 bench 节点开始压测..."
-          until echo "ready" | nc -N ${{ env.BENCH_HOST }} 9999; do
-            echo "bench 节点监听未就绪,重试..."
-            sleep 1
-          done
-          echo "信号发送成功,压测开始!"
-
-      - name: Install dependencies with cache
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: redis-tools, postgresql-client
-          version: 1.0
-
-      - name: 等待 Bench Setup 完成
-        run: |
-          nc -l 9999
-          echo "🚀 Bench 已就绪,开始监测..."
-
-      - name: Run monitor and wait for bench
-        working-directory: bench
-        run: |
-          chmod +x monitor.sh
-          ./monitor.sh &> >(tee monitor.log) &
-          MONITOR_PID=$!
-          echo $MONITOR_PID > /tmp/monitor.pid
-
-      - name: Wait for bench to finish
-        run: |
-          MONITOR_PID=$(cat /tmp/monitor.pid)
-          echo "等待 bench 节点发送压测结束信号..."
-          nc -l 9999
-          echo "🎉 收到 bench 结束信号,准备生成报告!"
-          kill -9 "$MONITOR_PID" || true
-
-      - name: see log
-        if: always()
-        run: tail -n 100 server.log
-
-      - name: Publish Server Monitor Summary
-        working-directory: bench
+      - name: Publish benchmark summary
         if: always()
         run: |
-          echo "### 📋 监控日志" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Benchmark" >> $GITHUB_STEP_SUMMARY
           echo '```log' >> $GITHUB_STEP_SUMMARY
-          tail -n 100 monitor.log >> $GITHUB_STEP_SUMMARY || echo "No monitor.log found" >> $GITHUB_STEP_SUMMARY
+          grep -E "^(Benchmark|ok|FAIL)" bench.txt >> $GITHUB_STEP_SUMMARY || echo "no bench output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: Cleanup
-        if: always()
-        run: docker compose down
-
-  bench:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: setup go
-        uses: actions/setup-go@v6
-        with:
-          go-version: stable
-          cache: true
-          cache-dependency-path: 'go.sum'
-
-      - name: Connect to Tailscale network
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-action
-          hostname: ${{ env.BENCH_HOST }}
-          ping: ${{ env.SERVER_HOST }}
-
-      - name: 等待 Server 就绪
-        run: nc -l 9999
-
-      - name: Run bench and collect pprof
-        working-directory: bench
-        run: |
-          touch bench.log
-
-          TARGET_HOST=${{ env.SERVER_HOST }} go run . &> >(tee bench.log) &
-          BENCH_PID=$!
-          echo $BENCH_PID > /tmp/bench.pid
-
-          echo "等待 bench setup 阶段完成..."
-          grep -q -m 1 "setup ok" <(tail -f bench.log)
-          echo "🚀 Setup 完成, 流量已启动"
-
-      - name: 触发 Server 监控
-        run: |
-          echo "ready" | nc -N ${{ env.SERVER_HOST }} 9999
-          echo "🚀 已通知 Server 开始监控"
-
-      - name: Collect Pprof Profiles
-        working-directory: bench
-        run: |
-          curl -s -o worker_cpu.prof "http://${{ env.SERVER_HOST }}:6063/debug/pprof/profile?seconds=20" &
-          WORKER_CPU_PID=$!
-          curl -s -o gateway_cpu.prof "http://${{ env.SERVER_HOST }}:6062/debug/pprof/profile?seconds=20" &
-          GATEWAY_CPU_PID=$!
-
-          (sleep 10 && curl -s -o worker_heap.prof "http://${{ env.SERVER_HOST }}:6063/debug/pprof/heap") &
-          WORKER_HEAP_PID=$!
-          (sleep 10 && curl -s -o gateway_heap.prof "http://${{ env.SERVER_HOST }}:6062/debug/pprof/heap") &
-          GATEWAY_HEAP_PID=$!
-
-          wait $WORKER_CPU_PID
-          wait $GATEWAY_CPU_PID
-          wait $WORKER_HEAP_PID
-          wait $GATEWAY_HEAP_PID
-
-      - name: 等待 Bench 完成
-        run: |
-          BENCH_PID=$(cat /tmp/bench.pid)
-          echo "等待 bench 进程 (PID: $BENCH_PID) 结束..."
-          while kill -0 $BENCH_PID 2>/dev/null; do
-            sleep 1
-          done
-          echo "Bench 压测已结束!"
-
-      - name: 通知 Server 压测结束
-        run: |
-          echo "通知 Server 压测已结束..."
-          echo "done" | nc -N ${{ env.SERVER_HOST }} 9999
-
-      - name: Upload pprof profiles
+      - name: Upload bench results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: pprof-profiles
-          path: |
-            bench/worker_cpu.prof
-            bench/gateway_cpu.prof
-            bench/worker_heap.prof
-            bench/gateway_heap.prof
+          name: bench-results
+          path: bench.txt
           retention-days: 7
-
-      - name: Publish Bench and Profiling Summary
-        working-directory: bench
-        if: always()
-        run: |
-          echo "### 🔥 CPU Profile" >> $GITHUB_STEP_SUMMARY
-
-          echo "#### Gateway CPU Top 20" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -nodecount=20 -cum gateway_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-          echo "#### Worker CPU Top 20" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -nodecount=20 -cum worker_cpu.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-          echo "#### Gateway Heap - In Use" >> $GITHUB_STEP_SUMMARY
-          echo '```text' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -sample_index=inuse_space -nodecount=15 gateway_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-          echo "#### Worker Heap - Alloc Space" >> $GITHUB_STEP_SUMMARY
-          echo '```text' >> $GITHUB_STEP_SUMMARY
-          go tool pprof -text -sample_index=alloc_space -nodecount=15 worker_heap.prof 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Cannot parse" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-          echo "### 🚀 Bench 压测结果" >> $GITHUB_STEP_SUMMARY
-          echo '```log' >> $GITHUB_STEP_SUMMARY
-          tail -n 100 bench.log >> $GITHUB_STEP_SUMMARY || echo "No bench.log found" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
