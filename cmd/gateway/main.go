@@ -16,8 +16,6 @@ import (
 	"github.com/sanbei101/im/pkg/logger"
 )
 
-var wg sync.WaitGroup
-
 func main() {
 	logger.InitLogger()
 	cfg := config.New()
@@ -34,6 +32,7 @@ func main() {
 		Handler: gatewayMux,
 	}
 
+	var wg sync.WaitGroup
 	wg.Go(func() {
 		if err := http.ListenAndServe(":6062", nil); err != nil {
 			log.Error().Err(err).Msg("pprof server stopped")

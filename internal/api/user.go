@@ -151,10 +151,9 @@ func (a *UserAPI) GetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *UserAPI) UpdateProfile(w http.ResponseWriter, r *http.Request) {
-	userIDStr := jwt.GetUserIDFromContext(r)
-	id, err := uuid.Parse(userIDStr)
+	id, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusUnauthorized, "invalid user token")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -215,6 +214,10 @@ func (a *UserAPI) Presence(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if len(req.UserIDs) > 100 {
+		render.Error(w, http.StatusBadRequest, "too many user_ids (max 100)")
+		return
+	}
 	result := make(map[string]bool, len(req.UserIDs))
 	for _, uid := range req.UserIDs {
 		online := false
@@ -236,14 +239,9 @@ func (a *UserAPI) SaveDeviceToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	if err := a.store.SaveDeviceToken(r.Context(), userID, store.DeviceInfo{
@@ -258,16 +256,14 @@ func (a *UserAPI) SaveDeviceToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *UserAPI) Logout(w http.ResponseWriter, r *http.Request) {
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr != "" {
-		if userID, err := uuid.Parse(userIDStr); err == nil {
-			if delErr := a.store.DeleteDeviceToken(
-				r.Context(),
-				userID,
-			); delErr != nil &&
-				!errors.Is(delErr, store.ErrNotFound) {
-				log.Error().Err(delErr).Msg("delete device token failed")
-			}
+	// Logout must succeed even with a bad token; the device token is best-effort.
+	if userID, err := getContextUserID(r); err == nil {
+		if delErr := a.store.DeleteDeviceToken(
+			r.Context(),
+			userID,
+		); delErr != nil &&
+			!errors.Is(delErr, store.ErrNotFound) {
+			log.Error().Err(delErr).Msg("delete device token failed")
 		}
 	}
 	render.SuccessNoData(w, http.StatusOK, "登出成功")
@@ -279,14 +275,9 @@ type UpdatePasswordReq struct {
 }
 
 func (a *UserAPI) UpdatePassword(w http.ResponseWriter, r *http.Request) {
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 

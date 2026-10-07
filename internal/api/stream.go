@@ -58,11 +58,7 @@ type apiConnection struct {
 }
 
 func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
-	var hVal uint32
-	for i := 0; i < len(userID); i++ {
-		hVal = hVal*31 + uint32(userID[i])
-	}
-	return &h.sessionShards[hVal%sessionShardCount]
+	return &h.sessionShards[pkg.StringShard(userID, sessionShardCount)]
 }
 
 func (h *StreamHandler) getMemberShard(roomID uuid.UUID) *memberCacheShard {

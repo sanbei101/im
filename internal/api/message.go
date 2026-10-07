@@ -40,8 +40,14 @@ func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	before := parseBeforeSeq(q.Get("before_seq"))
-	limit := parseLimit(q.Get("page_size"))
+	before, ok := parseBeforeSeq(w, q.Get("before_seq"))
+	if !ok {
+		return
+	}
+	limit, ok := parseLimit(w, q.Get("page_size"))
+	if !ok {
+		return
+	}
 
 	page, err := a.store.Messages(r.Context(), roomID, before, limit)
 	if err != nil {
@@ -78,26 +84,16 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	members, err := a.store.Members(r.Context(), roomID)
+	member, err := a.store.Member(r.Context(), roomID, userID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusForbidden, "not a room member")
+		return
+	}
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var isOwnerOrAdmin bool
-	var isMember bool
-	for _, m := range members {
-		if m.UserID == userID {
-			isMember = true
-			if m.Role == store.RoleOwner || m.Role == store.RoleAdmin {
-				isOwnerOrAdmin = true
-			}
-			break
-		}
-	}
-	if !isMember {
-		render.Error(w, http.StatusForbidden, "not a room member")
-		return
-	}
+	isOwnerOrAdmin := member.Role == store.RoleOwner || member.Role == store.RoleAdmin
 
 	recalled, err := a.store.RecallMessage(r.Context(), roomID, msgID, userID, isOwnerOrAdmin)
 	if err != nil {
@@ -271,13 +267,13 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	before := parseBeforeSeq(q.Get("before"))
-	if before == 0 {
-		before = parseBeforeSeq(q.Get("before_seq"))
+	before, ok := parseBeforeSeq(w, q.Get("before_seq"))
+	if !ok {
+		return
 	}
-	limit := parseLimit(q.Get("limit"))
-	if q.Get("limit") == "" && q.Get("page_size") != "" {
-		limit = parseLimit(q.Get("page_size"))
+	limit, ok := parseLimit(w, q.Get("page_size"))
+	if !ok {
+		return
 	}
 
 	messages, err := a.store.SearchRoomMessages(r.Context(), roomID, keyword, before, limit)
@@ -292,24 +288,30 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 	render.Success(w, "搜索聊天记录成功", messages)
 }
 
-func parseBeforeSeq(s string) uint64 {
-	if s == "" {
-		return 0
+// parseBeforeSeq parses the before_seq pagination cursor; an empty value
+// means 0 (newest page), a present-but-invalid value is rejected with 400.
+func parseBeforeSeq(w http.ResponseWriter, raw string) (uint64, bool) {
+	if raw == "" {
+		return 0, true
 	}
-	v, err := strconv.ParseUint(s, 10, 64)
+	v, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil {
-		return 0
+		render.Error(w, http.StatusBadRequest, "invalid before_seq")
+		return 0, false
 	}
-	return v
+	return v, true
 }
 
-func parseLimit(s string) int {
-	if s == "" {
-		return 20
+// parseLimit parses page_size, defaulting to 20; out-of-range values are
+// rejected with 400 instead of silently clamped.
+func parseLimit(w http.ResponseWriter, raw string) (int, bool) {
+	if raw == "" {
+		return 20, true
 	}
-	v, err := strconv.Atoi(s)
+	v, err := strconv.Atoi(raw)
 	if err != nil || v <= 0 || v > 100 {
-		return 20
+		render.Error(w, http.StatusBadRequest, "invalid page_size")
+		return 0, false
 	}
-	return v
+	return v, true
 }

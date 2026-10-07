@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"strconv"
 	"testing"
 	"uuid"
 )
@@ -68,6 +69,24 @@ func TestShard(t *testing.T) {
 			if _, err := NodeIndex(uint16(c.slot), c.slots, c.nodes); err == nil {
 				t.Fatalf("expected error for slot=%d slots=%d nodes=%d", c.slot, c.slots, c.nodes)
 			}
+		}
+	})
+
+	t.Run("string shard is deterministic and in range", func(t *testing.T) {
+		const shards = 64
+		if got := StringShard("request-1", shards); got != StringShard("request-1", shards) {
+			t.Fatal("StringShard not deterministic")
+		}
+		seen := make(map[int]bool)
+		for i := range 5000 {
+			shard := StringShard("request-"+strconv.Itoa(i), shards)
+			if shard < 0 || shard >= shards {
+				t.Fatalf("shard out of range: %d", shard)
+			}
+			seen[shard] = true
+		}
+		if len(seen) < shards*9/10 {
+			t.Fatalf("keys covered only %d of %d shards", len(seen), shards)
 		}
 	})
 }

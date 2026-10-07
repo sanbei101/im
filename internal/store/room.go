@@ -547,7 +547,7 @@ func (s *Store) ReadSeq(ctx context.Context, userID, roomID uuid.UUID) (uint64, 
 // the user-major 'q' index, keyed by room.
 func (s *Store) userReadSeqs(userID uuid.UUID) (map[uuid.UUID]uint64, error) {
 	var buf [17]byte
-	prefix := append(append(buf[:0], 'q'), userID[:]...)
+	prefix := appendReadSeqPrefix(buf[:0], userID)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return nil, err
@@ -557,7 +557,7 @@ func (s *Store) userReadSeqs(userID uuid.UUID) (map[uuid.UUID]uint64, error) {
 	seqs := make(map[uuid.UUID]uint64)
 	for iter.First(); iter.Valid(); iter.Next() {
 		var room uuid.UUID
-		copy(room[:], iter.Key()[17:33])
+		copy(room[:], iter.Key()[len(prefix):])
 		seqs[room] = binary.BigEndian.Uint64(iter.Value())
 	}
 	return seqs, iter.Error()
@@ -565,7 +565,8 @@ func (s *Store) userReadSeqs(userID uuid.UUID) (map[uuid.UUID]uint64, error) {
 
 // roomReadSeqs mirrors userReadSeqs over the room-major 'Q' index, keyed by user.
 func (s *Store) roomReadSeqs(roomID uuid.UUID) (map[uuid.UUID]uint64, error) {
-	prefix := appendRoomReadSeqPrefix(nil, roomID)
+	var buf [17]byte
+	prefix := appendRoomReadSeqPrefix(buf[:0], roomID)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return nil, err
@@ -575,7 +576,7 @@ func (s *Store) roomReadSeqs(roomID uuid.UUID) (map[uuid.UUID]uint64, error) {
 	seqs := make(map[uuid.UUID]uint64)
 	for iter.First(); iter.Valid(); iter.Next() {
 		var user uuid.UUID
-		copy(user[:], iter.Key()[17:33])
+		copy(user[:], iter.Key()[len(prefix):])
 		seqs[user] = binary.BigEndian.Uint64(iter.Value())
 	}
 	return seqs, iter.Error()

@@ -370,14 +370,7 @@ func min64(a, b uint64) uint64 {
 
 func messageUpperBound(prefix []byte, before uint64) []byte {
 	if before == 0 {
-		upperBound := append([]byte(nil), prefix...)
-		for i := len(upperBound) - 1; i >= 0; i-- {
-			if upperBound[i] < 0xff {
-				upperBound[i]++
-				return upperBound[:i+1]
-			}
-		}
-		return nil
+		return prefixUpperBound(prefix)
 	}
 	upperBound := make([]byte, len(prefix)+8)
 	copy(upperBound, prefix)
@@ -535,6 +528,9 @@ func (s *Store) execRecall(request *recallRequest) {
 	request.result <- result
 }
 
+// recallWindow bounds how long after ServerTime a non-admin may recall a message.
+const recallWindow = 2 * time.Minute
+
 func (s *Store) recall(request *recallRequest) (Message, error) {
 	roomID, msgID, operatorID := request.roomID, request.msgID, request.operatorID
 
@@ -577,8 +573,7 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 		return Message{}, ErrForbidden
 	}
 
-	now := time.Now().UnixMicro()
-	if !request.isOwnerOrAdmin && now-msg.ServerTime > 120*1000*1000 {
+	if !request.isOwnerOrAdmin && time.Since(time.UnixMicro(msg.ServerTime)) > recallWindow {
 		return Message{}, ErrRecallTimeout
 	}
 

@@ -288,7 +288,7 @@ type RoomInfo struct {
 
 type MessagePage struct {
 	Messages []Message `json:"messages"`
-	HasMore  bool      `json:"hasMore"`
+	HasMore  bool      `json:"has_more"`
 }
 
 func Open(path string) (*Store, error) {

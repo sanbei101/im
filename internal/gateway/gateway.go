@@ -53,19 +53,11 @@ type roomUserSet struct {
 }
 
 func (g *Gateway) getPendingShard(requestID string) *pendingShard {
-	var hVal uint32
-	for i := 0; i < len(requestID); i++ {
-		hVal = hVal*31 + uint32(requestID[i])
-	}
-	return &g.pendingShards[hVal%pendingShardCount]
+	return &g.pendingShards[pkg.StringShard(requestID, pendingShardCount)]
 }
 
 func (g *Gateway) getRoomUserShard(roomID string) *roomUserShard {
-	var hVal uint32
-	for i := 0; i < len(roomID); i++ {
-		hVal = hVal*31 + uint32(roomID[i])
-	}
-	return &g.roomUserShards[hVal%roomUserShardCount]
+	return &g.roomUserShards[pkg.StringShard(roomID, roomUserShardCount)]
 }
 
 func (g *Gateway) StorePending(requestID string, uc *UserClient) {
@@ -408,7 +400,13 @@ func (s *apiStream) loop(ctx context.Context) error {
 	}()
 	err := <-done
 	close(stop)
-	stream.CloseSend(context.Background())
+	// End the send direction so the API node finishes the RPC and the blocked
+	// Recv above returns; teardown happens before Wait so no goroutine is left
+	// holding a dying stream. A send already in flight errors out on the broken
+	// stream, which is the same condition that triggered this teardown.
+	if closeErr := stream.CloseSend(context.Background()); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	wg.Wait()
 	return err
 }

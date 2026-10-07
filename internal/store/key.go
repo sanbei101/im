@@ -103,6 +103,10 @@ func appendReadSeqKey(dst []byte, user, room uuid.UUID) []byte {
 	return append(append(append(dst, 'q'), user[:]...), room[:]...)
 }
 
+func appendReadSeqPrefix(dst []byte, user uuid.UUID) []byte {
+	return append(append(dst, 'q'), user[:]...)
+}
+
 // 'Q' mirrors the read-seq marker room-major ('q' is user-major): ReadUsers
 // scans one room's markers in a single range instead of a get per member.
 func appendRoomReadSeqKey(dst []byte, room, user uuid.UUID) []byte {
