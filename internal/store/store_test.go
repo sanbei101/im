@@ -396,6 +396,85 @@ func BenchmarkWriteMessage(b *testing.B) {
 	}
 }
 
+func BenchmarkWriteMessagesParallelSingleRoom(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	roomID := uuid.NewV7()
+	senderID := uuid.NewV7()
+	if err := data.CreateRoom(
+		context.Background(),
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
+		b.Fatal(err)
+	}
+
+	payload := []byte(`{"text":"benchmark payload"}`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := data.WriteMessage(context.Background(), Message{
+				ClientMsgID: uuid.NewV7(),
+				SenderID:    senderID,
+				RoomID:      roomID,
+				MsgType:     MsgTypeText,
+				Payload:     payload,
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkWriteMessagesParallelMultiRoom(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	const numRooms = 64
+	rooms := make([]uuid.UUID, numRooms)
+	senderID := uuid.NewV7()
+	for i := range numRooms {
+		rooms[i] = uuid.NewV7()
+		if err := data.CreateRoom(
+			context.Background(),
+			Room{RoomID: rooms[i], ChatType: "group"},
+			[]Member{{UserID: senderID, Role: "owner"}},
+		); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	payload := []byte(`{"text":"benchmark payload"}`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			roomID := rooms[i%numRooms]
+			i++
+			if _, err := data.WriteMessage(context.Background(), Message{
+				ClientMsgID: uuid.NewV7(),
+				SenderID:    senderID,
+				RoomID:      roomID,
+				MsgType:     MsgTypeText,
+				Payload:     payload,
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
 func BenchmarkReadMessages(b *testing.B) {
 	data, err := Open(b.TempDir() + "/store")
 	if err != nil {
