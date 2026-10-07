@@ -135,16 +135,28 @@ func (c *Config) Default() {
 		c.API.NodeCount = len(c.Gateway.APIAddrs)
 	}
 	if c.Storage.Endpoint == "" {
-		c.Storage.Endpoint = "127.0.0.1:9000"
+		c.Storage.Endpoint = "127.0.0.1:9001"
 	}
 	if c.Storage.Bucket == "" {
 		c.Storage.Bucket = "im-media"
 	}
 	if c.Storage.AccessKeyID == "" {
-		c.Storage.AccessKeyID = "minioadmin"
+		c.Storage.AccessKeyID = "rustfsadmin"
 	}
 	if c.Storage.SecretAccessKey == "" {
-		c.Storage.SecretAccessKey = "minioadmin"
+		c.Storage.SecretAccessKey = "rustfsadmin"
+	}
+	if value := os.Getenv("STORAGE_ENDPOINT"); value != "" {
+		c.Storage.Endpoint = value
+	}
+	if value := os.Getenv("STORAGE_BUCKET"); value != "" {
+		c.Storage.Bucket = value
+	}
+	if value := os.Getenv("STORAGE_ACCESS_KEY_ID"); value != "" {
+		c.Storage.AccessKeyID = value
+	}
+	if value := os.Getenv("STORAGE_SECRET_ACCESS_KEY"); value != "" {
+		c.Storage.SecretAccessKey = value
 	}
 }
 

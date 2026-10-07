@@ -15,23 +15,9 @@ import (
 	"github.com/sanbei101/im/pkg/config"
 )
 
-// configLoadForTest reads the same config.yaml the API process uses, so tests
-// exercise the deployed storage settings instead of a parallel definition.
-func configLoadForTest() (*config.Config, error) {
-	return config.Load(filepath.Join("..", "..", "config.yaml"))
-}
-
-// The archive tests run against the MinIO service the environment starts
-// ahead of time (docker-compose/CI service or `make test-storage`); the
-// endpoint, bucket and credentials come from the same config.yaml the API
-// process uses. Without a reachable service the tests skip, they never
-// launch or mock an object store themselves.
 func newTestObjectStore(t *testing.T) *MinioObjectStore {
 	t.Helper()
-	cfg, err := configLoadForTest()
-	if err != nil {
-		t.Skipf("storage config unavailable: %v", err)
-	}
+	cfg := config.NewTest()
 	objects, err := NewMinioObjectStore(
 		cfg.Storage.Endpoint, cfg.Storage.Bucket,
 		cfg.Storage.AccessKeyID, cfg.Storage.SecretAccessKey, cfg.Storage.UseSSL,
