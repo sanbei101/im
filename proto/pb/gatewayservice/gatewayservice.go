@@ -9,8 +9,7 @@ import (
 	kitex "github.com/cloudwego/kitex/pkg/serviceinfo"
 	streaming "github.com/cloudwego/kitex/pkg/streaming"
 	proto "github.com/cloudwego/prutal"
-	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
-	v1 "github.com/sanbei101/im/kitex_gen/im/v1"
+	pb "github.com/sanbei101/im/proto/pb"
 )
 
 var errInvalidMessageType = errors.New("invalid message type for service method handler")
@@ -41,9 +40,9 @@ func NewServiceInfo() *kitex.ServiceInfo {
 
 func newServiceInfo() *kitex.ServiceInfo {
 	serviceName := "GatewayService"
-	handlerType := (*imv1.GatewayService)(nil)
+	handlerType := (*pb.GatewayService)(nil)
 	extra := map[string]interface{}{
-		"PackageName": "im.v1",
+		"PackageName": "pb",
 	}
 	svcInfo := &kitex.ServiceInfo{
 		ServiceName:     serviceName,
@@ -61,8 +60,8 @@ func connectHandler(ctx context.Context, handler interface{}, arg, result interf
 	if err != nil {
 		return err
 	}
-	stream := streaming.NewBidiStreamingServer[v1.GatewayFrame, v1.APIFrame](st)
-	return handler.(imv1.GatewayService).Connect(ctx, stream)
+	stream := streaming.NewBidiStreamingServer[pb.GatewayFrame, pb.APIFrame](st)
+	return handler.(pb.GatewayService).Connect(ctx, stream)
 }
 
 func newConnectArgs() interface{} {
@@ -74,7 +73,7 @@ func newConnectResult() interface{} {
 }
 
 type ConnectArgs struct {
-	Req *v1.GatewayFrame
+	Req *pb.GatewayFrame
 }
 
 func (p *ConnectArgs) Marshal(out []byte) ([]byte, error) {
@@ -85,7 +84,7 @@ func (p *ConnectArgs) Marshal(out []byte) ([]byte, error) {
 }
 
 func (p *ConnectArgs) Unmarshal(in []byte) error {
-	msg := new(v1.GatewayFrame)
+	msg := new(pb.GatewayFrame)
 	if err := proto.Unmarshal(in, msg); err != nil {
 		return err
 	}
@@ -93,9 +92,9 @@ func (p *ConnectArgs) Unmarshal(in []byte) error {
 	return nil
 }
 
-var ConnectArgs_Req_DEFAULT *v1.GatewayFrame
+var ConnectArgs_Req_DEFAULT *pb.GatewayFrame
 
-func (p *ConnectArgs) GetReq() *v1.GatewayFrame {
+func (p *ConnectArgs) GetReq() *pb.GatewayFrame {
 	if !p.IsSetReq() {
 		return ConnectArgs_Req_DEFAULT
 	}
@@ -111,10 +110,10 @@ func (p *ConnectArgs) GetFirstArgument() interface{} {
 }
 
 type ConnectResult struct {
-	Success *v1.APIFrame
+	Success *pb.APIFrame
 }
 
-var ConnectResult_Success_DEFAULT *v1.APIFrame
+var ConnectResult_Success_DEFAULT *pb.APIFrame
 
 func (p *ConnectResult) Marshal(out []byte) ([]byte, error) {
 	if !p.IsSetSuccess() {
@@ -124,7 +123,7 @@ func (p *ConnectResult) Marshal(out []byte) ([]byte, error) {
 }
 
 func (p *ConnectResult) Unmarshal(in []byte) error {
-	msg := new(v1.APIFrame)
+	msg := new(pb.APIFrame)
 	if err := proto.Unmarshal(in, msg); err != nil {
 		return err
 	}
@@ -132,7 +131,7 @@ func (p *ConnectResult) Unmarshal(in []byte) error {
 	return nil
 }
 
-func (p *ConnectResult) GetSuccess() *v1.APIFrame {
+func (p *ConnectResult) GetSuccess() *pb.APIFrame {
 	if !p.IsSetSuccess() {
 		return ConnectResult_Success_DEFAULT
 	}
@@ -140,7 +139,7 @@ func (p *ConnectResult) GetSuccess() *v1.APIFrame {
 }
 
 func (p *ConnectResult) SetSuccess(x interface{}) {
-	p.Success = x.(*v1.APIFrame)
+	p.Success = x.(*pb.APIFrame)
 }
 
 func (p *ConnectResult) IsSetSuccess() bool {
@@ -168,6 +167,6 @@ func (p *kClient) Connect(ctx context.Context) (GatewayService_ConnectClient, er
 	if err != nil {
 		return nil, err
 	}
-	stream := streaming.NewBidiStreamingClient[v1.GatewayFrame, v1.APIFrame](st)
+	stream := streaming.NewBidiStreamingClient[pb.GatewayFrame, pb.APIFrame](st)
 	return stream, nil
 }

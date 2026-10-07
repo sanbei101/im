@@ -16,9 +16,9 @@ import (
 
 	"github.com/sanbei101/im/internal/api"
 	"github.com/sanbei101/im/internal/store"
-	"github.com/sanbei101/im/kitex_gen/im/v1/gatewayservice"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
+	"github.com/sanbei101/im/proto/pb/gatewayservice"
 )
 
 func main() {

@@ -3,11 +3,11 @@ package gatewayservice
 
 import (
 	server "github.com/cloudwego/kitex/server"
-	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
+	pb "github.com/sanbei101/im/proto/pb"
 )
 
 // NewServer creates a server.Server with the given handler and options.
-func NewServer(handler imv1.GatewayService, opts ...server.Option) server.Server {
+func NewServer(handler pb.GatewayService, opts ...server.Option) server.Server {
 	var options []server.Option
 
 	options = append(options, opts...)
@@ -20,6 +20,6 @@ func NewServer(handler imv1.GatewayService, opts ...server.Option) server.Server
 	return svr
 }
 
-func RegisterService(svr server.Server, handler imv1.GatewayService, opts ...server.RegisterOption) error {
+func RegisterService(svr server.Server, handler pb.GatewayService, opts ...server.RegisterOption) error {
 	return svr.RegisterService(serviceInfo(), handler, opts...)
 }

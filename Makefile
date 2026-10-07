@@ -3,7 +3,10 @@ STORE_PKG := ./internal/store
 BENCH := BenchmarkWriteMessages100Batch|BenchmarkWriteMessagesBatch|BenchmarkWriteMessage|BenchmarkReadMessages
 PPROF_DIR ?= .tmp/pprof
 
-.PHONY: fmt vet test race bench pprof analyze verify clean
+.PHONY: gen fmt vet test race bench pprof analyze verify clean
+
+gen:
+	kitex -type protobuf -streamx -module github.com/sanbei101/im -gen-path proto/pb proto/gateway.proto
 
 fmt:
 	@test -z "$$($(GO)fmt -l .)" || (echo "gofmt required"; $(GO)fmt -l .; exit 1)

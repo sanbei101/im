@@ -13,11 +13,11 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
-	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
-	"github.com/sanbei101/im/kitex_gen/im/v1/gatewayservice"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/render"
+	"github.com/sanbei101/im/proto/pb"
+	"github.com/sanbei101/im/proto/pb/gatewayservice"
 )
 
 type Gateway struct {
@@ -56,7 +56,7 @@ func (g *Gateway) streamForRoom(roomID uuid.UUID) *apiStream {
 	return g.streams[index]
 }
 
-func (g *Gateway) send(ctx context.Context, roomID uuid.UUID, message *imv1.SendMessage) error {
+func (g *Gateway) send(ctx context.Context, roomID uuid.UUID, message *pb.SendMessage) error {
 	stream := g.streamForRoom(roomID)
 	if stream == nil {
 		return errors.New("no api stream available")
@@ -77,8 +77,8 @@ type apiStream struct {
 	id       string
 	address  string
 	stream   gatewayservice.GatewayService_ConnectClient
-	queue    chan *imv1.SendMessage
-	sessions chan *imv1.Session
+	queue    chan *pb.SendMessage
+	sessions chan *pb.Session
 	mu       sync.RWMutex
 }
 
@@ -87,8 +87,8 @@ func newAPIStream(g *Gateway, id, address string) *apiStream {
 		gateway:  g,
 		id:       id,
 		address:  address,
-		queue:    make(chan *imv1.SendMessage, 1024),
-		sessions: make(chan *imv1.Session, 256),
+		queue:    make(chan *pb.SendMessage, 1024),
+		sessions: make(chan *pb.Session, 256),
 	}
 }
 
@@ -123,16 +123,16 @@ func (s *apiStream) connect(ctx context.Context) error {
 	s.stream = stream
 	s.mu.Unlock()
 	if err := stream.Send(ctx,
-		&imv1.GatewayFrame{Body: &imv1.GatewayFrame_Hello{Hello: &imv1.Hello{GatewayId: s.id}}},
+		&pb.GatewayFrame{Body: &pb.GatewayFrame_Hello{Hello: &pb.Hello{GatewayId: s.id}}},
 	); err != nil {
 		return err
 	}
 	for _, session := range s.gateway.UserSessionManager.All() {
 		if err := stream.Send(ctx,
-			&imv1.GatewayFrame{
-				Body: &imv1.GatewayFrame_SessionBatch{
-					SessionBatch: &imv1.SessionBatch{
-						Sessions: []*imv1.Session{{UserId: session.String(), Online: true}},
+			&pb.GatewayFrame{
+				Body: &pb.GatewayFrame_SessionBatch{
+					SessionBatch: &pb.SessionBatch{
+						Sessions: []*pb.Session{{UserId: session.String(), Online: true}},
 					},
 				},
 			},
@@ -152,15 +152,15 @@ func (s *apiStream) loop(ctx context.Context) error {
 				done <- ctx.Err()
 				return
 			case message := <-s.queue:
-				if err := s.sendFrame(ctx, &imv1.GatewayFrame{Body: &imv1.GatewayFrame_SendBatch{
-					SendBatch: &imv1.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*imv1.SendMessage{message}},
+				if err := s.sendFrame(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SendBatch{
+					SendBatch: &pb.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*pb.SendMessage{message}},
 				}}); err != nil {
 					done <- err
 					return
 				}
 			case session := <-s.sessions:
-				if err := s.sendFrame(ctx, &imv1.GatewayFrame{Body: &imv1.GatewayFrame_SessionBatch{
-					SessionBatch: &imv1.SessionBatch{Sessions: []*imv1.Session{session}},
+				if err := s.sendFrame(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SessionBatch{
+					SessionBatch: &pb.SessionBatch{Sessions: []*pb.Session{session}},
 				}}); err != nil {
 					done <- err
 					return
@@ -187,13 +187,13 @@ func (s *apiStream) loop(ctx context.Context) error {
 }
 
 // sendFrame sends one frame on the live stream.
-func (s *apiStream) sendFrame(ctx context.Context, frame *imv1.GatewayFrame) error {
+func (s *apiStream) sendFrame(ctx context.Context, frame *pb.GatewayFrame) error {
 	return s.snapshot().Send(ctx, frame)
 }
 
 func (s *apiStream) register(ctx context.Context, userID uuid.UUID, online bool) error {
 	select {
-	case s.sessions <- &imv1.Session{UserId: userID.String(), Online: online}:
+	case s.sessions <- &pb.Session{UserId: userID.String(), Online: online}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -202,7 +202,7 @@ func (s *apiStream) register(ctx context.Context, userID uuid.UUID, online bool)
 	}
 }
 
-func (s *apiStream) handleResults(batch *imv1.SendResultBatch) {
+func (s *apiStream) handleResults(batch *pb.SendResultBatch) {
 	for _, result := range batch.GetResults() {
 		value, ok := s.gateway.pending.LoadAndDelete(result.GetRequestId())
 		if !ok {
@@ -228,7 +228,7 @@ func (s *apiStream) handleResults(batch *imv1.SendResultBatch) {
 	}
 }
 
-func (s *apiStream) handlePush(batch *imv1.PushBatch) {
+func (s *apiStream) handlePush(batch *pb.PushBatch) {
 	for _, push := range batch.GetPushes() {
 		if push == nil {
 			continue
@@ -262,7 +262,7 @@ func (s *apiStream) handlePush(batch *imv1.PushBatch) {
 	}
 }
 
-func (s *apiStream) enqueue(ctx context.Context, message *imv1.SendMessage) error {
+func (s *apiStream) enqueue(ctx context.Context, message *pb.SendMessage) error {
 	select {
 	case s.queue <- message:
 		return nil

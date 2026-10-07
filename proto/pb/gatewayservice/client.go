@@ -8,7 +8,7 @@ import (
 	streamcall "github.com/cloudwego/kitex/client/callopt/streamcall"
 	streaming "github.com/cloudwego/kitex/pkg/streaming"
 	transport "github.com/cloudwego/kitex/transport"
-	v1 "github.com/sanbei101/im/kitex_gen/im/v1"
+	pb "github.com/sanbei101/im/proto/pb"
 )
 
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
@@ -16,7 +16,7 @@ type Client interface {
 	Connect(ctx context.Context, callOptions ...streamcall.Option) (stream GatewayService_ConnectClient, err error)
 }
 
-type GatewayService_ConnectClient streaming.BidiStreamingClient[v1.GatewayFrame, v1.APIFrame]
+type GatewayService_ConnectClient streaming.BidiStreamingClient[pb.GatewayFrame, pb.APIFrame]
 
 // NewClient creates a client for the service defined in IDL.
 func NewClient(destService string, opts ...client.Option) (Client, error) {

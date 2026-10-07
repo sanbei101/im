@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package im.v1;
+package pb;
 
-option go_package = "github.com/sanbei101/im/kitex_gen/im/v1;imv1";
+option go_package = "github.com/sanbei101/im/proto/pb;pb";
 
 service GatewayService {
   rpc Connect(stream GatewayFrame) returns (stream APIFrame);

@@ -13,8 +13,8 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
-	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
 	"github.com/sanbei101/im/pkg/render"
+	"github.com/sanbei101/im/proto/pb"
 )
 
 type UserClient struct {
@@ -83,7 +83,7 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	message := &imv1.SendMessage{
+	message := &pb.SendMessage{
 		RequestId: requestID, ClientMsgId: input.ClientMsgID, SenderId: c.UserID.String(),
 		RoomId: input.RoomID, MsgType: int32(msgType), Payload: input.Payload, Ext: input.Ext,
 		ReplyToMsgId: input.ReplyToMsgID,

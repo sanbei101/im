@@ -20,9 +20,8 @@ cmd/gateway   WebSocket Gateway 进程
 internal/api  HTTP 和 Kitex 服务
 internal/gateway WebSocket、Kitex 客户端和会话
 internal/store Pebble 与固定二进制记录编码
-kitex_gen     Kitex/Protobuf 生成代码
 pkg           配置、分片、JWT、日志
-proto         Protobuf 源文件
+proto         Protobuf 源文件与 Kitex 生成代码(proto/pb)
 ```
 
 ## 本地运行
@@ -32,7 +31,7 @@ proto         Protobuf 源文件
 ```bash
 brew install protobuf
 go install github.com/cloudwego/kitex/tool/cmd/kitex@latest
-kitex -type protobuf -streamx -module github.com/sanbei101/im -gen-path kitex_gen proto/im/v1/gateway.proto
+make gen
 ```
 
 启动 API 和 Gateway:

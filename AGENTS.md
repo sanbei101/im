@@ -23,7 +23,7 @@ internal/api     HTTP Handler、Kitex Server 和 API 业务逻辑
 internal/gateway WebSocket、Kitex Client、会话和批量发送
 internal/store   Pebble、Key 编码、用户、房间、消息和备份
 pkg              配置、分片、JWT、日志和通用工具
-proto            Kitex/fastpb 协议源文件
+proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 ```
 
 禁止重新引入 `internal/model`、`internal/domain`、`internal/repository`、`internal/usecase` 等层级。协议结构、存储记录和业务输入在可以复用时直接复用;只有在边界确实不同且转换有明确价值时才定义新结构。

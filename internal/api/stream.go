@@ -10,8 +10,8 @@ import (
 	"uuid"
 
 	"github.com/sanbei101/im/internal/store"
-	imv1 "github.com/sanbei101/im/kitex_gen/im/v1"
 	"github.com/sanbei101/im/pkg"
+	"github.com/sanbei101/im/proto/pb"
 )
 
 type StreamHandler struct {
@@ -26,7 +26,7 @@ type StreamHandler struct {
 }
 
 type apiConnection struct {
-	stream imv1.GatewayService_ConnectServer
+	stream pb.GatewayService_ConnectServer
 	mu     sync.Mutex
 	users  map[string]struct{}
 }
@@ -38,7 +38,7 @@ func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCo
 	}
 }
 
-func (h *StreamHandler) Connect(ctx context.Context, stream imv1.GatewayService_ConnectServer) error {
+func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_ConnectServer) error {
 	connection := &apiConnection{stream: stream, users: make(map[string]struct{})}
 	defer h.removeConnection(connection)
 
@@ -54,9 +54,9 @@ func (h *StreamHandler) Connect(ctx context.Context, stream imv1.GatewayService_
 		case frame.GetHello() != nil:
 			if err := connection.send(
 				ctx,
-				&imv1.APIFrame{
-					Body: &imv1.APIFrame_HelloAck{
-						HelloAck: &imv1.HelloAck{NodeId: h.nodeID, TopologyVersion: strconv.Itoa(h.slots)},
+				&pb.APIFrame{
+					Body: &pb.APIFrame_HelloAck{
+						HelloAck: &pb.HelloAck{NodeId: h.nodeID, TopologyVersion: strconv.Itoa(h.slots)},
 					},
 				},
 			); err != nil {
@@ -71,7 +71,7 @@ func (h *StreamHandler) Connect(ctx context.Context, stream imv1.GatewayService_
 			}
 			if err := connection.send(
 				ctx,
-				&imv1.APIFrame{Body: &imv1.APIFrame_SendResultBatch{SendResultBatch: result}},
+				&pb.APIFrame{Body: &pb.APIFrame_SendResultBatch{SendResultBatch: result}},
 			); err != nil {
 				return fmt.Errorf("send result batch: %w", err)
 			}
@@ -84,13 +84,13 @@ func (h *StreamHandler) Connect(ctx context.Context, stream imv1.GatewayService_
 	}
 }
 
-func (c *apiConnection) send(ctx context.Context, frame *imv1.APIFrame) error {
+func (c *apiConnection) send(ctx context.Context, frame *pb.APIFrame) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.stream.Send(ctx, frame)
 }
 
-func (h *StreamHandler) updateSessions(connection *apiConnection, batch *imv1.SessionBatch) {
+func (h *StreamHandler) updateSessions(connection *apiConnection, batch *pb.SessionBatch) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, session := range batch.GetSessions() {
@@ -119,9 +119,9 @@ func (h *StreamHandler) removeConnection(connection *apiConnection) {
 
 func (h *StreamHandler) writeBatch(
 	ctx context.Context,
-	batch *imv1.SendBatch,
-) (*imv1.SendResultBatch, []*store.Message, error) {
-	result := &imv1.SendResultBatch{BatchId: batch.GetBatchId()}
+	batch *pb.SendBatch,
+) (*pb.SendResultBatch, []*store.Message, error) {
+	result := &pb.SendResultBatch{BatchId: batch.GetBatchId()}
 	inputs := batch.GetMessages()
 	messages := make([]store.Message, 0, len(inputs))
 	resultIndexes := make([]int, 0, len(inputs))
@@ -129,7 +129,7 @@ func (h *StreamHandler) writeBatch(
 		if input == nil {
 			continue
 		}
-		item := &imv1.SendResult{
+		item := &pb.SendResult{
 			RequestId: input.GetRequestId(), ClientMsgId: input.GetClientMsgId(), RoomId: input.GetRoomId(),
 		}
 		result.Results = append(result.Results, item)
@@ -189,7 +189,7 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 		return fmt.Errorf("load room members: %w", err)
 	}
 	// Map connection -> pushes so every gateway stream receives one batch per room fan-out.
-	pushes := make(map[*apiConnection][]*imv1.Push)
+	pushes := make(map[*apiConnection][]*pb.Push)
 	h.mu.RLock()
 	for _, member := range members {
 		if member.UserID == message.SenderID {
@@ -200,7 +200,7 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 			replyToMsgID = message.ReplyToMsgID.String()
 		}
 		if connection := h.sessions[member.UserID.String()]; connection != nil {
-			pushes[connection] = append(pushes[connection], &imv1.Push{
+			pushes[connection] = append(pushes[connection], &pb.Push{
 				UserId:       member.UserID.String(),
 				RoomId:       message.RoomID.String(),
 				RoomSeq:      message.RoomSeq,
@@ -218,7 +218,7 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 	h.mu.RUnlock()
 	for connection, items := range pushes {
 		if err := connection.send(ctx,
-			&imv1.APIFrame{Body: &imv1.APIFrame_PushBatch{PushBatch: &imv1.PushBatch{Pushes: items}}},
+			&pb.APIFrame{Body: &pb.APIFrame_PushBatch{PushBatch: &pb.PushBatch{Pushes: items}}},
 		); err != nil {
 			return fmt.Errorf("push room message: %w", err)
 		}
@@ -234,7 +234,7 @@ func parseUUID(field, raw string) (uuid.UUID, error) {
 	return value, nil
 }
 
-func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) {
+func (h *StreamHandler) message(input *pb.SendMessage) (store.Message, error) {
 	sender, err := parseUUID("sender_id", input.GetSenderId())
 	if err != nil {
 		return store.Message{}, err
@@ -268,4 +268,4 @@ func (h *StreamHandler) message(input *imv1.SendMessage) (store.Message, error) 
 	return message, nil
 }
 
-var _ imv1.GatewayService = (*StreamHandler)(nil)
+var _ pb.GatewayService = (*StreamHandler)(nil)
