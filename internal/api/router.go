@@ -11,6 +11,7 @@ import (
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/jwt"
+	"github.com/sanbei101/im/pkg/render"
 )
 
 // NewRouter wires the HTTP handlers into a chi router.
@@ -45,6 +46,14 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 		log.Error().Err(err).Msg("init minio client failed")
 	}
 
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.Ping(r.Context()); err != nil {
+			render.Error(w, http.StatusServiceUnavailable, "database unavailable: "+err.Error())
+			return
+		}
+		render.Success[any](w, "ok", map[string]string{"status": "healthy"})
+	})
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/users", func(r chi.Router) {
 			r.Post("/register", userAPI.Register)
@@ -56,6 +65,7 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 				r.Get("/profile", userAPI.GetProfile)
 				r.Get("/{id}", userAPI.GetProfile)
 				r.Put("/profile", userAPI.UpdateProfile)
+				r.Put("/password", userAPI.UpdatePassword)
 				r.Post("/presence", userAPI.Presence)
 				r.Post("/logout", userAPI.Logout)
 			})
@@ -82,6 +92,7 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 		r.Route("/messages", func(r chi.Router) {
 			r.Use(jwt.AuthMiddleware)
 			r.Get("/history", messageAPI.GetHistory)
+			r.Get("/search", messageAPI.Search)
 			r.Post("/recall", messageAPI.Recall)
 			r.Post("/{id}/reactions", messageAPI.AddReaction)
 			r.Delete("/{id}/reactions", messageAPI.RemoveReaction)
@@ -99,7 +110,9 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 			r.Delete("/{id}", roomAPI.DissolveRoom)
 			r.Get("/{id}/members", roomAPI.ListMembers)
 			r.Post("/{id}/members", roomAPI.AddMembers)
+			r.Put("/{id}/members/{user_id}/role", roomAPI.UpdateMemberRole)
 			r.Delete("/{id}/members/{user_id}", roomAPI.RemoveMember)
+			r.Get("/{id}/messages/search", messageAPI.Search)
 			r.Post("/{id}/leave", roomAPI.LeaveRoom)
 			r.Post("/{id}/transfer", roomAPI.TransferOwner)
 			r.Post("/{id}/read", conversationAPI.MarkRead)

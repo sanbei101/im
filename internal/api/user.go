@@ -272,3 +272,59 @@ func (a *UserAPI) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	render.SuccessNoData(w, http.StatusOK, "登出成功")
 }
+
+type UpdatePasswordReq struct {
+	OldPassword string `json:"old_password" validate:"required"`
+	NewPassword string `json:"new_password" validate:"required"`
+}
+
+func (a *UserAPI) UpdatePassword(w http.ResponseWriter, r *http.Request) {
+	userIDStr := jwt.GetUserIDFromContext(r)
+	if userIDStr == "" {
+		render.Error(w, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
+	req, err := render.ReadBody[UpdatePasswordReq](w, r)
+	if err != nil {
+		return
+	}
+
+	if req.OldPassword == "" || len(req.NewPassword) < 6 {
+		render.Error(w, http.StatusBadRequest, "invalid password format or new password too short (min 6 characters)")
+		return
+	}
+
+	user, err := a.store.UserByID(r.Context(), userID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.OldPassword)); err != nil {
+		render.Error(w, http.StatusBadRequest, "incorrect old password")
+		return
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := a.store.UpdateUserPassword(r.Context(), userID, string(hashed)); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "修改密码成功")
+}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -8,6 +9,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"uuid"
 
@@ -298,6 +300,57 @@ func messageUpperBound(prefix []byte, before uint64) []byte {
 	copy(upperBound, prefix)
 	binary.BigEndian.PutUint64(upperBound[len(prefix):], before)
 	return upperBound
+}
+
+func (s *Store) SearchRoomMessages(
+	ctx context.Context,
+	roomID uuid.UUID,
+	keyword string,
+	before uint64,
+	limit int,
+) ([]Message, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	var prefixBuf [32]byte
+	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
+	upperBound := messageUpperBound(prefix, before)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	kwBytes := []byte(keyword)
+	messages := make([]Message, 0, limit)
+	for iter.Last(); iter.Valid() && len(messages) < limit; iter.Prev() {
+		if err := contextErr(ctx); err != nil {
+			return nil, err
+		}
+		value := append([]byte(nil), iter.Value()...)
+		msg, err := decodeMessage(value)
+		if err != nil {
+			continue
+		}
+		if msg.MsgType == MsgTypeRecall {
+			continue
+		}
+		if bytes.Contains(bytes.ToLower(msg.Payload), kwBytes) {
+			messages = append(messages, msg)
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Message, error) {

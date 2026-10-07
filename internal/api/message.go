@@ -241,6 +241,61 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
+	roomIDStr := chi.URLParam(r, "id")
+	if roomIDStr == "" {
+		roomIDStr = r.URL.Query().Get("room_id")
+	}
+	roomID, err := uuid.Parse(roomIDStr)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room_id")
+		return
+	}
+
+	userIDStr := jwt.GetUserIDFromContext(r)
+	if userIDStr == "" {
+		render.Error(w, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		return
+	}
+
+	if _, err := a.store.Member(r.Context(), roomID, userID); err != nil {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+
+	q := r.URL.Query()
+	keyword := q.Get("keyword")
+	if keyword == "" {
+		render.Success(w, "搜索聊天记录成功", []store.Message{})
+		return
+	}
+
+	before := parseBeforeSeq(q.Get("before"))
+	if before == 0 {
+		before = parseBeforeSeq(q.Get("before_seq"))
+	}
+	limit := parseLimit(q.Get("limit"))
+	if q.Get("limit") == "" && q.Get("page_size") != "" {
+		limit = parseLimit(q.Get("page_size"))
+	}
+
+	messages, err := a.store.SearchRoomMessages(r.Context(), roomID, keyword, before, limit)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if messages == nil {
+		messages = []store.Message{}
+	}
+
+	render.Success(w, "搜索聊天记录成功", messages)
+}
+
 func parseBeforeSeq(s string) uint64 {
 	if s == "" {
 		return 0

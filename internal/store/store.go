@@ -300,6 +300,29 @@ func (s *Store) Close() error {
 	return s.closeErr
 }
 
+func (s *Store) Ping(ctx context.Context) error {
+	if s == nil {
+		return ErrClosed
+	}
+	s.stateMu.RLock()
+	closed := s.closed
+	s.stateMu.RUnlock()
+	if closed {
+		return ErrClosed
+	}
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	_, closer, err := s.db.Get([]byte("healthz:ping"))
+	if closer != nil {
+		closer.Close()
+	}
+	if err != nil && !errors.Is(err, pebble.ErrNotFound) {
+		return fmt.Errorf("pebble ping: %w", err)
+	}
+	return nil
+}
+
 // freeResultChans recycles per-request reply channels. Channels are put back
 // only after their result has been received, so every handed-out channel is
 // empty; a bounded free list avoids both the allocation and the type assertion.

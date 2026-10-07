@@ -464,6 +464,70 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	render.SuccessNoData(w, http.StatusOK, "移除群成员成功")
 }
 
+type UpdateMemberRoleReq struct {
+	Role string `json:"role" validate:"required"`
+}
+
+func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	targetID, err := uuid.Parse(chi.URLParam(r, "user_id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid target user id")
+		return
+	}
+
+	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	if myMember.Role != "owner" {
+		render.Error(w, http.StatusForbidden, "only group owner can manage member roles")
+		return
+	}
+
+	targetMember, err := a.store.Member(r.Context(), roomID, targetID)
+	if err != nil {
+		render.Error(w, http.StatusNotFound, "target not in room")
+		return
+	}
+
+	if targetMember.Role == "owner" {
+		render.Error(w, http.StatusBadRequest, "cannot modify owner role")
+		return
+	}
+
+	req, err := render.ReadBody[UpdateMemberRoleReq](w, r)
+	if err != nil {
+		return
+	}
+
+	if req.Role != "admin" && req.Role != "member" {
+		render.Error(w, http.StatusBadRequest, "invalid role: must be 'admin' or 'member'")
+		return
+	}
+
+	if err := a.store.UpdateMemberRole(r.Context(), roomID, targetID, req.Role); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if a.streamHandler != nil {
+		a.streamHandler.InvalidateRoomMembers(roomID)
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "更新成员角色成功")
+}
+
 func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	myID, err := getContextUserID(r)
 	if err != nil {

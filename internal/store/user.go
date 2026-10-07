@@ -187,3 +187,28 @@ func (s *Store) SearchUsers(ctx context.Context, keyword string, limit int) ([]U
 	}
 	return results, iter.Error()
 }
+
+func (s *Store) UpdateUserPassword(ctx context.Context, id uuid.UUID, password string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+
+	var buf [32]byte
+	userKey := appendUserKey(buf[:0], id)
+	user, err := s.getRecord(userKey, decodeUser)
+	if err != nil {
+		return err
+	}
+
+	user.Password = password
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setBytes(batch, userKey, encodeUser(user)); err != nil {
+		return err
+	}
+	if err := commit(batch); err != nil {
+		return fmt.Errorf("commit update password: %w", err)
+	}
+	return nil
+}
