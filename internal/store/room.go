@@ -2,10 +2,12 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 	"uuid"
 
@@ -28,7 +30,14 @@ func encodeRoom(room Room) []byte {
 	putI64(number[:], room.CreatedAt.UnixMicro())
 	data = append(data, number[:]...)
 	putI64(number[:], room.UpdatedAt.UnixMicro())
-	return append(data, number[:]...)
+	data = append(data, number[:]...)
+	if room.LastMsg != nil {
+		data = append(data, 1)
+		data = appendBytes(data, encodeMessage(*room.LastMsg))
+	} else {
+		data = append(data, 0)
+	}
+	return data
 }
 
 func decodeRoom(data []byte) (Room, error) {
@@ -66,7 +75,22 @@ func decodeRoom(data []byte) (Room, error) {
 		return Room{}, err
 	}
 	updated, err := d.i64()
-	if err != nil || !d.done() {
+	if err != nil {
+		return Room{}, err
+	}
+	var lastMsg *Message
+	if d.byte() == 1 {
+		record, err := d.bytes()
+		if err != nil {
+			return Room{}, err
+		}
+		msg, err := decodeMessage(record)
+		if err != nil {
+			return Room{}, err
+		}
+		lastMsg = &msg
+	}
+	if !d.done() {
 		return Room{}, errors.New("invalid room record")
 	}
 	return Room{
@@ -77,6 +101,7 @@ func decodeRoom(data []byte) (Room, error) {
 		Notice:         notice,
 		SingleChatHash: bytes.Clone(hash),
 		LastSeq:        seq,
+		LastMsg:        lastMsg,
 		CreatedAt:      time.UnixMicro(created),
 		UpdatedAt:      time.UnixMicro(updated),
 	}, nil
@@ -173,8 +198,10 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 		if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
 			return err
 		}
+		// The user-room index stores the member record itself, so
+		// RoomsByUser reads members in one range scan instead of a get per room.
 		uKey := appendUserRoomKey(uKeyBuf[:0], member.UserID, room.RoomID)
-		if err := s.setBytes(batch, uKey, room.RoomID[:]); err != nil {
+		if err := s.setBytes(batch, uKey, encodeMember(member)); err != nil {
 			return err
 		}
 	}
@@ -245,17 +272,12 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 	defer iter.Close()
 
 	var result []RoomInfo
-	var mKeyBuf [64]byte
 	for iter.First(); iter.Valid(); iter.Next() {
-		roomID, err := getUUID(iter.Value())
+		member, err := decodeMember(iter.Value())
 		if err != nil {
 			return nil, err
 		}
-		room, err := s.Room(ctx, roomID)
-		if err != nil {
-			return nil, err
-		}
-		member, err := s.getRecord(appendMemberKey(mKeyBuf[:0], roomID, userID), decodeMember)
+		room, err := s.Room(ctx, member.RoomID)
 		if err != nil {
 			return nil, err
 		}
@@ -328,7 +350,7 @@ func (s *Store) AddMembers(ctx context.Context, roomID uuid.UUID, newMembers []M
 			return err
 		}
 		uKey := appendUserRoomKey(uKeyBuf[:0], member.UserID, roomID)
-		if err := s.setBytes(batch, uKey, roomID[:]); err != nil {
+		if err := s.setBytes(batch, uKey, encodeMember(member)); err != nil {
 			return err
 		}
 	}
@@ -345,10 +367,18 @@ func (s *Store) RemoveMember(ctx context.Context, roomID, userID uuid.UUID) erro
 
 	var mKeyBuf [64]byte
 	var uKeyBuf [64]byte
+	var qKeyBuf [33]byte
+	var qRoomBuf [33]byte
 	if err := batch.Delete(appendMemberKey(mKeyBuf[:0], roomID, userID), nil); err != nil {
 		return err
 	}
 	if err := batch.Delete(appendUserRoomKey(uKeyBuf[:0], userID, roomID), nil); err != nil {
+		return err
+	}
+	if err := batch.Delete(appendReadSeqKey(qKeyBuf[:0], userID, roomID), nil); err != nil {
+		return err
+	}
+	if err := batch.Delete(appendRoomReadSeqKey(qRoomBuf[:0], roomID, userID), nil); err != nil {
 		return err
 	}
 	return commit(batch)
@@ -367,9 +397,15 @@ func (s *Store) UpdateMemberRole(ctx context.Context, roomID, userID uuid.UUID, 
 	}
 
 	member.Role = role
+	var uKeyBuf [64]byte
+	uKey := appendUserRoomKey(uKeyBuf[:0], userID, roomID)
 	batch := s.db.NewBatch()
 	defer batch.Close()
 	if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
+		return err
+	}
+	// Keep the user-room index copy in sync with the member record.
+	if err := s.setBytes(batch, uKey, encodeMember(member)); err != nil {
 		return err
 	}
 	return commit(batch)
@@ -394,9 +430,15 @@ func (s *Store) UpdateMemberSettings(ctx context.Context, roomID, userID uuid.UU
 		member.IsMuted = *isMuted
 	}
 
+	var uKeyBuf [64]byte
+	uKey := appendUserRoomKey(uKeyBuf[:0], userID, roomID)
 	batch := s.db.NewBatch()
 	defer batch.Close()
 	if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
+		return err
+	}
+	// Keep the user-room index copy in sync with the member record.
+	if err := s.setBytes(batch, uKey, encodeMember(member)); err != nil {
 		return err
 	}
 	return commit(batch)
@@ -421,11 +463,19 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 
 	var mKeyBuf [64]byte
 	var uKeyBuf [64]byte
+	var qKeyBuf [33]byte
+	var qRoomBuf [33]byte
 	for _, m := range members {
 		if err := batch.Delete(appendMemberKey(mKeyBuf[:0], roomID, m.UserID), nil); err != nil {
 			return err
 		}
 		if err := batch.Delete(appendUserRoomKey(uKeyBuf[:0], m.UserID, roomID), nil); err != nil {
+			return err
+		}
+		if err := batch.Delete(appendReadSeqKey(qKeyBuf[:0], m.UserID, roomID), nil); err != nil {
+			return err
+		}
+		if err := batch.Delete(appendRoomReadSeqKey(qRoomBuf[:0], roomID, m.UserID), nil); err != nil {
 			return err
 		}
 	}
@@ -439,19 +489,27 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 	return nil
 }
 
+// MarkRoomRead records the user's read watermark idempotently in both key
+// orders: 'q' (user-major) serves Conversations, 'Q' (room-major) serves the
+// ReadUsers block scan. Both land in one batch, so the two views stay atomic.
 func (s *Store) MarkRoomRead(ctx context.Context, userID, roomID uuid.UUID, readSeq uint64) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
 
-	var buf [64]byte
-	key := appendReadSeqKey(buf[:0], userID, roomID)
+	var userBuf [33]byte
+	var roomBuf [33]byte
+	userKey := appendReadSeqKey(userBuf[:0], userID, roomID)
+	roomKey := appendRoomReadSeqKey(roomBuf[:0], roomID, userID)
 	var val [8]byte
 	putU64(val[:], readSeq)
 
 	batch := s.db.NewBatch()
 	defer batch.Close()
-	if err := s.setBytes(batch, key, val[:]); err != nil {
+	if err := s.setBytes(batch, userKey, val[:]); err != nil {
+		return err
+	}
+	if err := s.setBytes(batch, roomKey, val[:]); err != nil {
 		return err
 	}
 	return commit(batch)
@@ -467,6 +525,44 @@ func (s *Store) ReadSeq(ctx context.Context, userID, roomID uuid.UUID) (uint64, 
 	return s.getRecord(key, getU64)
 }
 
+// userReadSeqs returns every read marker of the user in one range scan over
+// the user-major 'q' index, keyed by room.
+func (s *Store) userReadSeqs(userID uuid.UUID) (map[uuid.UUID]uint64, error) {
+	var buf [17]byte
+	prefix := append(append(buf[:0], 'q'), userID[:]...)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	seqs := make(map[uuid.UUID]uint64)
+	for iter.First(); iter.Valid(); iter.Next() {
+		var room uuid.UUID
+		copy(room[:], iter.Key()[17:33])
+		seqs[room] = binary.BigEndian.Uint64(iter.Value())
+	}
+	return seqs, iter.Error()
+}
+
+// roomReadSeqs mirrors userReadSeqs over the room-major 'Q' index, keyed by user.
+func (s *Store) roomReadSeqs(roomID uuid.UUID) (map[uuid.UUID]uint64, error) {
+	prefix := appendRoomReadSeqPrefix(nil, roomID)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	seqs := make(map[uuid.UUID]uint64)
+	for iter.First(); iter.Valid(); iter.Next() {
+		var user uuid.UUID
+		copy(user[:], iter.Key()[17:33])
+		seqs[user] = binary.BigEndian.Uint64(iter.Value())
+	}
+	return seqs, iter.Error()
+}
+
 func (s *Store) Conversations(ctx context.Context, userID uuid.UUID) ([]ConversationInfo, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -475,23 +571,19 @@ func (s *Store) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversa
 	if err != nil {
 		return nil, err
 	}
+	readSeqs, err := s.userReadSeqs(userID)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]ConversationInfo, 0, len(rooms))
-	var qKeyBuf [64]byte
-	var mKeyBuf [64]byte
 
 	for i := range rooms {
 		room := rooms[i].Room
 		member := rooms[i].Member
 
-		readSeqKey := appendReadSeqKey(qKeyBuf[:0], userID, room.RoomID)
-		readSeq, err := s.getRecord(readSeqKey, getU64)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return nil, err
-		}
-
 		var unread uint64
-		if room.LastSeq > readSeq {
+		if readSeq := readSeqs[room.RoomID]; room.LastSeq > readSeq {
 			unread = room.LastSeq - readSeq
 		}
 
@@ -499,32 +591,30 @@ func (s *Store) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversa
 			Room:        room,
 			Member:      member,
 			UnreadCount: unread,
-		}
-
-		if room.LastSeq > 0 {
-			msgKey := appendMessageKey(mKeyBuf[:0], room.RoomID, room.LastSeq)
-			if lastMsg, err := s.getRecord(msgKey, decodeMessage); err == nil {
-				info.LastMessage = &lastMsg
-			}
+			LastMessage: room.LastMsg,
 		}
 
 		result = append(result, info)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Member.IsPinned != result[j].Member.IsPinned {
-			return result[i].Member.IsPinned
+	slices.SortFunc(result, func(a, b ConversationInfo) int {
+		if a.Member.IsPinned != b.Member.IsPinned {
+			if a.Member.IsPinned {
+				return -1
+			}
+			return 1
 		}
-		timeI := result[i].Room.UpdatedAt.UnixMicro()
-		if result[i].LastMessage != nil && result[i].LastMessage.ServerTime > timeI {
-			timeI = result[i].LastMessage.ServerTime
-		}
-		timeJ := result[j].Room.UpdatedAt.UnixMicro()
-		if result[j].LastMessage != nil && result[j].LastMessage.ServerTime > timeJ {
-			timeJ = result[j].LastMessage.ServerTime
-		}
-		return timeI > timeJ
+		return cmp.Compare(lastActive(b), lastActive(a))
 	})
 
 	return result, nil
+}
+
+// lastActive is the sort key of a conversation: its newest activity time.
+func lastActive(info ConversationInfo) int64 {
+	t := info.Room.UpdatedAt.UnixMicro()
+	if info.LastMessage != nil && info.LastMessage.ServerTime > t {
+		return info.LastMessage.ServerTime
+	}
+	return t
 }

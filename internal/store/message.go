@@ -204,6 +204,10 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		results[index].Message.MsgID = uuid.NewV7()
 		results[index].Message.ServerTime = time.Now().UnixMicro()
 		room.UpdatedAt = time.Now()
+		// Messages are processed in submission order, so the last allocated
+		// message of a room carries its highest seq.
+		lastMsg := results[index].Message
+		room.LastMsg = &lastMsg
 		rooms[message.RoomID] = room
 		allocated = append(allocated, index)
 
@@ -408,22 +412,49 @@ func (s *Store) SearchRoomMessages(
 		if err := contextErr(ctx); err != nil {
 			return nil, err
 		}
-		value := append([]byte(nil), iter.Value()...)
-		msg, err := decodeMessage(value)
-		if err != nil {
+		msg, err := decodeMessage(iter.Value())
+		if err != nil || msg.MsgType == MsgTypeRecall {
 			continue
 		}
-		if msg.MsgType == MsgTypeRecall {
+		if !containsFold(msg.Payload, kwBytes) {
 			continue
 		}
-		if bytes.Contains(bytes.ToLower(msg.Payload), kwBytes) {
-			messages = append(messages, msg)
-		}
+		// Prev invalidates the iterator buffer: only matched messages pay
+		// for copying their variable-length fields out.
+		msg.Payload = append(msg.Payload[:0:0], msg.Payload...)
+		msg.Ext = append(msg.Ext[:0:0], msg.Ext...)
+		messages = append(messages, msg)
 	}
 	if err := iter.Error(); err != nil {
 		return nil, err
 	}
 	return messages, nil
+}
+
+// containsFold reports whether needle occurs in haystack, comparing ASCII
+// letters case-insensitively (multi-byte runes such as CJK text compare
+// byte-exactly, which is what a substring match needs) and allocating nothing.
+func containsFold(haystack, needle []byte) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	first := asciiLower(needle[0])
+	for i, end := 0, len(haystack)-len(needle); i <= end; i++ {
+		if asciiLower(haystack[i]) != first {
+			continue
+		}
+		if bytes.EqualFold(haystack[i:i+len(needle)], needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func asciiLower(b byte) byte {
+	if b >= 'A' && b <= 'Z' {
+		return b + ('a' - 'A')
+	}
+	return b
 }
 
 func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Message, error) {
@@ -517,6 +548,19 @@ func (s *Store) RecallMessage(
 	defer batch.Close()
 	if err := s.setBytes(batch, msgKey, encodeMessage(msg)); err != nil {
 		return Message{}, err
+	}
+	// The room record embeds its newest message: recall of that message must
+	// refresh the embedded copy in the same batch.
+	if room, err := s.Room(ctx, roomID); err == nil && room.LastSeq == msg.RoomSeq {
+		room.LastMsg = &msg
+		var rKeyBuf [32]byte
+		if err := s.setBytes(batch, appendRoomKey(rKeyBuf[:0], roomID), encodeRoom(room)); err != nil {
+			return Message{}, err
+		}
+		shard := s.getRoomShard(roomID)
+		shard.mu.Lock()
+		shard.rooms[roomID] = room
+		shard.mu.Unlock()
 	}
 	if err := commit(batch); err != nil {
 		return Message{}, err
@@ -614,20 +658,14 @@ func (s *Store) ReadUsers(ctx context.Context, roomID, msgID uuid.UUID) ([]uuid.
 		return nil, err
 	}
 
+	readSeqs, err := s.roomReadSeqs(roomID)
+	if err != nil {
+		return nil, err
+	}
+
 	var readUsers []uuid.UUID
-	var keyBuf [33]byte
 	for _, m := range members {
-		key := appendReadSeqKey(keyBuf[:0], m.UserID, roomID)
-		val, closer, err := s.db.Get(key)
-		if err != nil {
-			if errors.Is(err, pebble.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		readSeq := binary.BigEndian.Uint64(val)
-		closer.Close()
-		if readSeq >= msg.RoomSeq {
+		if readSeqs[m.UserID] >= msg.RoomSeq {
 			readUsers = append(readUsers, m.UserID)
 		}
 	}

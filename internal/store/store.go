@@ -94,8 +94,11 @@ type Room struct {
 	Notice         string    `json:"notice"`
 	SingleChatHash []byte    `json:"-"`
 	LastSeq        uint64    `json:"last_seq"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	// LastMsg is the newest committed message, denormalized onto the room
+	// record so Conversations needs no per-room message lookups.
+	LastMsg   *Message  `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 const (

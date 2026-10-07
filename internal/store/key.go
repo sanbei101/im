@@ -11,7 +11,7 @@ import (
 // 'n' - Username index
 // 'r' - Room
 // 'e' - Room Member ('e' for m-e-mber)
-// 'x' - User Room index ('x' for user-room-inde-x)
+// 'x' - User Room index, the value is the member record
 // 's' - Single Chat hash index
 // 'm' - Message
 // 'd' - Message Dedup
@@ -101,6 +101,16 @@ func appendBlacklistPrefix(dst []byte, user uuid.UUID) []byte {
 
 func appendReadSeqKey(dst []byte, user, room uuid.UUID) []byte {
 	return append(append(append(dst, 'q'), user[:]...), room[:]...)
+}
+
+// 'Q' mirrors the read-seq marker room-major ('q' is user-major): ReadUsers
+// scans one room's markers in a single range instead of a get per member.
+func appendRoomReadSeqKey(dst []byte, room, user uuid.UUID) []byte {
+	return append(append(append(dst, 'Q'), room[:]...), user[:]...)
+}
+
+func appendRoomReadSeqPrefix(dst []byte, room uuid.UUID) []byte {
+	return append(append(dst, 'Q'), room[:]...)
 }
 
 func appendMsgIDIndexKey(dst []byte, room, msgID uuid.UUID) []byte {
