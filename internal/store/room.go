@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 	"uuid"
 
@@ -13,13 +14,14 @@ import (
 
 func encodeRoom(room Room) []byte {
 	var number [8]byte
-	capacity := 16 + 4*4 + len(room.ChatType) + len(room.Name) + len(room.AvatarURL) +
+	capacity := 16 + 4*5 + len(room.ChatType) + len(room.Name) + len(room.AvatarURL) + len(room.Notice) +
 		len(room.SingleChatHash) + 8*3
 	data := make([]byte, 0, capacity)
 	data = putUUID(data, room.RoomID)
 	data = appendString(data, room.ChatType)
 	data = appendString(data, room.Name)
 	data = appendString(data, room.AvatarURL)
+	data = appendString(data, room.Notice)
 	data = appendBytes(data, room.SingleChatHash)
 	putU64(number[:], room.LastSeq)
 	data = append(data, number[:]...)
@@ -47,6 +49,10 @@ func decodeRoom(data []byte) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
+	notice, err := d.string()
+	if err != nil {
+		return Room{}, err
+	}
 	hash, err := d.bytes()
 	if err != nil {
 		return Room{}, err
@@ -68,6 +74,7 @@ func decodeRoom(data []byte) (Room, error) {
 		ChatType:       chatType,
 		Name:           name,
 		AvatarURL:      avatar,
+		Notice:         notice,
 		SingleChatHash: bytes.Clone(hash),
 		LastSeq:        seq,
 		CreatedAt:      time.UnixMicro(created),
@@ -76,11 +83,11 @@ func decodeRoom(data []byte) (Room, error) {
 }
 
 func encodeMember(member Member) []byte {
-	data := make([]byte, 0, 16*2+4+len(member.Role)+2)
+	data := make([]byte, 0, 16*2+4+len(member.Role)+3)
 	data = putUUID(data, member.RoomID)
 	data = putUUID(data, member.UserID)
 	data = appendString(data, member.Role)
-	data = append(data, boolByte(member.IsHidden), boolByte(member.IsMuted))
+	data = append(data, boolByte(member.IsHidden), boolByte(member.IsMuted), boolByte(member.IsPinned))
 	return data
 }
 
@@ -104,6 +111,7 @@ func decodeMember(data []byte) (Member, error) {
 		Role:     role,
 		IsHidden: d.byte() != 0,
 		IsMuted:  d.byte() != 0,
+		IsPinned: d.byte() != 0,
 	}
 	if !d.done() {
 		return Member{}, errors.New("invalid member record")
@@ -258,4 +266,282 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 		result = append(result, RoomInfo{Room: room, Member: member})
 	}
 	return result, iter.Error()
+}
+
+func (s *Store) Member(ctx context.Context, roomID, userID uuid.UUID) (Member, error) {
+	if err := contextErr(ctx); err != nil {
+		return Member{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var mKeyBuf [64]byte
+	return s.getRecord(appendMemberKey(mKeyBuf[:0], roomID, userID), decodeMember)
+}
+
+func (s *Store) UpdateRoom(ctx context.Context, roomID uuid.UUID, name, avatarURL, notice string) (Room, error) {
+	if err := contextErr(ctx); err != nil {
+		return Room{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var buf [32]byte
+	key := appendRoomKey(buf[:0], roomID)
+	room, err := s.getRecord(key, decodeRoom)
+	if err != nil {
+		return Room{}, err
+	}
+
+	if name != "" {
+		room.Name = name
+	}
+	if avatarURL != "" {
+		room.AvatarURL = avatarURL
+	}
+	if notice != "" {
+		room.Notice = notice
+	}
+	room.UpdatedAt = time.Now()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setBytes(batch, key, encodeRoom(room)); err != nil {
+		return Room{}, err
+	}
+	if err := commit(batch); err != nil {
+		return Room{}, err
+	}
+	s.rooms[roomID] = room
+	return room, nil
+}
+
+func (s *Store) AddMembers(ctx context.Context, roomID uuid.UUID, newMembers []Member) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	var mKeyBuf [64]byte
+	var uKeyBuf [64]byte
+	for _, member := range newMembers {
+		member.RoomID = roomID
+		mKey := appendMemberKey(mKeyBuf[:0], roomID, member.UserID)
+		if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
+			return err
+		}
+		uKey := appendUserRoomKey(uKeyBuf[:0], member.UserID, roomID)
+		if err := s.setBytes(batch, uKey, roomID[:]); err != nil {
+			return err
+		}
+	}
+	return commit(batch)
+}
+
+func (s *Store) RemoveMember(ctx context.Context, roomID, userID uuid.UUID) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	var mKeyBuf [64]byte
+	var uKeyBuf [64]byte
+	if err := batch.Delete(appendMemberKey(mKeyBuf[:0], roomID, userID), nil); err != nil {
+		return err
+	}
+	if err := batch.Delete(appendUserRoomKey(uKeyBuf[:0], userID, roomID), nil); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) UpdateMemberRole(ctx context.Context, roomID, userID uuid.UUID, role string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var mKeyBuf [64]byte
+	mKey := appendMemberKey(mKeyBuf[:0], roomID, userID)
+	member, err := s.getRecord(mKey, decodeMember)
+	if err != nil {
+		return err
+	}
+
+	member.Role = role
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) UpdateMemberSettings(ctx context.Context, roomID, userID uuid.UUID, isPinned, isMuted *bool) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var mKeyBuf [64]byte
+	mKey := appendMemberKey(mKeyBuf[:0], roomID, userID)
+	member, err := s.getRecord(mKey, decodeMember)
+	if err != nil {
+		return err
+	}
+
+	if isPinned != nil {
+		member.IsPinned = *isPinned
+	}
+	if isMuted != nil {
+		member.IsMuted = *isMuted
+	}
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	members, err := s.Members(ctx, roomID)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	var rKeyBuf [32]byte
+	if err := batch.Delete(appendRoomKey(rKeyBuf[:0], roomID), nil); err != nil {
+		return err
+	}
+
+	var mKeyBuf [64]byte
+	var uKeyBuf [64]byte
+	for _, m := range members {
+		if err := batch.Delete(appendMemberKey(mKeyBuf[:0], roomID, m.UserID), nil); err != nil {
+			return err
+		}
+		if err := batch.Delete(appendUserRoomKey(uKeyBuf[:0], m.UserID, roomID), nil); err != nil {
+			return err
+		}
+	}
+	delete(s.rooms, roomID)
+	return commit(batch)
+}
+
+func (s *Store) MarkRoomRead(ctx context.Context, userID, roomID uuid.UUID, readSeq uint64) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var buf [64]byte
+	key := appendReadSeqKey(buf[:0], userID, roomID)
+	var val [8]byte
+	putU64(val[:], readSeq)
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setBytes(batch, key, val[:]); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) ReadSeq(ctx context.Context, userID, roomID uuid.UUID) (uint64, error) {
+	if err := contextErr(ctx); err != nil {
+		return 0, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var buf [64]byte
+	key := appendReadSeqKey(buf[:0], userID, roomID)
+	return s.getRecord(key, getU64)
+}
+
+func (s *Store) Conversations(ctx context.Context, userID uuid.UUID) ([]ConversationInfo, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	rooms, err := s.RoomsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ConversationInfo, 0, len(rooms))
+	var qKeyBuf [64]byte
+	var mKeyBuf [64]byte
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for i := range rooms {
+		room := rooms[i].Room
+		member := rooms[i].Member
+
+		readSeqKey := appendReadSeqKey(qKeyBuf[:0], userID, room.RoomID)
+		readSeq, err := s.getRecord(readSeqKey, getU64)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+
+		var unread uint64
+		if room.LastSeq > readSeq {
+			unread = room.LastSeq - readSeq
+		}
+
+		info := ConversationInfo{
+			Room:        room,
+			Member:      member,
+			UnreadCount: unread,
+		}
+
+		if room.LastSeq > 0 {
+			msgKey := appendMessageKey(mKeyBuf[:0], room.RoomID, room.LastSeq)
+			if lastMsg, err := s.getRecord(msgKey, decodeMessage); err == nil {
+				info.LastMessage = &lastMsg
+			}
+		}
+
+		result = append(result, info)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Member.IsPinned != result[j].Member.IsPinned {
+			return result[i].Member.IsPinned
+		}
+		timeI := result[i].Room.UpdatedAt.UnixMicro()
+		if result[i].LastMessage != nil && result[i].LastMessage.ServerTime > timeI {
+			timeI = result[i].LastMessage.ServerTime
+		}
+		timeJ := result[j].Room.UpdatedAt.UnixMicro()
+		if result[j].LastMessage != nil && result[j].LastMessage.ServerTime > timeJ {
+			timeJ = result[j].LastMessage.ServerTime
+		}
+		return timeI > timeJ
+	})
+
+	return result, nil
 }

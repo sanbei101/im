@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"uuid"
 
+	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/sanbei101/im/internal/store"
@@ -102,4 +104,97 @@ func (a *UserAPI) Login(w http.ResponseWriter, r *http.Request) {
 		Username: user.Username,
 		Token:    token,
 	})
+}
+
+type UpdateProfileReq struct {
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+type UserProfileResp struct {
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+func (a *UserAPI) GetProfile(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" || idStr == "me" {
+		idStr = jwt.GetUserIDFromContext(r)
+	}
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
+	user, err := a.store.UserByID(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.Success(w, "获取用户信息成功", UserProfileResp{
+		UserID:    user.UserID.String(),
+		Username:  user.Username,
+		Nickname:  user.Nickname,
+		AvatarURL: user.AvatarURL,
+	})
+}
+
+func (a *UserAPI) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userIDStr := jwt.GetUserIDFromContext(r)
+	id, err := uuid.Parse(userIDStr)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, "invalid user token")
+		return
+	}
+
+	req, err := render.ReadBody[UpdateProfileReq](w, r)
+	if err != nil {
+		return
+	}
+
+	user, err := a.store.UpdateUserProfile(r.Context(), id, req.Nickname, req.AvatarURL)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.Success(w, "更新用户资料成功", UserProfileResp{
+		UserID:    user.UserID.String(),
+		Username:  user.Username,
+		Nickname:  user.Nickname,
+		AvatarURL: user.AvatarURL,
+	})
+}
+
+func (a *UserAPI) Search(w http.ResponseWriter, r *http.Request) {
+	keyword := r.URL.Query().Get("keyword")
+	if strings.TrimSpace(keyword) == "" {
+		render.Success(w, "搜索用户成功", []UserProfileResp{})
+		return
+	}
+
+	users, err := a.store.SearchUsers(r.Context(), keyword, 20)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := make([]UserProfileResp, len(users))
+	for i, u := range users {
+		result[i] = UserProfileResp{
+			UserID:    u.UserID.String(),
+			Username:  u.Username,
+			Nickname:  u.Nickname,
+			AvatarURL: u.AvatarURL,
+		}
+	}
+	render.Success(w, "搜索用户成功", result)
 }

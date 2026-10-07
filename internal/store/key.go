@@ -63,6 +63,34 @@ func appendDedupKey(dst []byte, room, sender, client uuid.UUID) []byte {
 	return append(append(append(append(dst, 'd'), room[:]...), sender[:]...), client[:]...)
 }
 
+func appendFriendKey(dst []byte, user, friend uuid.UUID) []byte {
+	return append(append(append(dst, 'f'), user[:]...), friend[:]...)
+}
+
+func appendFriendPrefix(dst []byte, user uuid.UUID) []byte {
+	return append(append(dst, 'f'), user[:]...)
+}
+
+func appendApplicationKey(dst []byte, toUser, fromUser uuid.UUID) []byte {
+	return append(append(append(dst, 'a'), toUser[:]...), fromUser[:]...)
+}
+
+func appendApplicationPrefix(dst []byte, toUser uuid.UUID) []byte {
+	return append(append(dst, 'a'), toUser[:]...)
+}
+
+func appendBlacklistKey(dst []byte, user, target uuid.UUID) []byte {
+	return append(append(append(dst, 'b'), user[:]...), target[:]...)
+}
+
+func appendBlacklistPrefix(dst []byte, user uuid.UUID) []byte {
+	return append(append(dst, 'b'), user[:]...)
+}
+
+func appendReadSeqKey(dst []byte, user, room uuid.UUID) []byte {
+	return append(append(append(dst, 'q'), user[:]...), room[:]...)
+}
+
 func prefixUpperBound(prefix []byte) []byte {
 	upperBound := append([]byte(nil), prefix...)
 	for i := len(upperBound) - 1; i >= 0; i-- {

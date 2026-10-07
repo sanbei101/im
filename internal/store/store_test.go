@@ -433,3 +433,183 @@ func BenchmarkReadMessages(b *testing.B) {
 		}
 	}
 }
+
+func TestFriendAndBlacklist(t *testing.T) {
+	ctx := context.Background()
+	data, err := Open(t.TempDir() + "/store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+
+	u1, err := data.CreateUser(ctx, "alice", "pass123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := data.CreateUser(ctx, "bob", "pass456")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Update profile & Search
+	updated, err := data.UpdateUserProfile(ctx, u1.UserID, "AliceInWonderland", "https://avatar.com/1")
+	if err != nil || updated.Nickname != "AliceInWonderland" {
+		t.Fatalf("update profile failed: %+v err: %v", updated, err)
+	}
+	searched, err := data.SearchUsers(ctx, "wonder", 10)
+	if err != nil || len(searched) != 1 || searched[0].UserID != u1.UserID {
+		t.Fatalf("search users failed: %+v err: %v", searched, err)
+	}
+
+	// Apply friend
+	if err := data.ApplyFriend(ctx, u1.UserID, u2.UserID, "Hello, add me"); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := data.Applications(ctx, u2.UserID)
+	if err != nil || len(apps) != 1 || apps[0].Greeting != "Hello, add me" {
+		t.Fatalf("applications failed: %+v err: %v", apps, err)
+	}
+
+	// Audit friend (accept)
+	if err := data.AuditFriend(ctx, u2.UserID, u1.UserID, true); err != nil {
+		t.Fatal(err)
+	}
+	f1, err := data.Friends(ctx, u1.UserID)
+	if err != nil || len(f1) != 1 || f1[0].FriendID != u2.UserID {
+		t.Fatalf("u1 friends failed: %+v err: %v", f1, err)
+	}
+	f2, err := data.Friends(ctx, u2.UserID)
+	if err != nil || len(f2) != 1 || f2[0].FriendID != u1.UserID {
+		t.Fatalf("u2 friends failed: %+v err: %v", f2, err)
+	}
+
+	// Update remark
+	if err := data.UpdateFriendRemark(ctx, u1.UserID, u2.UserID, "Bobby"); err != nil {
+		t.Fatal(err)
+	}
+	f1, _ = data.Friends(ctx, u1.UserID)
+	if f1[0].Remark != "Bobby" {
+		t.Fatalf("expected remark Bobby, got %s", f1[0].Remark)
+	}
+
+	// Blacklist
+	if err := data.AddBlacklist(ctx, u1.UserID, u2.UserID); err != nil {
+		t.Fatal(err)
+	}
+	isBlk, err := data.IsBlacklisted(ctx, u1.UserID, u2.UserID)
+	if err != nil || !isBlk {
+		t.Fatalf("expected blacklisted, got %v err: %v", isBlk, err)
+	}
+	if err := data.RemoveBlacklist(ctx, u1.UserID, u2.UserID); err != nil {
+		t.Fatal(err)
+	}
+	isBlk, _ = data.IsBlacklisted(ctx, u1.UserID, u2.UserID)
+	if isBlk {
+		t.Fatal("expected not blacklisted")
+	}
+
+	// Delete friend
+	if err := data.DeleteFriend(ctx, u1.UserID, u2.UserID); err != nil {
+		t.Fatal(err)
+	}
+	f1, _ = data.Friends(ctx, u1.UserID)
+	if len(f1) != 0 {
+		t.Fatalf("expected 0 friends after delete, got %d", len(f1))
+	}
+}
+
+func TestGroupManagementAndConversations(t *testing.T) {
+	ctx := context.Background()
+	data, err := Open(t.TempDir() + "/store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+
+	u1, _ := data.CreateUser(ctx, "user1", "pass")
+	u2, _ := data.CreateUser(ctx, "user2", "pass")
+	u3, _ := data.CreateUser(ctx, "user3", "pass")
+
+	roomID := uuid.NewV7()
+	if err := data.CreateRoom(ctx, Room{
+		RoomID: roomID, ChatType: "group", Name: "Team Alpha",
+	}, []Member{
+		{UserID: u1.UserID, Role: "owner"},
+		{UserID: u2.UserID, Role: "member"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add member
+	if err := data.AddMembers(ctx, roomID, []Member{{UserID: u3.UserID, Role: "member"}}); err != nil {
+		t.Fatal(err)
+	}
+	members, err := data.Members(ctx, roomID)
+	if err != nil || len(members) != 3 {
+		t.Fatalf("expected 3 members, got %d", len(members))
+	}
+
+	// Update room
+	updatedRoom, err := data.UpdateRoom(ctx, roomID, "Team Beta", "https://avatar", "No spam")
+	if err != nil || updatedRoom.Name != "Team Beta" || updatedRoom.Notice != "No spam" {
+		t.Fatalf("update room failed: %+v err: %v", updatedRoom, err)
+	}
+
+	// Send message
+	msg, err := data.WriteMessage(ctx, Message{
+		ClientMsgID: uuid.NewV7(),
+		SenderID:    u1.UserID,
+		RoomID:      roomID,
+		MsgType:     MsgTypeText,
+		Payload:     []byte(`"Hello world"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Conversations for u2
+	convs, err := data.Conversations(ctx, u2.UserID)
+	if err != nil || len(convs) != 1 {
+		t.Fatalf("expected 1 conversation, got %d err: %v", len(convs), err)
+	}
+	if convs[0].UnreadCount != 1 || convs[0].LastMessage == nil || convs[0].LastMessage.MsgID != msg.MsgID {
+		t.Fatalf("unexpected conversation: %+v", convs[0])
+	}
+
+	// Mark read
+	if err := data.MarkRoomRead(ctx, u2.UserID, roomID, 1); err != nil {
+		t.Fatal(err)
+	}
+	convs, _ = data.Conversations(ctx, u2.UserID)
+	if convs[0].UnreadCount != 0 {
+		t.Fatalf("expected 0 unread, got %d", convs[0].UnreadCount)
+	}
+
+	// Pin conversation
+	pinned := true
+	if err := data.UpdateMemberSettings(ctx, roomID, u2.UserID, &pinned, nil); err != nil {
+		t.Fatal(err)
+	}
+	convs, _ = data.Conversations(ctx, u2.UserID)
+	if !convs[0].Member.IsPinned {
+		t.Fatal("expected conversation to be pinned")
+	}
+
+	// Remove member
+	if err := data.RemoveMember(ctx, roomID, u3.UserID); err != nil {
+		t.Fatal(err)
+	}
+	members, _ = data.Members(ctx, roomID)
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+
+	// Dissolve room
+	if err := data.DissolveRoom(ctx, roomID); err != nil {
+		t.Fatal(err)
+	}
+	convs, _ = data.Conversations(ctx, u1.UserID)
+	if len(convs) != 0 {
+		t.Fatalf("expected 0 conversations after dissolve, got %d", len(convs))
+	}
+}

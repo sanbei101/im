@@ -59,29 +59,55 @@ type Store struct {
 }
 
 type User struct {
-	UserID    uuid.UUID
-	Username  string
-	Password  string
-	CreatedAt time.Time
+	UserID    uuid.UUID `json:"user_id"`
+	Username  string    `json:"username"`
+	Password  string    `json:"-"`
+	Nickname  string    `json:"nickname"`
+	AvatarURL string    `json:"avatar_url"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Room struct {
-	RoomID         uuid.UUID
-	ChatType       string
-	Name           string
-	AvatarURL      string
-	SingleChatHash []byte
-	LastSeq        uint64
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	RoomID         uuid.UUID `json:"room_id"`
+	ChatType       string    `json:"chat_type"`
+	Name           string    `json:"name"`
+	AvatarURL      string    `json:"avatar_url"`
+	Notice         string    `json:"notice"`
+	SingleChatHash []byte    `json:"-"`
+	LastSeq        uint64    `json:"last_seq"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type Member struct {
-	RoomID   uuid.UUID
-	UserID   uuid.UUID
-	Role     string
-	IsHidden bool
-	IsMuted  bool
+	RoomID   uuid.UUID `json:"room_id"`
+	UserID   uuid.UUID `json:"user_id"`
+	Role     string    `json:"role"`
+	IsHidden bool      `json:"is_hidden"`
+	IsMuted  bool      `json:"is_muted"`
+	IsPinned bool      `json:"is_pinned"`
+}
+
+type Friend struct {
+	UserID    uuid.UUID `json:"user_id"`
+	FriendID  uuid.UUID `json:"friend_id"`
+	Remark    string    `json:"remark"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type FriendApplication struct {
+	FromUserID uuid.UUID `json:"from_user_id"`
+	ToUserID   uuid.UUID `json:"to_user_id"`
+	Greeting   string    `json:"greeting"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type ConversationInfo struct {
+	Room        Room     `json:"room"`
+	Member      Member   `json:"member"`
+	UnreadCount uint64   `json:"unread_count"`
+	LastMessage *Message `json:"last_message,omitempty"`
 }
 
 type MsgType int8

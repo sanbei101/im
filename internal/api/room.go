@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"uuid"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
@@ -35,6 +37,40 @@ type RoomInfo struct {
 	ChatType  string `json:"chat_type"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
+	Notice    string `json:"notice"`
+}
+
+type RoomDetailResp struct {
+	RoomID    string `json:"room_id"`
+	ChatType  string `json:"chat_type"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+	Notice    string `json:"notice"`
+	MyRole    string `json:"my_role"`
+}
+
+type UpdateRoomReq struct {
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+	Notice    string `json:"notice"`
+}
+
+type AddMembersReq struct {
+	MemberIDs []string `json:"member_ids" validate:"required"`
+}
+
+type TransferOwnerReq struct {
+	NewOwnerID string `json:"new_owner_id" validate:"required,uuid"`
+}
+
+type MemberInfoResp struct {
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatar_url"`
+	Role      string `json:"role"`
+	IsPinned  bool   `json:"is_pinned"`
+	IsMuted   bool   `json:"is_muted"`
 }
 
 func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Request) {
@@ -96,17 +132,28 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
+	creatorIDStr := jwt.GetUserIDFromContext(r)
+	if creatorIDStr == "" {
+		render.Error(w, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+	creatorID, err := uuid.Parse(creatorIDStr)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
 	req, err := render.ReadBody[CreateGroupRoomReq](w, r)
 	if err != nil {
 		return
 	}
-	if len(req.MemberIDs) < 2 {
-		render.Error(w, http.StatusBadRequest, "group room requires at least 2 members")
-		return
-	}
 
-	members := make([]store.Member, 0, len(req.MemberIDs))
-	seen := make(map[uuid.UUID]struct{}, len(req.MemberIDs))
+	members := make([]store.Member, 0, len(req.MemberIDs)+1)
+	seen := make(map[uuid.UUID]struct{}, len(req.MemberIDs)+1)
+
+	members = append(members, store.Member{UserID: creatorID, Role: "owner"})
+	seen[creatorID] = struct{}{}
+
 	for _, raw := range req.MemberIDs {
 		id, err := uuid.Parse(raw)
 		if err != nil {
@@ -114,15 +161,15 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := seen[id]; ok {
-			render.Error(w, http.StatusBadRequest, "duplicate group member")
-			return
+			continue
 		}
 		seen[id] = struct{}{}
-		role := "member"
-		if len(members) == 0 {
-			role = "owner"
-		}
-		members = append(members, store.Member{UserID: id, Role: role})
+		members = append(members, store.Member{UserID: id, Role: "member"})
+	}
+
+	if len(members) < 2 {
+		render.Error(w, http.StatusBadRequest, "group room requires at least 2 members")
+		return
 	}
 
 	roomID := uuid.NewV7()
@@ -185,4 +232,333 @@ var (
 
 func generateRoomInfo(roomID uuid.UUID) (string, string) {
 	return adjectives[rand.IntN(len(adjectives))] + nouns[rand.IntN(len(nouns))], "room://" + fmt.Sprint(roomID)
+}
+
+func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	room, err := a.store.Room(r.Context(), roomID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusNotFound, "room not found")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	member, err := a.store.Member(r.Context(), roomID, myID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.Success(w, "获取房间信息成功", RoomDetailResp{
+		RoomID:    room.RoomID.String(),
+		ChatType:  room.ChatType,
+		Name:      room.Name,
+		AvatarURL: room.AvatarURL,
+		Notice:    room.Notice,
+		MyRole:    member.Role,
+	})
+}
+
+func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	member, err := a.store.Member(r.Context(), roomID, myID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if member.Role != "owner" && member.Role != "admin" {
+		render.Error(w, http.StatusForbidden, "only owner or admin can update room")
+		return
+	}
+
+	req, err := render.ReadBody[UpdateRoomReq](w, r)
+	if err != nil {
+		return
+	}
+
+	updated, err := a.store.UpdateRoom(r.Context(), roomID, req.Name, req.AvatarURL, req.Notice)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.Success(w, "更新房间信息成功", RoomDetailResp{
+		RoomID:    updated.RoomID.String(),
+		ChatType:  updated.ChatType,
+		Name:      updated.Name,
+		AvatarURL: updated.AvatarURL,
+		Notice:    updated.Notice,
+		MyRole:    member.Role,
+	})
+}
+
+func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	if _, err := a.store.Member(r.Context(), roomID, myID); err != nil {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+
+	members, err := a.store.Members(r.Context(), roomID)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := make([]MemberInfoResp, 0, len(members))
+	for _, m := range members {
+		u, err := a.store.UserByID(r.Context(), m.UserID)
+		if err != nil {
+			continue
+		}
+		result = append(result, MemberInfoResp{
+			UserID:    u.UserID.String(),
+			Username:  u.Username,
+			Nickname:  u.Nickname,
+			AvatarURL: u.AvatarURL,
+			Role:      m.Role,
+			IsPinned:  m.IsPinned,
+			IsMuted:   m.IsMuted,
+		})
+	}
+
+	render.Success(w, "获取群成员列表成功", result)
+}
+
+func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	if _, err := a.store.Member(r.Context(), roomID, myID); err != nil {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+
+	req, err := render.ReadBody[AddMembersReq](w, r)
+	if err != nil {
+		return
+	}
+
+	toAdd := make([]store.Member, 0, len(req.MemberIDs))
+	for _, raw := range req.MemberIDs {
+		uid, err := uuid.Parse(raw)
+		if err != nil {
+			render.Error(w, http.StatusBadRequest, "invalid member id: "+raw)
+			return
+		}
+		if _, err := a.store.Member(r.Context(), roomID, uid); err == nil {
+			continue
+		}
+		toAdd = append(toAdd, store.Member{UserID: uid, Role: "member"})
+	}
+
+	if len(toAdd) > 0 {
+		if err := a.store.AddMembers(r.Context(), roomID, toAdd); err != nil {
+			render.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "添加群成员成功")
+}
+
+func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	targetID, err := uuid.Parse(chi.URLParam(r, "user_id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid target user id")
+		return
+	}
+
+	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	targetMember, err := a.store.Member(r.Context(), roomID, targetID)
+	if err != nil {
+		render.Error(w, http.StatusNotFound, "target not in room")
+		return
+	}
+
+	if targetMember.Role == "owner" {
+		render.Error(w, http.StatusForbidden, "cannot remove group owner")
+		return
+	}
+
+	if myID != targetID && myMember.Role != "owner" && (myMember.Role != "admin" || targetMember.Role != "member") {
+		render.Error(w, http.StatusForbidden, "no permission to remove this member")
+		return
+	}
+
+	if err := a.store.RemoveMember(r.Context(), roomID, targetID); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "移除群成员成功")
+}
+
+func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	member, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil {
+		render.Error(w, http.StatusNotFound, "not a member of this room")
+		return
+	}
+
+	if member.Role == "owner" {
+		render.Error(w, http.StatusBadRequest, "群主无法直接退群，请先转让群主或解散群聊")
+		return
+	}
+
+	if err := a.store.RemoveMember(r.Context(), roomID, myID); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "退出群聊成功")
+}
+
+func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil || myMember.Role != "owner" {
+		render.Error(w, http.StatusForbidden, "only owner can transfer ownership")
+		return
+	}
+
+	req, err := render.ReadBody[TransferOwnerReq](w, r)
+	if err != nil {
+		return
+	}
+	newOwnerID, err := uuid.Parse(req.NewOwnerID)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid new_owner_id")
+		return
+	}
+	if newOwnerID == myID {
+		render.Error(w, http.StatusBadRequest, "already the owner")
+		return
+	}
+
+	if _, err := a.store.Member(r.Context(), roomID, newOwnerID); err != nil {
+		render.Error(w, http.StatusNotFound, "new owner is not a member of this room")
+		return
+	}
+
+	if err := a.store.UpdateMemberRole(r.Context(), roomID, newOwnerID, "owner"); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := a.store.UpdateMemberRole(r.Context(), roomID, myID, "member"); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "转让群主成功")
+}
+
+func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	member, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil || member.Role != "owner" {
+		render.Error(w, http.StatusForbidden, "only owner can dissolve room")
+		return
+	}
+
+	if err := a.store.DissolveRoom(r.Context(), roomID); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.SuccessNoData(w, http.StatusOK, "解散群聊成功")
 }
