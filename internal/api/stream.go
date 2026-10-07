@@ -15,6 +15,21 @@ import (
 	"github.com/sanbei101/im/proto/pb"
 )
 
+const (
+	sessionShardCount     = 64
+	memberCacheShardCount = 64
+)
+
+type sessionShard struct {
+	mu       sync.RWMutex
+	sessions map[string]*apiConnection
+}
+
+type memberCacheShard struct {
+	mu      sync.RWMutex
+	entries map[uuid.UUID]*roomMemberCacheEntry
+}
+
 type StreamHandler struct {
 	store     *store.Store
 	nodeID    string
@@ -22,9 +37,8 @@ type StreamHandler struct {
 	nodeIndex int
 	nodeCount int
 
-	mu          sync.RWMutex
-	sessions    map[string]*apiConnection
-	memberCache sync.Map
+	sessionShards [sessionShardCount]sessionShard
+	memberShards  [memberCacheShardCount]memberCacheShard
 }
 
 type roomMemberCacheEntry struct {
@@ -43,24 +57,50 @@ type apiConnection struct {
 	users  map[string]struct{}
 }
 
-func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCount int) *StreamHandler {
-	return &StreamHandler{
-		store: data, nodeID: nodeID, slots: slots, nodeIndex: nodeIndex, nodeCount: nodeCount,
-		sessions: make(map[string]*apiConnection),
+func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
+	var hVal uint32
+	for i := 0; i < len(userID); i++ {
+		hVal = hVal*31 + uint32(userID[i])
 	}
+	return &h.sessionShards[hVal%sessionShardCount]
+}
+
+func (h *StreamHandler) getMemberShard(roomID uuid.UUID) *memberCacheShard {
+	return &h.memberShards[roomID[15]%memberCacheShardCount]
+}
+
+func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCount int) *StreamHandler {
+	handler := &StreamHandler{
+		store: data, nodeID: nodeID, slots: slots, nodeIndex: nodeIndex, nodeCount: nodeCount,
+	}
+	for i := range handler.sessionShards {
+		handler.sessionShards[i].sessions = make(map[string]*apiConnection)
+	}
+	for i := range handler.memberShards {
+		handler.memberShards[i].entries = make(map[uuid.UUID]*roomMemberCacheEntry)
+	}
+	return handler
 }
 
 func (h *StreamHandler) InvalidateRoomMembers(roomID uuid.UUID) {
-	h.memberCache.Delete(roomID)
+	shard := h.getMemberShard(roomID)
+	shard.mu.Lock()
+	delete(shard.entries, roomID)
+	shard.mu.Unlock()
 }
 
 func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([]cachedMember, error) {
 	now := time.Now()
-	if val, ok := h.memberCache.Load(roomID); ok {
-		if entry, ok := val.(*roomMemberCacheEntry); ok && now.Before(entry.expires) {
-			return entry.members, nil
-		}
+	shard := h.getMemberShard(roomID)
+	shard.mu.RLock()
+	entry, ok := shard.entries[roomID]
+	if ok && now.Before(entry.expires) {
+		members := entry.members
+		shard.mu.RUnlock()
+		return members, nil
 	}
+	shard.mu.RUnlock()
+
 	rawMembers, err := h.store.Members(ctx, roomID)
 	if err != nil {
 		return nil, err
@@ -72,10 +112,12 @@ func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([
 			userIDStr: m.UserID.String(),
 		}
 	}
-	h.memberCache.Store(roomID, &roomMemberCacheEntry{
+	shard.mu.Lock()
+	shard.entries[roomID] = &roomMemberCacheEntry{
 		members: cached,
 		expires: now.Add(30 * time.Second),
-	})
+	}
+	shard.mu.Unlock()
 	return cached, nil
 }
 
@@ -132,29 +174,43 @@ func (c *apiConnection) send(ctx context.Context, frame *pb.APIFrame) error {
 }
 
 func (h *StreamHandler) updateSessions(connection *apiConnection, batch *pb.SessionBatch) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	for _, session := range batch.GetSessions() {
 		if session == nil {
 			continue
 		}
+		userID := session.GetUserId()
+		shard := h.getSessionShard(userID)
+		shard.mu.Lock()
 		if session.GetOnline() {
-			h.sessions[session.GetUserId()] = connection
-			connection.users[session.GetUserId()] = struct{}{}
-		} else if current := h.sessions[session.GetUserId()]; current == connection {
-			delete(h.sessions, session.GetUserId())
-			delete(connection.users, session.GetUserId())
+			shard.sessions[userID] = connection
+			connection.mu.Lock()
+			connection.users[userID] = struct{}{}
+			connection.mu.Unlock()
+		} else if current := shard.sessions[userID]; current == connection {
+			delete(shard.sessions, userID)
+			connection.mu.Lock()
+			delete(connection.users, userID)
+			connection.mu.Unlock()
 		}
+		shard.mu.Unlock()
 	}
 }
 
 func (h *StreamHandler) removeConnection(connection *apiConnection) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	connection.mu.Lock()
+	users := make([]string, 0, len(connection.users))
 	for userID := range connection.users {
-		if current := h.sessions[userID]; current == connection {
-			delete(h.sessions, userID)
+		users = append(users, userID)
+	}
+	connection.mu.Unlock()
+
+	for _, userID := range users {
+		shard := h.getSessionShard(userID)
+		shard.mu.Lock()
+		if current := shard.sessions[userID]; current == connection {
+			delete(shard.sessions, userID)
 		}
+		shard.mu.Unlock()
 	}
 }
 
@@ -241,12 +297,15 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 
 	// Map connection -> pushes so every gateway stream receives one batch per room fan-out.
 	pushes := make(map[*apiConnection][]*pb.Push)
-	h.mu.RLock()
 	for _, member := range members {
 		if member.userID == message.SenderID {
 			continue
 		}
-		if connection := h.sessions[member.userIDStr]; connection != nil {
+		shard := h.getSessionShard(member.userIDStr)
+		shard.mu.RLock()
+		connection := shard.sessions[member.userIDStr]
+		shard.mu.RUnlock()
+		if connection != nil {
 			pushes[connection] = append(pushes[connection], &pb.Push{
 				UserId:       member.userIDStr,
 				RoomId:       roomIDStr,
@@ -262,7 +321,6 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 			})
 		}
 	}
-	h.mu.RUnlock()
 	for connection, items := range pushes {
 		if err := connection.send(ctx,
 			&pb.APIFrame{Body: &pb.APIFrame_PushBatch{PushBatch: &pb.PushBatch{Pushes: items}}},
@@ -316,9 +374,10 @@ func (h *StreamHandler) message(input *pb.SendMessage) (store.Message, error) {
 }
 
 func (h *StreamHandler) IsOnline(userID string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	_, ok := h.sessions[userID]
+	shard := h.getSessionShard(userID)
+	shard.mu.RLock()
+	_, ok := shard.sessions[userID]
+	shard.mu.RUnlock()
 	return ok
 }
 

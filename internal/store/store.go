@@ -44,11 +44,17 @@ type MessageWriteResult struct {
 	Err     error
 }
 
+const roomShardCount = 64
+
+type roomShard struct {
+	mu    sync.RWMutex
+	rooms map[uuid.UUID]Room
+}
+
 type Store struct {
 	db *pebble.DB
 
-	roomsMu sync.RWMutex
-	rooms   map[uuid.UUID]Room
+	roomShards [roomShardCount]roomShard
 
 	messageQueue chan messageWriteRequest
 	closeSignal  chan struct{}
@@ -58,6 +64,10 @@ type Store struct {
 	stateMu      sync.RWMutex
 	closed       bool
 	closeErr     error
+}
+
+func (s *Store) getRoomShard(id uuid.UUID) *roomShard {
+	return &s.roomShards[id[15]%roomShardCount]
 }
 
 type User struct {
@@ -261,11 +271,13 @@ func Open(path string) (*Store, error) {
 	}
 	store := &Store{
 		db:           db,
-		rooms:        make(map[uuid.UUID]Room),
 		messageQueue: make(chan messageWriteRequest, messageQueueSize),
 		closeSignal:  make(chan struct{}),
 		writerDone:   make(chan struct{}),
 		closeDone:    make(chan struct{}),
+	}
+	for i := range store.roomShards {
+		store.roomShards[i].rooms = make(map[uuid.UUID]Room)
 	}
 	go store.runMessageWriter()
 	return store, nil

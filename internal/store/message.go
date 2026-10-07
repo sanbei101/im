@@ -140,9 +140,10 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		results[index].Message = *message
 		room, ok := rooms[message.RoomID]
 		if !ok {
-			s.roomsMu.RLock()
-			room, ok = s.rooms[message.RoomID]
-			s.roomsMu.RUnlock()
+			shard := s.getRoomShard(message.RoomID)
+			shard.mu.RLock()
+			room, ok = shard.rooms[message.RoomID]
+			shard.mu.RUnlock()
 		}
 		if !ok {
 			var err error
@@ -222,10 +223,12 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			results[index].Err = err
 		}
 	}
-	s.roomsMu.Lock()
 	for roomID := range rooms {
 		room := rooms[roomID]
-		s.rooms[roomID] = room
+		shard := s.getRoomShard(roomID)
+		shard.mu.Lock()
+		shard.rooms[roomID] = room
+		shard.mu.Unlock()
 		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
 		if err := s.setBytes(batch, roomKeyBytes, encodeRoom(room)); err != nil {
 			for index := range results {
@@ -235,7 +238,6 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			}
 		}
 	}
-	s.roomsMu.Unlock()
 	if err := commit(batch); err != nil {
 		for index := range results {
 			if results[index].Err == nil {

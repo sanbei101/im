@@ -181,9 +181,10 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	if err := commit(batch); err != nil {
 		return err
 	}
-	s.roomsMu.Lock()
-	s.rooms[room.RoomID] = room
-	s.roomsMu.Unlock()
+	shard := s.getRoomShard(room.RoomID)
+	shard.mu.Lock()
+	shard.rooms[room.RoomID] = room
+	shard.mu.Unlock()
 	return nil
 }
 
@@ -191,9 +192,10 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if err := contextErr(ctx); err != nil {
 		return Room{}, err
 	}
-	s.roomsMu.RLock()
-	room, ok := s.rooms[roomID]
-	s.roomsMu.RUnlock()
+	shard := s.getRoomShard(roomID)
+	shard.mu.RLock()
+	room, ok := shard.rooms[roomID]
+	shard.mu.RUnlock()
 	if ok {
 		return room, nil
 	}
@@ -202,9 +204,9 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
-	s.roomsMu.Lock()
-	s.rooms[roomID] = room
-	s.roomsMu.Unlock()
+	shard.mu.Lock()
+	shard.rooms[roomID] = room
+	shard.mu.Unlock()
 	return room, nil
 }
 
@@ -302,9 +304,10 @@ func (s *Store) UpdateRoom(ctx context.Context, roomID uuid.UUID, name, avatarUR
 	if err := commit(batch); err != nil {
 		return Room{}, err
 	}
-	s.roomsMu.Lock()
-	s.rooms[roomID] = room
-	s.roomsMu.Unlock()
+	shard := s.getRoomShard(roomID)
+	shard.mu.Lock()
+	shard.rooms[roomID] = room
+	shard.mu.Unlock()
 	return room, nil
 }
 
@@ -429,9 +432,10 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 	if err := commit(batch); err != nil {
 		return err
 	}
-	s.roomsMu.Lock()
-	delete(s.rooms, roomID)
-	s.roomsMu.Unlock()
+	shard := s.getRoomShard(roomID)
+	shard.mu.Lock()
+	delete(shard.rooms, roomID)
+	shard.mu.Unlock()
 	return nil
 }
 

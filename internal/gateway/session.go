@@ -104,9 +104,9 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 		ReplyToMsgId: input.ReplyToMsgID,
 	}
 	c.gateway.TouchRoomUser(input.RoomID, c.UserID)
-	c.gateway.pending.Store(requestID, c)
+	c.gateway.StorePending(requestID, c)
 	if err := c.gateway.send(ctx, roomID, message); err != nil {
-		c.gateway.pending.Delete(requestID)
+		c.gateway.DeletePending(requestID)
 		return err
 	}
 	return nil

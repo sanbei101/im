@@ -20,12 +20,27 @@ import (
 	"github.com/sanbei101/im/proto/pb/gatewayservice"
 )
 
+const (
+	pendingShardCount  = 64
+	roomUserShardCount = 64
+)
+
+type pendingShard struct {
+	mu sync.Mutex
+	m  map[string]*UserClient
+}
+
+type roomUserShard struct {
+	mu sync.RWMutex
+	m  map[string]*roomUserSet
+}
+
 type Gateway struct {
 	UserSessionManager *UserSessionManager
 	Config             *config.Config
 	streams            []*apiStream
-	pending            sync.Map
-	roomUsers          sync.Map
+	pendingShards      [pendingShardCount]pendingShard
+	roomUserShards     [roomUserShardCount]roomUserShard
 	frames             *render.FrameWriter
 }
 
@@ -34,11 +49,56 @@ type roomUserSet struct {
 	users map[uuid.UUID]time.Time
 }
 
+func (g *Gateway) getPendingShard(requestID string) *pendingShard {
+	var hVal uint32
+	for i := 0; i < len(requestID); i++ {
+		hVal = hVal*31 + uint32(requestID[i])
+	}
+	return &g.pendingShards[hVal%pendingShardCount]
+}
+
+func (g *Gateway) getRoomUserShard(roomID string) *roomUserShard {
+	var hVal uint32
+	for i := 0; i < len(roomID); i++ {
+		hVal = hVal*31 + uint32(roomID[i])
+	}
+	return &g.roomUserShards[hVal%roomUserShardCount]
+}
+
+func (g *Gateway) StorePending(requestID string, uc *UserClient) {
+	shard := g.getPendingShard(requestID)
+	shard.mu.Lock()
+	shard.m[requestID] = uc
+	shard.mu.Unlock()
+}
+
+func (g *Gateway) DeletePending(requestID string) {
+	shard := g.getPendingShard(requestID)
+	shard.mu.Lock()
+	delete(shard.m, requestID)
+	shard.mu.Unlock()
+}
+
+func (g *Gateway) LoadAndDeletePending(requestID string) *UserClient {
+	shard := g.getPendingShard(requestID)
+	shard.mu.Lock()
+	uc := shard.m[requestID]
+	delete(shard.m, requestID)
+	shard.mu.Unlock()
+	return uc
+}
+
 func NewGateway(cfg *config.Config) *Gateway {
 	g := &Gateway{
 		UserSessionManager: NewSessionManager(),
 		Config:             cfg,
 		frames:             render.NewFrameWriter(),
+	}
+	for i := range g.pendingShards {
+		g.pendingShards[i].m = make(map[string]*UserClient)
+	}
+	for i := range g.roomUserShards {
+		g.roomUserShards[i].m = make(map[string]*roomUserSet)
 	}
 	for index, address := range cfg.Gateway.APIAddrs {
 		g.streams = append(g.streams, newAPIStream(g, fmt.Sprintf("gateway-%d", index), address))
@@ -47,10 +107,18 @@ func NewGateway(cfg *config.Config) *Gateway {
 }
 
 func (g *Gateway) TouchRoomUser(roomID string, userID uuid.UUID) {
-	val, _ := g.roomUsers.LoadOrStore(roomID, &roomUserSet{users: make(map[uuid.UUID]time.Time)})
-	set, ok := val.(*roomUserSet)
-	if !ok {
-		return
+	shard := g.getRoomUserShard(roomID)
+	shard.mu.RLock()
+	set := shard.m[roomID]
+	shard.mu.RUnlock()
+	if set == nil {
+		shard.mu.Lock()
+		set = shard.m[roomID]
+		if set == nil {
+			set = &roomUserSet{users: make(map[uuid.UUID]time.Time)}
+			shard.m[roomID] = set
+		}
+		shard.mu.Unlock()
 	}
 	set.mu.Lock()
 	set.users[userID] = time.Now()
@@ -58,12 +126,11 @@ func (g *Gateway) TouchRoomUser(roomID string, userID uuid.UUID) {
 }
 
 func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
-	val, ok := g.roomUsers.Load(roomID)
-	if !ok {
-		return
-	}
-	set, ok := val.(*roomUserSet)
-	if !ok {
+	shard := g.getRoomUserShard(roomID)
+	shard.mu.RLock()
+	set := shard.m[roomID]
+	shard.mu.RUnlock()
+	if set == nil {
 		return
 	}
 	set.mu.RLock()
@@ -272,12 +339,8 @@ func (s *apiStream) register(ctx context.Context, userID uuid.UUID, online bool)
 
 func (s *apiStream) handleResults(batch *pb.SendResultBatch) {
 	for _, result := range batch.GetResults() {
-		value, ok := s.gateway.pending.LoadAndDelete(result.GetRequestId())
-		if !ok {
-			continue
-		}
-		userClient, ok := value.(*UserClient)
-		if !ok {
+		userClient := s.gateway.LoadAndDeletePending(result.GetRequestId())
+		if userClient == nil {
 			continue
 		}
 		if err := userClient.encodeFrame(render.AckFrame{
