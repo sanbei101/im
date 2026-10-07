@@ -85,7 +85,7 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 	for _, m := range members {
 		if m.UserID == userID {
 			isMember = true
-			if m.Role == "owner" || m.Role == "admin" {
+			if m.Role == store.RoleOwner || m.Role == store.RoleAdmin {
 				isOwnerOrAdmin = true
 			}
 			break

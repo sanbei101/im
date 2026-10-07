@@ -112,8 +112,8 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 	name, avatar := generateRoomInfo(roomID)
 	err = a.store.CreateRoom(
 		r.Context(),
-		store.Room{RoomID: roomID, ChatType: "single", Name: name, AvatarURL: avatar, SingleChatHash: hash},
-		[]store.Member{{UserID: user1, Role: "member"}, {UserID: user2, Role: "member"}},
+		store.Room{RoomID: roomID, ChatType: store.ChatTypeSingle, Name: name, AvatarURL: avatar, SingleChatHash: hash},
+		[]store.Member{{UserID: user1, Role: store.RoleMember}, {UserID: user2, Role: store.RoleMember}},
 	)
 	if errors.Is(err, store.ErrAlreadyExists) {
 		room, lookupErr := a.store.RoomBySingleHash(r.Context(), hash)
@@ -152,7 +152,7 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 	members := make([]store.Member, 0, len(req.MemberIDs)+1)
 	seen := make(map[uuid.UUID]struct{}, len(req.MemberIDs)+1)
 
-	members = append(members, store.Member{UserID: creatorID, Role: "owner"})
+	members = append(members, store.Member{UserID: creatorID, Role: store.RoleOwner})
 	seen[creatorID] = struct{}{}
 
 	for _, raw := range req.MemberIDs {
@@ -165,7 +165,7 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[id] = struct{}{}
-		members = append(members, store.Member{UserID: id, Role: "member"})
+		members = append(members, store.Member{UserID: id, Role: store.RoleMember})
 	}
 
 	if len(members) < 2 {
@@ -180,7 +180,7 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.store.CreateRoom(
 		r.Context(),
-		store.Room{RoomID: roomID, ChatType: "group", Name: name, AvatarURL: avatar},
+		store.Room{RoomID: roomID, ChatType: store.ChatTypeGroup, Name: name, AvatarURL: avatar},
 		members,
 	); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
@@ -298,7 +298,7 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if member.Role != "owner" && member.Role != "admin" {
+	if member.Role != store.RoleOwner && member.Role != store.RoleAdmin {
 		render.Error(w, http.StatusForbidden, "only owner or admin can update room")
 		return
 	}
@@ -399,7 +399,7 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		if _, err := a.store.Member(r.Context(), roomID, uid); err == nil {
 			continue
 		}
-		toAdd = append(toAdd, store.Member{UserID: uid, Role: "member"})
+		toAdd = append(toAdd, store.Member{UserID: uid, Role: store.RoleMember})
 	}
 
 	if len(toAdd) > 0 {
@@ -443,12 +443,12 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if targetMember.Role == "owner" {
+	if targetMember.Role == store.RoleOwner {
 		render.Error(w, http.StatusForbidden, "cannot remove group owner")
 		return
 	}
 
-	if myID != targetID && myMember.Role != "owner" && (myMember.Role != "admin" || targetMember.Role != "member") {
+	if myID != targetID && myMember.Role != store.RoleOwner && (myMember.Role != store.RoleAdmin || targetMember.Role != store.RoleMember) {
 		render.Error(w, http.StatusForbidden, "no permission to remove this member")
 		return
 	}
@@ -490,7 +490,7 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
 	}
-	if myMember.Role != "owner" {
+	if myMember.Role != store.RoleOwner {
 		render.Error(w, http.StatusForbidden, "only group owner can manage member roles")
 		return
 	}
@@ -501,7 +501,7 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if targetMember.Role == "owner" {
+	if targetMember.Role == store.RoleOwner {
 		render.Error(w, http.StatusBadRequest, "cannot modify owner role")
 		return
 	}
@@ -511,7 +511,7 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Role != "admin" && req.Role != "member" {
+	if req.Role != store.RoleAdmin && req.Role != store.RoleMember {
 		render.Error(w, http.StatusBadRequest, "invalid role: must be 'admin' or 'member'")
 		return
 	}
@@ -546,7 +546,7 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if member.Role == "owner" {
+	if member.Role == store.RoleOwner {
 		render.Error(w, http.StatusBadRequest, "群主无法直接退群，请先转让群主或解散群聊")
 		return
 	}
@@ -575,7 +575,7 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	myMember, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || myMember.Role != "owner" {
+	if err != nil || myMember.Role != store.RoleOwner {
 		render.Error(w, http.StatusForbidden, "only owner can transfer ownership")
 		return
 	}
@@ -599,11 +599,11 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.UpdateMemberRole(r.Context(), roomID, newOwnerID, "owner"); err != nil {
+	if err := a.store.UpdateMemberRole(r.Context(), roomID, newOwnerID, store.RoleOwner); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.store.UpdateMemberRole(r.Context(), roomID, myID, "member"); err != nil {
+	if err := a.store.UpdateMemberRole(r.Context(), roomID, myID, store.RoleMember); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -624,7 +624,7 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || member.Role != "owner" {
+	if err != nil || member.Role != store.RoleOwner {
 		render.Error(w, http.StatusForbidden, "only owner can dissolve room")
 		return
 	}
@@ -666,7 +666,7 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || (member.Role != "owner" && member.Role != "admin") {
+	if err != nil || (member.Role != store.RoleOwner && member.Role != store.RoleAdmin) {
 		render.Error(w, http.StatusForbidden, "只有群主或管理员可以置顶消息")
 		return
 	}
@@ -696,7 +696,7 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || (member.Role != "owner" && member.Role != "admin") {
+	if err != nil || (member.Role != store.RoleOwner && member.Role != store.RoleAdmin) {
 		render.Error(w, http.StatusForbidden, "只有群主或管理员可以取消置顶消息")
 		return
 	}

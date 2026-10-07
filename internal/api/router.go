@@ -14,6 +14,10 @@ import (
 	"github.com/sanbei101/im/pkg/render"
 )
 
+type HealthResp struct {
+	Status string `json:"status"`
+}
+
 // NewRouter wires the HTTP handlers into a chi router.
 func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.StorageConfig) http.Handler {
 	r := chi.NewRouter()
@@ -51,7 +55,7 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 			render.Error(w, http.StatusServiceUnavailable, "database unavailable: "+err.Error())
 			return
 		}
-		render.Success[any](w, "ok", map[string]string{"status": "healthy"})
+		render.Success(w, "ok", HealthResp{Status: "healthy"})
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {

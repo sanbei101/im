@@ -10,6 +10,12 @@ import (
 	"github.com/cockroachdb/pebble"
 )
 
+const (
+	FriendStatusPending  = "pending"
+	FriendStatusAccepted = "accepted"
+	FriendStatusRejected = "rejected"
+)
+
 func encodeFriend(f Friend) []byte {
 	var timestamp [8]byte
 	putI64(timestamp[:], f.CreatedAt.UnixMicro())
@@ -111,7 +117,7 @@ func (s *Store) ApplyFriend(ctx context.Context, fromID, toID uuid.UUID, greetin
 		FromUserID: fromID,
 		ToUserID:   toID,
 		Greeting:   greeting,
-		Status:     "pending",
+		Status:     FriendStatusPending,
 		CreatedAt:  time.Now(),
 	}
 
@@ -140,7 +146,7 @@ func (s *Store) AuditFriend(ctx context.Context, toID, fromID uuid.UUID, accept 
 
 	now := time.Now()
 	if accept {
-		app.Status = "accepted"
+		app.Status = FriendStatusAccepted
 		f1 := Friend{UserID: toID, FriendID: fromID, CreatedAt: now}
 		f2 := Friend{UserID: fromID, FriendID: toID, CreatedAt: now}
 
@@ -153,7 +159,7 @@ func (s *Store) AuditFriend(ctx context.Context, toID, fromID uuid.UUID, accept 
 			return err
 		}
 	} else {
-		app.Status = "rejected"
+		app.Status = FriendStatusRejected
 	}
 
 	if err := s.setBytes(batch, appKey, encodeApplication(app)); err != nil {

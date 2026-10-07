@@ -79,6 +79,11 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+const (
+	ChatTypeSingle = "single"
+	ChatTypeGroup  = "group"
+)
+
 type Room struct {
 	RoomID         uuid.UUID `json:"room_id"`
 	ChatType       string    `json:"chat_type"`
@@ -90,6 +95,12 @@ type Room struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
+
+const (
+	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+)
 
 type Member struct {
 	RoomID   uuid.UUID `json:"room_id"`
