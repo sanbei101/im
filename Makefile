@@ -1,6 +1,6 @@
 GO ?= go
 STORE_PKG := ./internal/store
-BENCH := BenchmarkWriteMessages100Batch|BenchmarkWriteMessagesBatch|BenchmarkWriteMessage|BenchmarkReadMessages
+BENCH ?= .
 PPROF_DIR ?= .tmp/pprof
 
 .PHONY: gen fmt vet test race bench pprof analyze verify clean
@@ -21,7 +21,7 @@ race:
 	$(GO) test -race $(STORE_PKG) -count=1
 
 bench:
-	$(GO) test $(STORE_PKG) -run '^$$' -bench '$(BENCH)' -benchmem -count=1
+	$(GO) test $(STORE_PKG) ./pkg/... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
 
 pprof:
 	rm -rf $(PPROF_DIR)

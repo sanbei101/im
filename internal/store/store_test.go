@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"uuid"
@@ -430,6 +431,288 @@ func BenchmarkReadMessages(b *testing.B) {
 		page, err := data.Messages(context.Background(), roomID, 0, 20)
 		if err != nil || len(page.Messages) != 20 {
 			b.Fatalf("read messages: page=%+v err=%v", page, err)
+		}
+	}
+}
+
+func BenchmarkReadMessagesParallel(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	roomID := uuid.NewV7()
+	senderID := uuid.NewV7()
+	if err := data.CreateRoom(
+		ctx,
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
+		b.Fatal(err)
+	}
+
+	for range 200 {
+		if _, err := data.WriteMessage(ctx, Message{
+			ClientMsgID: uuid.NewV7(),
+			SenderID:    senderID,
+			RoomID:      roomID,
+			MsgType:     MsgTypeText,
+			Payload:     []byte("payload"),
+		}); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			page, err := data.Messages(ctx, roomID, 0, 20)
+			if err != nil || len(page.Messages) != 20 {
+				b.Fatalf("read messages: count=%d, err=%v", len(page.Messages), err)
+			}
+		}
+	})
+}
+
+func BenchmarkMessageByID(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	roomID := uuid.NewV7()
+	senderID := uuid.NewV7()
+	if err := data.CreateRoom(
+		ctx,
+		Room{RoomID: roomID, ChatType: "group"},
+		[]Member{{UserID: senderID, Role: "owner"}},
+	); err != nil {
+		b.Fatal(err)
+	}
+
+	var targetMsgID uuid.UUID
+	for range 50 {
+		msg, err := data.WriteMessage(ctx, Message{
+			ClientMsgID: uuid.NewV7(),
+			SenderID:    senderID,
+			RoomID:      roomID,
+			MsgType:     MsgTypeText,
+			Payload:     []byte("payload"),
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		targetMsgID = msg.MsgID
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		msg, err := data.MessageByID(ctx, roomID, targetMsgID)
+		if err != nil || msg.MsgID != targetMsgID {
+			b.Fatalf("message by id: err=%v", err)
+		}
+	}
+}
+
+func BenchmarkConversations50Rooms(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	userID := uuid.NewV7()
+	data.CreateUser(ctx, "bench_user", "pass")
+
+	for i := range 50 {
+		roomID := uuid.NewV7()
+		if err := data.CreateRoom(ctx, Room{
+			RoomID: roomID, ChatType: "group", Name: fmt.Sprintf("Room %d", i),
+		}, []Member{{UserID: userID, Role: "member"}}); err != nil {
+			b.Fatal(err)
+		}
+		_, err := data.WriteMessage(ctx, Message{
+			ClientMsgID: uuid.NewV7(),
+			SenderID:    userID,
+			RoomID:      roomID,
+			MsgType:     MsgTypeText,
+			Payload:     []byte(`{"text":"hello"}`),
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		data.MarkRoomRead(ctx, userID, roomID, 1)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		convs, err := data.Conversations(ctx, userID)
+		if err != nil || len(convs) != 50 {
+			b.Fatalf("conversations: count=%d, err=%v", len(convs), err)
+		}
+	}
+}
+
+func BenchmarkRoomMembers500(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	roomID := uuid.NewV7()
+	ownerID := uuid.NewV7()
+	members := make([]Member, 500)
+	members[0] = Member{UserID: ownerID, Role: "owner"}
+	for i := 1; i < 500; i++ {
+		members[i] = Member{UserID: uuid.NewV7(), Role: "member"}
+	}
+	if err := data.CreateRoom(ctx, Room{RoomID: roomID, ChatType: "group"}, members); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		list, err := data.Members(ctx, roomID)
+		if err != nil || len(list) != 500 {
+			b.Fatalf("members: count=%d, err=%v", len(list), err)
+		}
+	}
+}
+
+func BenchmarkRoomMembersParallel(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	roomID := uuid.NewV7()
+	ownerID := uuid.NewV7()
+	members := make([]Member, 200)
+	members[0] = Member{UserID: ownerID, Role: "owner"}
+	for i := 1; i < 200; i++ {
+		members[i] = Member{UserID: uuid.NewV7(), Role: "member"}
+	}
+	if err := data.CreateRoom(ctx, Room{RoomID: roomID, ChatType: "group"}, members); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			list, err := data.Members(ctx, roomID)
+			if err != nil || len(list) != 200 {
+				b.Fatalf("members: count=%d, err=%v", len(list), err)
+			}
+		}
+	})
+}
+
+func BenchmarkMarkRoomRead(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	userID := uuid.NewV7()
+	roomID := uuid.NewV7()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	var seq uint64
+	for b.Loop() {
+		seq++
+		if err := data.MarkRoomRead(ctx, userID, roomID, seq); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkReactionsAggregation(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	roomID := uuid.NewV7()
+	msgID := uuid.NewV7()
+	emojis := []string{"👍", "❤️", "😂", "🎉", "🔥"}
+
+	for i := range 100 {
+		user := uuid.NewV7()
+		emoji := emojis[i%len(emojis)]
+		if err := data.AddReaction(ctx, roomID, msgID, user, emoji); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		reactions, err := data.Reactions(ctx, roomID, msgID)
+		if err != nil || len(reactions) != len(emojis) {
+			b.Fatalf("reactions: count=%d, err=%v", len(reactions), err)
+		}
+	}
+}
+
+func BenchmarkReadUsers100Members(b *testing.B) {
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer data.Close()
+
+	ctx := context.Background()
+	roomID := uuid.NewV7()
+	ownerID := uuid.NewV7()
+	members := make([]Member, 100)
+	members[0] = Member{UserID: ownerID, Role: "owner"}
+	for i := 1; i < 100; i++ {
+		members[i] = Member{UserID: uuid.NewV7(), Role: "member"}
+	}
+	if err := data.CreateRoom(ctx, Room{RoomID: roomID, ChatType: "group"}, members); err != nil {
+		b.Fatal(err)
+	}
+
+	msg, err := data.WriteMessage(ctx, Message{
+		ClientMsgID: uuid.NewV7(),
+		SenderID:    ownerID,
+		RoomID:      roomID,
+		MsgType:     MsgTypeText,
+		Payload:     []byte("test"),
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for i := range 80 {
+		data.MarkRoomRead(ctx, members[i].UserID, roomID, msg.RoomSeq)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		users, err := data.ReadUsers(ctx, roomID, msg.MsgID)
+		if err != nil || len(users) != 80 {
+			b.Fatalf("read users: count=%d, err=%v", len(users), err)
 		}
 	}
 }
