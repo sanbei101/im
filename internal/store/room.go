@@ -15,10 +15,12 @@ import (
 )
 
 func encodeRoom(room Room) []byte {
+	return appendRoom(nil, room)
+}
+
+// appendRoom encodes into dst so batch writes can reuse one buffer.
+func appendRoom(data []byte, room Room) []byte {
 	var number [8]byte
-	capacity := 16 + 4*5 + len(room.ChatType) + len(room.Name) + len(room.AvatarURL) + len(room.Notice) +
-		len(room.SingleChatHash) + 8*3
-	data := make([]byte, 0, capacity)
 	data = putUUID(data, room.RoomID)
 	data = appendString(data, room.ChatType)
 	data = appendString(data, room.Name)
@@ -46,7 +48,7 @@ func decodeRoom(data []byte) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
-	chatType, err := d.string()
+	chatType, err := d.bytes()
 	if err != nil {
 		return Room{}, err
 	}
@@ -95,7 +97,7 @@ func decodeRoom(data []byte) (Room, error) {
 	}
 	return Room{
 		RoomID:         id,
-		ChatType:       chatType,
+		ChatType:       internEnum(chatType),
 		Name:           name,
 		AvatarURL:      avatar,
 		Notice:         notice,
@@ -126,14 +128,14 @@ func decodeMember(data []byte) (Member, error) {
 	if err != nil {
 		return Member{}, err
 	}
-	role, err := d.string()
+	role, err := d.bytes()
 	if err != nil {
 		return Member{}, errors.New("invalid member record")
 	}
 	member := Member{
 		RoomID:   roomID,
 		UserID:   userID,
-		Role:     role,
+		Role:     internEnum(role),
 		IsHidden: d.byte() != 0,
 		IsMuted:  d.byte() != 0,
 		IsPinned: d.byte() != 0,

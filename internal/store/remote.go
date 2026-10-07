@@ -15,7 +15,32 @@ import (
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/phuslu/lru"
 )
+
+const (
+	// Decoded archive files kept in memory: repeated cold paging re-filters
+	// the same rows instead of re-decoding the whole parquet file. Entries
+	// larger than decodedArchiveMaxBytes are never admitted, bounding the
+	// cache at maxFiles * maxBytes.
+	decodedArchiveMaxFiles = 8
+	decodedArchiveMaxBytes = 4 << 20
+)
+
+// decodedArchive is a decoded parquet file. bytes is the rough decoded size
+// used for the admission cap.
+type decodedArchive struct {
+	rows  []ParquetMessage
+	bytes int64
+}
+
+func newDecodedArchive(rows []ParquetMessage) *decodedArchive {
+	var bytes int64
+	for i := range rows {
+		bytes += int64(len(rows[i].Payload) + len(rows[i].Ext) + 64)
+	}
+	return &decodedArchive{rows: rows, bytes: bytes}
+}
 
 // remoteReader serves archived parquet files through a bounded on-disk cache,
 // so repeated cold reads do not re-fetch the same object.
@@ -23,6 +48,7 @@ type remoteReader struct {
 	objects  ObjectStore
 	dir      string
 	maxBytes int64
+	decoded  *lru.LRUCache[string, *decodedArchive]
 
 	mu    sync.Mutex
 	bytes int64
@@ -36,7 +62,10 @@ func (s *Store) AttachRemote(objects ObjectStore, cacheDir string, cacheBytes in
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return fmt.Errorf("create archive cache dir: %w", err)
 	}
-	reader := &remoteReader{objects: objects, dir: cacheDir, maxBytes: cacheBytes}
+	reader := &remoteReader{
+		objects: objects, dir: cacheDir, maxBytes: cacheBytes,
+		decoded: lru.NewLRUCache[string, *decodedArchive](decodedArchiveMaxFiles),
+	}
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
 		return err
@@ -131,17 +160,24 @@ func (s *Store) appendArchiveFile(
 	if manifest.EndSeq < lo {
 		return nil
 	}
-	data, err := s.remote.load(ctx, manifest.S3Key)
-	if err != nil {
-		return fmt.Errorf("load archive %s: %w", manifest.S3Key, err)
+	decoded, ok := s.remote.decoded.Get(manifest.S3Key)
+	if !ok {
+		data, err := s.remote.load(ctx, manifest.S3Key)
+		if err != nil {
+			return fmt.Errorf("load archive %s: %w", manifest.S3Key, err)
+		}
+		rows, err := decodeParquet(data)
+		if err != nil {
+			return err
+		}
+		decoded = newDecodedArchive(rows)
+		if decoded.bytes <= decodedArchiveMaxBytes {
+			s.remote.decoded.Set(manifest.S3Key, decoded)
+		}
 	}
-	rows, err := decodeParquet(data)
-	if err != nil {
-		return err
-	}
-	for i := range rows {
-		if rows[i].RoomSeq >= lo && rows[i].RoomSeq < hi {
-			*messages = append(*messages, rows[i].message())
+	for i := range decoded.rows {
+		if decoded.rows[i].RoomSeq >= lo && decoded.rows[i].RoomSeq < hi {
+			*messages = append(*messages, decoded.rows[i].message())
 		}
 	}
 	return nil

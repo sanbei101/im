@@ -59,13 +59,19 @@ type Store struct {
 	remote     *remoteReader
 
 	messageQueue chan messageWriteRequest
-	closeSignal  chan struct{}
-	writerDone   chan struct{}
-	closeDone    chan struct{}
-	closeOnce    sync.Once
-	stateMu      sync.RWMutex
-	closed       bool
-	closeErr     error
+	// Encode scratches reused across batches. Only the single writer
+	// goroutine touches them, so they need no locking.
+	recordScratch []byte
+	dedupScratch  [64]byte
+	roomScratch   []byte
+
+	closeSignal chan struct{}
+	writerDone  chan struct{}
+	closeDone   chan struct{}
+	closeOnce   sync.Once
+	stateMu     sync.RWMutex
+	closed      bool
+	closeErr    error
 }
 
 func (s *Store) getRoomShard(id uuid.UUID) *roomShard {
@@ -538,6 +544,26 @@ func (s *Store) exists(key []byte) (bool, error) {
 	}
 	closer.Close()
 	return true, nil
+}
+
+// internEnum reuses the canonical string for known enum values, so hot
+// decodes (member roles, chat types) do not allocate a fresh copy per record.
+// Unknown values fall back to a fresh string.
+func internEnum(value []byte) string {
+	switch string(value) {
+	case RoleOwner:
+		return RoleOwner
+	case RoleAdmin:
+		return RoleAdmin
+	case RoleMember:
+		return RoleMember
+	case ChatTypeSingle:
+		return ChatTypeSingle
+	case ChatTypeGroup:
+		return ChatTypeGroup
+	default:
+		return string(value)
+	}
 }
 
 func commit(batch *pebble.Batch) error {

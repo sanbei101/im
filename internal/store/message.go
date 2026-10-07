@@ -17,12 +17,13 @@ import (
 )
 
 func encodeMessage(message Message) []byte {
+	return appendMessage(nil, message)
+}
+
+// appendMessage encodes into dst so hot batch writes can reuse one buffer;
+// Pebble copies the record on batch.Set.
+func appendMessage(data []byte, message Message) []byte {
 	var number [8]byte
-	totalLen := 16*4 + 8 + 8 + 1 + 1 + 4 + len(message.Payload) + 4 + len(message.Ext)
-	if message.ReplyToMsgID != uuid.Nil() {
-		totalLen += 16
-	}
-	data := make([]byte, 0, totalLen)
 	data = putUUID(data, message.MsgID)
 	data = putUUID(data, message.ClientMsgID)
 	data = putUUID(data, message.SenderID)
@@ -79,8 +80,13 @@ func decodeMessage(data []byte) (Message, error) {
 }
 
 func encodeDedup(value Dedup) []byte {
+	return appendDedup(nil, value)
+}
+
+// appendDedup encodes into dst; the record is fixed-size, so batch writes
+// pass a stack buffer and allocate nothing.
+func appendDedup(data []byte, value Dedup) []byte {
 	var number [8]byte
-	data := make([]byte, 0, 16+8+8+32)
 	data = putUUID(data, value.MsgID)
 	putU64(number[:], value.RoomSeq)
 	data = append(data, number[:]...)
@@ -134,6 +140,8 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 	var keyBuf [64]byte
 	var msgKeyBuf [25]byte
 	var digestBuf [256]byte
+	recBuf := s.recordScratch
+	roomBuf := s.roomScratch
 
 	for index := range messages {
 		if results[index].Err != nil {
@@ -212,7 +220,8 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		allocated = append(allocated, index)
 
 		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
-		if err := s.setBytes(batch, msgKey, encodeMessage(results[index].Message)); err != nil {
+		recBuf = appendMessage(recBuf[:0], results[index].Message)
+		if err := s.setBytes(batch, msgKey, recBuf); err != nil {
 			results[index].Err = err
 			continue
 		}
@@ -224,10 +233,11 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			results[index].Err = err
 			continue
 		}
-		if err := s.setBytes(batch, dedupKeyBytes, encodeDedup(Dedup{
+		dedup := Dedup{
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
-		})); err != nil {
+		}
+		if err := s.setBytes(batch, dedupKeyBytes, appendDedup(s.dedupScratch[:0], dedup)); err != nil {
 			results[index].Err = err
 		}
 	}
@@ -238,7 +248,8 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		shard.rooms[roomID] = room
 		shard.mu.Unlock()
 		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
-		if err := s.setBytes(batch, roomKeyBytes, encodeRoom(room)); err != nil {
+		roomBuf = appendRoom(roomBuf[:0], room)
+		if err := s.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
 			for index := range results {
 				if results[index].Message.RoomID == roomID && results[index].Err == nil {
 					results[index].Err = err
@@ -254,6 +265,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		}
 		return
 	}
+	s.recordScratch, s.roomScratch = recBuf, roomBuf
 	// The cache is filled only after the commit succeeded, so a message in the
 	// tail cache is always covered by a successful ACK.
 	for _, index := range allocated {
