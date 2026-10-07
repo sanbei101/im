@@ -5,6 +5,7 @@ import (
 	"uuid"
 
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/proto/pb"
 )
 
 func BenchmarkGateway(b *testing.B) {
@@ -67,4 +68,39 @@ func BenchmarkGateway(b *testing.B) {
 			}
 		}
 	})
+}
+
+func BenchmarkGatewayHandlePush(b *testing.B) {
+	g := NewGateway(config.NewTest())
+	stream := newAPIStream(g, "bench", "127.0.0.1:1")
+
+	const users = 50
+	peers := make([]*UserClient, users)
+	userIDs := make([]string, users)
+	for i := range peers {
+		id := uuid.NewV7()
+		userIDs[i] = id.String()
+		peers[i] = newTestClient(id, 1)
+		g.UserSessionManager.LoadOrCreate(id, NewUserSession).Add(peers[i])
+	}
+	batch := &pb.PushBatch{Pushes: make([]*pb.Push, users)}
+	for i := range batch.Pushes {
+		batch.Pushes[i] = &pb.Push{
+			UserId: userIDs[i], RoomId: "bench-room", RoomSeq: uint64(i + 1),
+			MsgId: uuid.NewV7().String(), SenderId: uuid.NewV7().String(), MsgType: 1,
+			Payload: []byte(`{"text":"push benchmark"}`), ServerTime: 1728000000000000,
+			ClientMsgId: uuid.NewV7().String(),
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		stream.handlePush(batch)
+		for _, peer := range peers {
+			select {
+			case <-peer.Send:
+			default:
+			}
+		}
+	}
 }

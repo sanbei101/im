@@ -149,6 +149,21 @@ func BenchmarkStoreRead(b *testing.B) {
 			}
 		}
 	})
+	b.Run("cold-page", func(b *testing.B) {
+		// A cursor outside the tail cache: forces the Pebble scan path
+		// that every history scroll-back actually takes.
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		benchWrite(b, s, room, sender, 500)
+
+		b.ReportAllocs()
+		for b.Loop() {
+			page, err := s.Messages(context.Background(), room, 300, 20)
+			if err != nil || len(page.Messages) != 20 {
+				b.Fatalf("cold page: count=%d err=%v", len(page.Messages), err)
+			}
+		}
+	})
 	b.Run("members-500", func(b *testing.B) {
 		s := newBenchStore(b)
 		room := uuid.NewV7()
@@ -196,9 +211,14 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 		})
 	}
 
+	sample, err := encodeParquet(rows)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	b.Run("encode", func(b *testing.B) {
 		b.ReportAllocs()
-		b.SetBytes(2000)
+		b.SetBytes(int64(len(sample)))
 		for b.Loop() {
 			if _, err := encodeParquet(rows); err != nil {
 				b.Fatal(err)
@@ -206,14 +226,10 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 		}
 	})
 	b.Run("decode", func(b *testing.B) {
-		data, err := encodeParquet(rows)
-		if err != nil {
-			b.Fatal(err)
-		}
 		b.ReportAllocs()
-		b.SetBytes(int64(len(data)))
+		b.SetBytes(int64(len(sample)))
 		for b.Loop() {
-			decoded, err := decodeParquet(data)
+			decoded, err := decodeParquet(sample)
 			if err != nil || len(decoded) != len(rows) {
 				b.Fatalf("decode parquet: rows=%d err=%v", len(decoded), err)
 			}
@@ -251,24 +267,119 @@ func BenchmarkMessageCache(b *testing.B) {
 		}
 	})
 }
+
 func BenchmarkStoreSearch(b *testing.B) {
+	b.Run("recent-200", func(b *testing.B) {
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		for i := range 200 {
+			if _, err := s.WriteMessage(context.Background(), Message{
+				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+				MsgType: MsgTypeText,
+				Payload: jsontext.Value(`{"text":"message number ` + string(rune('a'+i%26)) + `"}`),
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			found, err := s.SearchRoomMessages(context.Background(), room, "number", 0, 20)
+			if err != nil || len(found) != 20 {
+				b.Fatalf("search: count=%d err=%v", len(found), err)
+			}
+		}
+	})
+	b.Run("deep-scan-5000", func(b *testing.B) {
+		// The needle sits in the oldest 20 of 5000 messages: every search
+		// must decode the whole room history, exposing the O(N) scan cost.
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		for i := range 5000 {
+			text := "filler"
+			if i < 20 {
+				text = "needle"
+			}
+			if _, err := s.WriteMessage(context.Background(), Message{
+				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+				MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"` + text + `"}`),
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			found, err := s.SearchRoomMessages(context.Background(), room, "needle", 0, 20)
+			if err != nil || len(found) != 20 {
+				b.Fatalf("search: count=%d err=%v", len(found), err)
+			}
+		}
+	})
+}
+
+func BenchmarkStoreMarkRead(b *testing.B) {
 	s := newBenchStore(b)
 	room, sender := benchRoom(b, s)
-	for i := range 200 {
-		if _, err := s.WriteMessage(context.Background(), Message{
-			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
-			MsgType: MsgTypeText,
-			Payload: jsontext.Value(`{"text":"message number ` + string(rune('a'+i%26)) + `"}`),
-		}); err != nil {
+
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		if err := s.MarkRoomRead(context.Background(), sender, room, uint64(i+1)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkStoreReadUsers(b *testing.B) {
+	// ReadUsers does one point lookup per member: the N+1 pattern behind the
+	// "who read this" query of every message.
+	s := newBenchStore(b)
+	room := uuid.NewV7()
+	const members = 100
+	list := make([]Member, members)
+	for i := range list {
+		list[i] = Member{UserID: uuid.NewV7(), Role: RoleMember}
+	}
+	if err := s.CreateRoom(context.Background(), Room{RoomID: room, ChatType: ChatTypeGroup}, list); err != nil {
+		b.Fatal(err)
+	}
+	message, err := s.WriteMessage(context.Background(), Message{
+		ClientMsgID: uuid.NewV7(), SenderID: list[0].UserID, RoomID: room,
+		MsgType: MsgTypeText, Payload: []byte("read receipt bench"),
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := range members - 20 {
+		if err := s.MarkRoomRead(context.Background(), list[i].UserID, room, message.RoomSeq); err != nil {
 			b.Fatal(err)
 		}
 	}
 
 	b.ReportAllocs()
 	for b.Loop() {
-		found, err := s.SearchRoomMessages(context.Background(), room, "number", 0, 20)
-		if err != nil || len(found) != 20 {
-			b.Fatalf("search: count=%d err=%v", len(found), err)
+		users, err := s.ReadUsers(context.Background(), room, message.MsgID)
+		if err != nil || len(users) != members-20 {
+			b.Fatalf("read users: count=%d err=%v", len(users), err)
+		}
+	}
+}
+
+func BenchmarkStoreRecall(b *testing.B) {
+	s := newBenchStore(b)
+	room, sender := benchRoom(b, s)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		message, err := s.WriteMessage(context.Background(), Message{
+			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+			MsgType: MsgTypeText, Payload: []byte("recall bench"),
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := s.RecallMessage(context.Background(), room, message.MsgID, sender, false); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

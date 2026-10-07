@@ -106,6 +106,7 @@ func tamper(t *testing.T, userID string) string {
 	}
 	return parts[0] + "." + string(payload) + "." + parts[2]
 }
+
 func BenchmarkJWT(b *testing.B) {
 	b.Run("generate", func(b *testing.B) {
 		b.ReportAllocs()

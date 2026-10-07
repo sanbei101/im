@@ -12,7 +12,6 @@ lint:
 	golangci-lint fmt
 	golangci-lint run
 
-# 归档测试需要对象存储:未运行时临时启动一个,数据落在 .tmp,测完即停
 test:
 	@mkdir -p $(RUSTFS_DATA)
 	@if ! curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; then \
@@ -29,14 +28,6 @@ bench:
 	go test ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
 
 verify: lint test bench
-
-pprof:
-	rm -rf $(PPROF_DIR) && mkdir -p $(PPROF_DIR)
-	go test ./internal/store -run '^$$' -bench 'BenchmarkStoreMessageWrite/batch-100' -benchtime=5s -count=1 \
-		-cpuprofile=$(PPROF_DIR)/cpu.prof \
-		-memprofile=$(PPROF_DIR)/mem.prof \
-		-mutexprofile=$(PPROF_DIR)/mutex.prof \
-		-blockprofile=$(PPROF_DIR)/block.prof
 
 analyze:
 	go tool pprof -top -cum $(PPROF_DIR)/cpu.prof
