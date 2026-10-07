@@ -14,6 +14,7 @@ require (
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/phuslu/log v1.0.137
+	github.com/phuslu/lru v1.0.24
 	golang.org/x/crypto v0.57.0
 	gopkg.in/yaml.v3 v3.0.1
 )

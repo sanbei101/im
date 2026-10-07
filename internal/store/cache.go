@@ -1,26 +1,25 @@
 package store
 
 import (
+	"context"
 	"sync"
 	"uuid"
+
+	"github.com/phuslu/lru"
 )
 
-// Tail cache bounds. Content bytes are accounted per stored message; the
-// pre-allocated ring slots add a fixed ~18KB per room that is not counted,
-// bounded by the room limit (cacheShardCount * cacheShardRooms).
+// Tail cache bounds: at most cacheMaxRooms rooms, each holding the newest
+// tailCapacity messages and at most tailMaxBytes of payload/ext content.
+// Worst-case content is cacheMaxRooms*tailMaxBytes, plus the fixed ring slots
+// (~18KB per cached room).
 const (
-	tailCapacity    = 128
-	tailMaxBytes    = 256 << 10
-	cacheShardCount = 64
-	cacheShardRooms = 64
-	cacheShardBytes = 2 << 20
+	tailCapacity  = 128
+	tailMaxBytes  = 64 << 10
+	cacheMaxRooms = 4096
+	cacheShards   = 64
 )
 
 type roomTail struct {
-	roomID uuid.UUID
-	prev   *roomTail // intrusive LRU ring around the shard sentinel head
-	next   *roomTail
-
 	mu       sync.RWMutex
 	messages []Message // ring buffer of tailCapacity slots, ascending by RoomSeq
 	head     int       // ring slot holding the oldest message
@@ -30,37 +29,37 @@ type roomTail struct {
 	bytes    int
 }
 
-type cacheShard struct {
-	mu    sync.Mutex
-	rooms map[uuid.UUID]*roomTail
-	head  roomTail // sentinel: head.next is the most recently used tail
-	bytes int
-}
-
 // messageCache keeps the newest messages of the most active rooms in memory.
 // Only messages committed to Pebble enter the cache, so it never holds data
-// that a successful ACK has not already confirmed as durable.
+// that a successful ACK has not already confirmed as durable. A tail always
+// ends at the room's newest seq, which is what makes the before=0 page
+// servable from memory alone.
 type messageCache struct {
-	shards [cacheShardCount]cacheShard
+	cache *lru.LRUCache[uuid.UUID, *roomTail]
 }
 
 func newMessageCache() *messageCache {
-	cache := &messageCache{}
-	for i := range cache.shards {
-		shard := &cache.shards[i]
-		shard.rooms = make(map[uuid.UUID]*roomTail)
-		shard.head.next = &shard.head
-		shard.head.prev = &shard.head
+	return &messageCache{
+		cache: lru.NewLRUCache(
+			cacheMaxRooms,
+			lru.WithShards[uuid.UUID, *roomTail](cacheShards),
+		),
 	}
-	return cache
-}
-
-func (c *messageCache) shardFor(room uuid.UUID) *cacheShard {
-	return &c.shards[room[15]%cacheShardCount]
 }
 
 func messageSize(m *Message) int {
 	return len(m.Payload) + len(m.Ext) + 90
+}
+
+// load returns the room's tail, creating an empty one when absent. The loader
+// cannot fail; the fallback only guards against a nil deref.
+func (c *messageCache) load(room uuid.UUID) *roomTail {
+	tail, err, _ := c.cache.GetOrLoad(context.Background(), room,
+		func(context.Context, uuid.UUID) (*roomTail, error) { return &roomTail{}, nil })
+	if err != nil {
+		return &roomTail{}
+	}
+	return tail
 }
 
 // page serves a history page from the cached tail, mirroring the Pebble scan
@@ -68,13 +67,7 @@ func messageSize(m *Message) int {
 // before is 0) in descending order, plus hasMore. ok is false when the tail
 // does not fully cover the window, in which case the caller falls back to Pebble.
 func (c *messageCache) page(room uuid.UUID, before uint64, limit int) ([]Message, bool, bool) {
-	shard := c.shardFor(room)
-	shard.mu.Lock()
-	tail, ok := shard.rooms[room]
-	if ok {
-		shard.touch(tail)
-	}
-	shard.mu.Unlock()
+	tail, ok := c.cache.Get(room)
 	if !ok {
 		return nil, false, false
 	}
@@ -118,21 +111,20 @@ func (c *messageCache) page(room uuid.UUID, before uint64, limit int) ([]Message
 	return messages, hasMore, true
 }
 
-// put backfills the tail from a Pebble read (ascending messages). Pages older
-// than the cached tail are ignored; a page reaching past the tail replaces it.
-func (c *messageCache) put(room uuid.UUID, messages []Message) {
-	if len(messages) == 0 {
+// put backfills the tail from a Pebble read (ascending messages). Only a page
+// that reaches the room's newest seq may install or replace a tail: anything
+// older would masquerade as the newest page in before=0 reads. Pages older
+// than an existing tail are ignored.
+func (c *messageCache) put(room uuid.UUID, messages []Message, lastSeq uint64) {
+	if len(messages) == 0 || messages[len(messages)-1].RoomSeq != lastSeq {
 		return
 	}
-	shard := c.shardFor(room)
-	shard.mu.Lock()
-	defer shard.mu.Unlock()
-	tail := c.tail(shard, room)
 	page := messages
 	if len(page) > tailCapacity {
 		page = page[len(page)-tailCapacity:]
 	}
 
+	tail := c.load(room)
 	tail.mu.Lock()
 	defer tail.mu.Unlock()
 	if tail.endSeq >= page[len(page)-1].RoomSeq {
@@ -141,7 +133,6 @@ func (c *messageCache) put(room uuid.UUID, messages []Message) {
 	if tail.messages == nil {
 		tail.messages = make([]Message, tailCapacity)
 	}
-	shard.bytes -= tail.bytes
 	tail.head, tail.count = 0, len(page)
 	tail.startSeq, tail.endSeq = page[0].RoomSeq, page[len(page)-1].RoomSeq
 	tail.bytes = 0
@@ -150,20 +141,15 @@ func (c *messageCache) put(room uuid.UUID, messages []Message) {
 		tail.bytes += messageSize(&page[i])
 	}
 	for tail.bytes > tailMaxBytes && tail.count > 1 {
-		tail.trimOldest(&shard.bytes)
+		tail.trimOldest()
 	}
 	tail.startSeq = tail.messages[tail.head].RoomSeq
-	shard.bytes += tail.bytes
-	c.evictUntilFits(shard)
 }
 
 // append records a committed message; called from the single writer goroutine
 // after a successful batch commit. Dedup replays of older messages are ignored.
 func (c *messageCache) append(message *Message) {
-	shard := c.shardFor(message.RoomID)
-	shard.mu.Lock()
-	defer shard.mu.Unlock()
-	tail := c.tail(shard, message.RoomID)
+	tail := c.load(message.RoomID)
 
 	tail.mu.Lock()
 	defer tail.mu.Unlock()
@@ -183,28 +169,19 @@ func (c *messageCache) append(message *Message) {
 	}
 	tail.startSeq = tail.messages[tail.head].RoomSeq
 	tail.endSeq = message.RoomSeq
-	size := messageSize(message)
-	tail.bytes += size
-	shard.bytes += size
+	tail.bytes += messageSize(message)
 	for tail.bytes > tailMaxBytes && tail.count > 1 {
-		tail.trimOldest(&shard.bytes)
+		tail.trimOldest()
 	}
 	tail.startSeq = tail.messages[tail.head].RoomSeq
-	for shard.bytes > cacheShardBytes && len(shard.rooms) > 1 {
-		shard.evictOne()
-	}
 }
 
 // replace updates a recalled message in place while its tail is still cached.
 func (c *messageCache) replace(room uuid.UUID, message *Message) {
-	shard := c.shardFor(room)
-	shard.mu.Lock()
-	defer shard.mu.Unlock()
-	tail, ok := shard.rooms[room]
+	tail, ok := c.cache.Get(room)
 	if !ok {
 		return
 	}
-	shard.touch(tail)
 
 	tail.mu.Lock()
 	defer tail.mu.Unlock()
@@ -216,60 +193,6 @@ func (c *messageCache) replace(room uuid.UUID, message *Message) {
 	delta := messageSize(message) - messageSize(slot)
 	*slot = *message
 	tail.bytes += delta
-	shard.bytes += delta
-}
-
-// tail returns the cached tail for room, creating and LRU-inserting an empty
-// one when absent. Caller must hold shard.mu.
-func (c *messageCache) tail(shard *cacheShard, room uuid.UUID) *roomTail {
-	if tail, ok := shard.rooms[room]; ok {
-		shard.touch(tail)
-		return tail
-	}
-	for len(shard.rooms) >= cacheShardRooms && shard.head.prev != &shard.head {
-		shard.evictOne()
-	}
-	tail := &roomTail{roomID: room}
-	tail.linkAfter(&shard.head)
-	shard.rooms[room] = tail
-	return tail
-}
-
-func (c *messageCache) evictUntilFits(shard *cacheShard) {
-	for (len(shard.rooms) > cacheShardRooms || shard.bytes > cacheShardBytes) && shard.head.prev != &shard.head {
-		shard.evictOne()
-	}
-}
-
-// touch moves a tail to the front of the shard LRU. Caller holds shard.mu.
-func (s *cacheShard) touch(tail *roomTail) {
-	tail.unlink()
-	tail.linkAfter(&s.head)
-}
-
-// evictOne drops the least recently used tail. Caller holds shard.mu.
-func (s *cacheShard) evictOne() bool {
-	victim := s.head.prev
-	if victim == &s.head {
-		return false
-	}
-	victim.unlink()
-	delete(s.rooms, victim.roomID)
-	s.bytes -= victim.bytes
-	return true
-}
-
-func (t *roomTail) unlink() {
-	t.prev.next = t.next
-	t.next.prev = t.prev
-	t.prev, t.next = nil, nil
-}
-
-func (t *roomTail) linkAfter(head *roomTail) {
-	t.prev = head
-	t.next = head.next
-	head.next.prev = t
-	head.next = t
 }
 
 // find returns the logical index of the first message with seq >= target,
@@ -288,13 +211,11 @@ func (t *roomTail) find(target uint64) int {
 }
 
 // trimOldest drops the oldest message from the ring, releasing its payload
-// reference. Caller must hold t.mu; delta is the shard byte counter.
-func (t *roomTail) trimOldest(delta *int) {
+// reference. Caller must hold t.mu.
+func (t *roomTail) trimOldest() {
 	oldest := &t.messages[t.head]
-	size := messageSize(oldest)
+	t.bytes -= messageSize(oldest)
 	*oldest = Message{}
-	t.bytes -= size
-	*delta -= size
 	t.head = (t.head + 1) % tailCapacity
 	t.count--
 }

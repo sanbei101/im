@@ -317,7 +317,10 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	if hasMore {
 		messages = messages[:limit]
 	}
-	s.cache.put(roomID, ascending)
+
+	if before == 0 {
+		s.cache.put(roomID, ascending, hi-1)
+	}
 	return MessagePage{Messages: messages, HasMore: hasMore}, nil
 }
 
