@@ -47,15 +47,24 @@ func BenchmarkGateway(b *testing.B) {
 		room := "bench-typing"
 		sender := uuid.NewV7()
 		g.TouchRoomUser(room, sender)
+		peers := make([]*UserClient, 0, 50)
 		for range 50 {
 			peer := uuid.NewV7()
 			g.TouchRoomUser(room, peer)
-			g.UserSessionManager.LoadOrCreate(peer, NewUserSession).Add(newTestClient(peer, 4096))
+			client := newTestClient(peer, 1)
+			g.UserSessionManager.LoadOrCreate(peer, NewUserSession).Add(client)
+			peers = append(peers, client)
 		}
 
 		b.ReportAllocs()
 		for b.Loop() {
 			g.BroadcastTyping(sender, room)
+			for _, peer := range peers {
+				select {
+				case <-peer.Send:
+				default:
+				}
+			}
 		}
 	})
 }

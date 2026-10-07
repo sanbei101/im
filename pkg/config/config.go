@@ -135,7 +135,7 @@ func (c *Config) Default() {
 		c.API.NodeCount = len(c.Gateway.APIAddrs)
 	}
 	if c.Storage.Endpoint == "" {
-		c.Storage.Endpoint = "127.0.0.1:9001"
+		c.Storage.Endpoint = "127.0.0.1:19901"
 	}
 	if c.Storage.Bucket == "" {
 		c.Storage.Bucket = "im-media"

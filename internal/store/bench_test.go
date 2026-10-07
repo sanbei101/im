@@ -251,3 +251,24 @@ func BenchmarkMessageCache(b *testing.B) {
 		}
 	})
 }
+func BenchmarkStoreSearch(b *testing.B) {
+	s := newBenchStore(b)
+	room, sender := benchRoom(b, s)
+	for i := range 200 {
+		if _, err := s.WriteMessage(context.Background(), Message{
+			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+			MsgType: MsgTypeText,
+			Payload: jsontext.Value(`{"text":"message number ` + string(rune('a'+i%26)) + `"}`),
+		}); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		found, err := s.SearchRoomMessages(context.Background(), room, "number", 0, 20)
+		if err != nil || len(found) != 20 {
+			b.Fatalf("search: count=%d err=%v", len(found), err)
+		}
+	}
+}

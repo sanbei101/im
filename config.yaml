@@ -19,7 +19,7 @@ shard:
   slots: 1024
 
 storage:
-  endpoint: "127.0.0.1:9001"
+  endpoint: "127.0.0.1:19901"
   bucket: "im-media"
   access_key_id: "rustfsadmin"
   secret_access_key: "rustfsadmin"
