@@ -16,6 +16,7 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
+	"github.com/phuslu/lru"
 )
 
 var (
@@ -31,12 +32,31 @@ const (
 	messageQueueSize   = 4096
 	messageBatchSize   = 128
 	messageBatchWindow = time.Millisecond
+	recallQueueSize    = 256
 )
 
 type messageWriteRequest struct {
 	ctx      context.Context
 	messages []Message
 	result   chan []MessageWriteResult
+}
+
+// recallRequest funnels RecallMessage through the single writer goroutine: a
+// recall rewrites the room record, so it must serialize with message batches
+// that allocate seqs and rewrite the same record.
+type recallRequest struct {
+	ctx            context.Context
+	roomID         uuid.UUID
+	msgID          uuid.UUID
+	operatorID     uuid.UUID
+	isOwnerOrAdmin bool
+	result         chan RecallResult
+}
+
+// RecallResult carries the outcome of a recall request back to its caller.
+type RecallResult struct {
+	Message Message
+	Err     error
 }
 
 type MessageWriteResult struct {
@@ -46,9 +66,12 @@ type MessageWriteResult struct {
 
 const roomShardCount = 64
 
+// roomCachePerShard bounds the room cache: 64 shards * 256 rooms. Evicted
+// rooms are simply re-read from Pebble on demand.
+const roomCachePerShard = 256
+
 type roomShard struct {
-	mu    sync.RWMutex
-	rooms map[uuid.UUID]Room
+	rooms *lru.LRUCache[uuid.UUID, Room]
 }
 
 type Store struct {
@@ -59,6 +82,7 @@ type Store struct {
 	remote     *remoteReader
 
 	messageQueue chan messageWriteRequest
+	recallQueue  chan *recallRequest
 	// Encode scratches reused across batches. Only the single writer
 	// goroutine touches them, so they need no locking.
 	recordScratch []byte
@@ -295,12 +319,13 @@ func Open(path string) (*Store, error) {
 		db:           db,
 		cache:        newMessageCache(),
 		messageQueue: make(chan messageWriteRequest, messageQueueSize),
+		recallQueue:  make(chan *recallRequest, recallQueueSize),
 		closeSignal:  make(chan struct{}),
 		writerDone:   make(chan struct{}),
 		closeDone:    make(chan struct{}),
 	}
 	for i := range store.roomShards {
-		store.roomShards[i].rooms = make(map[uuid.UUID]Room)
+		store.roomShards[i].rooms = lru.NewLRUCache[uuid.UUID, Room](roomCachePerShard)
 	}
 	go store.runMessageWriter()
 	return store, nil
@@ -402,11 +427,15 @@ func (s *Store) runMessageWriter() {
 		select {
 		case request := <-s.messageQueue:
 			s.commitMessageRequests(s.collectMessageRequests(request))
+		case request := <-s.recallQueue:
+			s.execRecall(request)
 		case <-s.closeSignal:
 			for {
 				select {
 				case request := <-s.messageQueue:
 					s.commitMessageRequests(s.collectMessageRequests(request))
+				case request := <-s.recallQueue:
+					s.execRecall(request)
 				default:
 					return
 				}

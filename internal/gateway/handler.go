@@ -40,7 +40,7 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	}()
 
 	userClient.readPump(r.Context())
-	close(userClient.Send)
+	userClient.closeSend()
 	<-writeDone
 }
 
@@ -82,5 +82,5 @@ func (gateway *Gateway) cleanUserClient(userID uuid.UUID, c *UserClient, session
 	if session.Remove(c) {
 		gateway.UserSessionManager.Delete(userID)
 	}
-	c.closed.Store(true)
+	c.closeSend()
 }

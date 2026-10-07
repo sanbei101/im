@@ -23,6 +23,9 @@ import (
 const (
 	pendingShardCount  = 64
 	roomUserShardCount = 64
+	// roomUserTTL bounds how long a room's active-user entry lives without a
+	// heartbeat; the sweeper evicts stale entries so the maps stay bounded.
+	roomUserTTL = 24 * time.Hour
 )
 
 type pendingShard struct {
@@ -172,6 +175,40 @@ func (g *Gateway) Start(ctx context.Context) {
 	for _, stream := range g.streams {
 		go stream.run(ctx)
 	}
+	go g.sweepRoomUsers(ctx)
+}
+
+// sweepRoomUsers periodically evicts room-user entries idle past roomUserTTL
+// and drops empty sets, keeping the room-user maps bounded.
+func (g *Gateway) sweepRoomUsers(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		cutoff := time.Now().Add(-roomUserTTL)
+		for i := range g.roomUserShards {
+			shard := &g.roomUserShards[i]
+			shard.mu.Lock()
+			for roomID, set := range shard.m {
+				set.mu.Lock()
+				for uid, lastSeen := range set.users {
+					if lastSeen.Before(cutoff) {
+						delete(set.users, uid)
+					}
+				}
+				empty := len(set.users) == 0
+				set.mu.Unlock()
+				if empty {
+					delete(shard.m, roomID)
+				}
+			}
+			shard.mu.Unlock()
+		}
+	}
 }
 
 func (g *Gateway) streamForRoom(roomID uuid.UUID) *apiStream {
@@ -209,6 +246,7 @@ type apiStream struct {
 	gateway  *Gateway
 	id       string
 	address  string
+	client   gatewayservice.Client // created once per stream, reused across reconnects
 	stream   gatewayservice.GatewayService_ConnectClient
 	queue    chan *pb.SendMessage
 	sessions chan *pb.Session
@@ -229,14 +267,19 @@ func newAPIStream(g *Gateway, id, address string) *apiStream {
 
 func (s *apiStream) run(ctx context.Context) {
 	for ctx.Err() == nil {
+		if err := s.ensureClient(); err != nil {
+			log.Error().Err(err).Str("api", s.address).Msg("create api client failed")
+			if !s.waitRetry(ctx) {
+				return
+			}
+			continue
+		}
 		if err := s.connect(ctx); err != nil {
 			log.Error().Err(err).Str("api", s.address).Msg("connect api stream failed")
-			select {
-			case <-ctx.Done():
+			if !s.waitRetry(ctx) {
 				return
-			case <-time.After(time.Second):
-				continue
 			}
+			continue
 		}
 		if err := s.loop(ctx); err != nil {
 			log.Error().Err(err).Str("api", s.address).Msg("api stream stopped")
@@ -245,11 +288,35 @@ func (s *apiStream) run(ctx context.Context) {
 	}
 }
 
-func (s *apiStream) connect(ctx context.Context) error {
+// waitRetry sleeps before the next reconnect attempt; false when ctx is done.
+func (s *apiStream) waitRetry(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(time.Second):
+		return true
+	}
+}
+
+// ensureClient lazily creates the Kitex client once. The generated client
+// interface does not expose Close, but one client per API address lives for
+// the process lifetime, so there is nothing to leak across reconnects.
+func (s *apiStream) ensureClient() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		return nil
+	}
 	cli, err := gatewayservice.NewClient("im-api", client.WithHostPorts(s.address))
 	if err != nil {
 		return err
 	}
+	s.client = cli
+	return nil
+}
+
+func (s *apiStream) connect(ctx context.Context) error {
+	cli := s.snapshotClient()
 	stream, err := cli.Connect(ctx)
 	if err != nil {
 		return err
@@ -260,41 +327,61 @@ func (s *apiStream) connect(ctx context.Context) error {
 	if err := stream.Send(ctx,
 		&pb.GatewayFrame{Body: &pb.GatewayFrame_Hello{Hello: &pb.Hello{GatewayId: s.id}}},
 	); err != nil {
+		s.close()
 		return err
 	}
-	for _, session := range s.gateway.UserSessionManager.All() {
+	// Replay every local session in one batch so the API node restores its
+	// routing table after a reconnect with a single round trip.
+	sessions := s.gateway.UserSessionManager.All()
+	if len(sessions) > 0 {
+		batch := make([]*pb.Session, 0, len(sessions))
+		for _, session := range sessions {
+			batch = append(batch, &pb.Session{UserId: session.String(), Online: true})
+		}
 		if err := stream.Send(ctx,
 			&pb.GatewayFrame{
 				Body: &pb.GatewayFrame_SessionBatch{
-					SessionBatch: &pb.SessionBatch{
-						Sessions: []*pb.Session{{UserId: session.String(), Online: true}},
-					},
+					SessionBatch: &pb.SessionBatch{Sessions: batch},
 				},
 			},
 		); err != nil {
+			s.close()
 			return err
 		}
 	}
 	return nil
 }
 
+// loop drives the live stream with one sender and one receiver goroutine. It
+// joins both before returning, so no goroutine can outlive this loop and
+// touch the next generation's stream.
 func (s *apiStream) loop(ctx context.Context) error {
-	done := make(chan error, 1)
+	stream := s.snapshot()
+	if stream == nil {
+		return errors.New("api stream not connected")
+	}
+	done := make(chan error, 2)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
 				done <- ctx.Err()
 				return
+			case <-stop:
+				return
 			case message := <-s.queue:
-				if err := s.sendFrame(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SendBatch{
+				if err := stream.Send(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SendBatch{
 					SendBatch: &pb.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*pb.SendMessage{message}},
 				}}); err != nil {
 					done <- err
 					return
 				}
 			case session := <-s.sessions:
-				if err := s.sendFrame(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SessionBatch{
+				if err := stream.Send(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SessionBatch{
 					SessionBatch: &pb.SessionBatch{Sessions: []*pb.Session{session}},
 				}}); err != nil {
 					done <- err
@@ -304,8 +391,9 @@ func (s *apiStream) loop(ctx context.Context) error {
 		}
 	}()
 	go func() {
+		defer wg.Done()
 		for {
-			frame, err := s.stream.Recv(ctx)
+			frame, err := stream.Recv(ctx)
 			if err != nil {
 				done <- err
 				return
@@ -318,12 +406,30 @@ func (s *apiStream) loop(ctx context.Context) error {
 			}
 		}
 	}()
-	return <-done
+	err := <-done
+	close(stop)
+	stream.CloseSend(context.Background())
+	wg.Wait()
+	return err
 }
 
-// sendFrame sends one frame on the live stream.
-func (s *apiStream) sendFrame(ctx context.Context, frame *pb.GatewayFrame) error {
-	return s.snapshot().Send(ctx, frame)
+func (s *apiStream) close() {
+	s.mu.Lock()
+	s.stream = nil
+	s.mu.Unlock()
+}
+
+// snapshot returns the live stream; nil means the stream was torn down by close().
+func (s *apiStream) snapshot() gatewayservice.GatewayService_ConnectClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stream
+}
+
+func (s *apiStream) snapshotClient() gatewayservice.Client {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.client
 }
 
 func (s *apiStream) register(ctx context.Context, userID uuid.UUID, online bool) error {
@@ -409,17 +515,4 @@ func (s *apiStream) enqueue(ctx context.Context, message *pb.SendMessage) error 
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (s *apiStream) close() {
-	s.mu.Lock()
-	s.stream = nil
-	s.mu.Unlock()
-}
-
-// snapshot returns the live stream; nil means the stream was torn down by close().
-func (s *apiStream) snapshot() gatewayservice.GatewayService_ConnectClient {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.stream
 }

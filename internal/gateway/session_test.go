@@ -101,10 +101,11 @@ func TestGateway(t *testing.T) {
 		if err := client.sendFrame([]byte("frame-2")); err == nil {
 			t.Fatal("send into full buffer must fail")
 		}
-		client.closed.Store(true)
+		client.closeSend()
 		if err := client.sendFrame([]byte("frame-3")); err == nil {
 			t.Fatal("send on closed client must fail")
 		}
+		client.closeSend()
 	})
 
 	t.Run("typing broadcast reaches room peers only", func(t *testing.T) {

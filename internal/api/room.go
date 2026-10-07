@@ -600,13 +600,12 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.UpdateMemberRole(r.Context(), roomID, newOwnerID, store.RoleOwner); err != nil {
+	if err := a.store.TransferOwnership(r.Context(), roomID, myID, newOwnerID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.store.UpdateMemberRole(r.Context(), roomID, myID, store.RoleMember); err != nil {
-		render.Error(w, http.StatusInternalServerError, err.Error())
-		return
+	if a.streamHandler != nil {
+		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
 
 	render.SuccessNoData(w, http.StatusOK, "转让群主成功")

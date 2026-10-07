@@ -151,10 +151,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		results[index].Message = *message
 		room, ok := rooms[message.RoomID]
 		if !ok {
-			shard := s.getRoomShard(message.RoomID)
-			shard.mu.RLock()
-			room, ok = shard.rooms[message.RoomID]
-			shard.mu.RUnlock()
+			room, ok = s.getRoomShard(message.RoomID).rooms.Get(message.RoomID)
 		}
 		if !ok {
 			var err error
@@ -243,10 +240,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 	}
 	for roomID := range rooms {
 		room := rooms[roomID]
-		shard := s.getRoomShard(roomID)
-		shard.mu.Lock()
-		shard.rooms[roomID] = room
-		shard.mu.Unlock()
+		s.getRoomShard(roomID).rooms.Set(roomID, room)
 		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
 		roomBuf = appendRoom(roomBuf[:0], room)
 		if err := s.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
@@ -508,6 +502,41 @@ func (s *Store) RecallMessage(
 	if err := contextErr(ctx); err != nil {
 		return Message{}, err
 	}
+	s.stateMu.RLock()
+	closed := s.closed
+	s.stateMu.RUnlock()
+	if closed {
+		return Message{}, ErrClosed
+	}
+	request := &recallRequest{
+		ctx:            ctx,
+		roomID:         roomID,
+		msgID:          msgID,
+		operatorID:     operatorID,
+		isOwnerOrAdmin: isOwnerOrAdmin,
+		result:         make(chan RecallResult, 1),
+	}
+	select {
+	case s.recallQueue <- request:
+	case <-ctx.Done():
+		return Message{}, ctx.Err()
+	}
+	result := <-request.result
+	return result.Message, result.Err
+}
+
+// execRecall runs on the single writer goroutine: rewriting a recall also
+// rewrites the room record, so it must not interleave with message batches.
+func (s *Store) execRecall(request *recallRequest) {
+	result := RecallResult{Err: contextErr(request.ctx)}
+	if result.Err == nil {
+		result.Message, result.Err = s.recall(request)
+	}
+	request.result <- result
+}
+
+func (s *Store) recall(request *recallRequest) (Message, error) {
+	roomID, msgID, operatorID := request.roomID, request.msgID, request.operatorID
 
 	var indexKeyBuf [33]byte
 	indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID)
@@ -531,7 +560,7 @@ func (s *Store) RecallMessage(
 	if errors.Is(err, ErrNotFound) {
 		// The body is archived: it left the local store and cannot be
 		// recalled anymore, no matter who asks.
-		if _, remoteErr := s.remoteMessage(ctx, roomID, seq); remoteErr == nil {
+		if _, remoteErr := s.remoteMessage(request.ctx, roomID, seq); remoteErr == nil {
 			return Message{}, ErrRecallTimeout
 		}
 		return Message{}, ErrNotFound
@@ -544,12 +573,12 @@ func (s *Store) RecallMessage(
 		return msg, nil
 	}
 
-	if operatorID != msg.SenderID && !isOwnerOrAdmin {
+	if operatorID != msg.SenderID && !request.isOwnerOrAdmin {
 		return Message{}, ErrForbidden
 	}
 
 	now := time.Now().UnixMicro()
-	if !isOwnerOrAdmin && now-msg.ServerTime > 120*1000*1000 {
+	if !request.isOwnerOrAdmin && now-msg.ServerTime > 120*1000*1000 {
 		return Message{}, ErrRecallTimeout
 	}
 
@@ -563,16 +592,13 @@ func (s *Store) RecallMessage(
 	}
 	// The room record embeds its newest message: recall of that message must
 	// refresh the embedded copy in the same batch.
-	if room, err := s.Room(ctx, roomID); err == nil && room.LastSeq == msg.RoomSeq {
+	if room, err := s.Room(request.ctx, roomID); err == nil && room.LastSeq == msg.RoomSeq {
 		room.LastMsg = &msg
 		var rKeyBuf [32]byte
 		if err := s.setBytes(batch, appendRoomKey(rKeyBuf[:0], roomID), encodeRoom(room)); err != nil {
 			return Message{}, err
 		}
-		shard := s.getRoomShard(roomID)
-		shard.mu.Lock()
-		shard.rooms[roomID] = room
-		shard.mu.Unlock()
+		s.getRoomShard(roomID).rooms.Set(roomID, room)
 	}
 	if err := commit(batch); err != nil {
 		return Message{}, err

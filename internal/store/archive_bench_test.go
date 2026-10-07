@@ -45,6 +45,7 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 		}
 	})
 }
+
 func newBenchObjectStore(b *testing.B) *MinioObjectStore {
 	b.Helper()
 	cfg := config.NewTest()

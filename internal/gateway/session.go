@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"sync/atomic"
 	"uuid"
 
 	"github.com/coder/websocket"
@@ -24,13 +23,13 @@ type UserClient struct {
 	UserID  uuid.UUID
 	frames  *render.FrameWriter
 
-	closed atomic.Bool
+	sendMu sync.Mutex
+	closed bool
 }
 
 func (c *UserClient) writePump(ctx context.Context) {
 	defer func() {
-		c.closed.Store(true)
-		_ = c.Conn.Close(websocket.StatusNormalClosure, "")
+		c.Conn.Close(websocket.StatusNormalClosure, "")
 	}()
 	for frame := range c.Send {
 		if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
@@ -114,7 +113,9 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 
 // sendFrame 非阻塞投递已编码帧；客户端已拆除或缓冲已满返回错误。
 func (c *UserClient) sendFrame(frame []byte) error {
-	if c.closed.Load() {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	if c.closed {
 		return errors.New("client is closed")
 	}
 	select {
@@ -122,6 +123,15 @@ func (c *UserClient) sendFrame(frame []byte) error {
 		return nil
 	default:
 		return errors.New("client send buffer is full")
+	}
+}
+
+func (c *UserClient) closeSend() {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	if !c.closed {
+		c.closed = true
+		close(c.Send)
 	}
 }
 

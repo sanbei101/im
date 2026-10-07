@@ -36,6 +36,9 @@ func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
+	if !requireRoomMember(a.store, w, r, roomID) {
+		return
+	}
 
 	before := parseBeforeSeq(q.Get("before_seq"))
 	limit := parseLimit(q.Get("page_size"))
@@ -208,6 +211,9 @@ func (a *MessageAPI) GetReactions(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
+	if !requireRoomMember(a.store, w, r, roomID) {
+		return
+	}
 
 	reactions, err := a.store.Reactions(r.Context(), roomID, msgID)
 	if err != nil {
@@ -227,6 +233,9 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 	roomID, err := uuid.Parse(r.URL.Query().Get("room_id"))
 	if err != nil {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
+		return
+	}
+	if !requireRoomMember(a.store, w, r, roomID) {
 		return
 	}
 
@@ -251,20 +260,7 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
-
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user_id")
-		return
-	}
-
-	if _, err := a.store.Member(r.Context(), roomID, userID); err != nil {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
+	if !requireRoomMember(a.store, w, r, roomID) {
 		return
 	}
 

@@ -210,10 +210,7 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 	if err := commit(batch); err != nil {
 		return err
 	}
-	shard := s.getRoomShard(room.RoomID)
-	shard.mu.Lock()
-	shard.rooms[room.RoomID] = room
-	shard.mu.Unlock()
+	s.getRoomShard(room.RoomID).rooms.Set(room.RoomID, room)
 	return nil
 }
 
@@ -221,11 +218,7 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if err := contextErr(ctx); err != nil {
 		return Room{}, err
 	}
-	shard := s.getRoomShard(roomID)
-	shard.mu.RLock()
-	room, ok := shard.rooms[roomID]
-	shard.mu.RUnlock()
-	if ok {
+	if room, ok := s.getRoomShard(roomID).rooms.Get(roomID); ok {
 		return room, nil
 	}
 	var buf [32]byte
@@ -233,9 +226,7 @@ func (s *Store) Room(ctx context.Context, roomID uuid.UUID) (Room, error) {
 	if err != nil {
 		return Room{}, err
 	}
-	shard.mu.Lock()
-	shard.rooms[roomID] = room
-	shard.mu.Unlock()
+	s.getRoomShard(roomID).rooms.Set(roomID, room)
 	return room, nil
 }
 
@@ -328,10 +319,7 @@ func (s *Store) UpdateRoom(ctx context.Context, roomID uuid.UUID, name, avatarUR
 	if err := commit(batch); err != nil {
 		return Room{}, err
 	}
-	shard := s.getRoomShard(roomID)
-	shard.mu.Lock()
-	shard.rooms[roomID] = room
-	shard.mu.Unlock()
+	s.getRoomShard(roomID).rooms.Set(roomID, room)
 	return room, nil
 }
 
@@ -399,18 +387,60 @@ func (s *Store) UpdateMemberRole(ctx context.Context, roomID, userID uuid.UUID, 
 	}
 
 	member.Role = role
-	var uKeyBuf [64]byte
-	uKey := appendUserRoomKey(uKeyBuf[:0], userID, roomID)
+	return s.commitMember(member)
+}
+
+// TransferOwnership swaps the owner role between two members in one batch, so
+// a crash can never leave a room with zero or two owners.
+func (s *Store) TransferOwnership(ctx context.Context, roomID, from, to uuid.UUID) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+
+	var fromBuf, toBuf [64]byte
+	fromMember, err := s.getRecord(appendMemberKey(fromBuf[:0], roomID, from), decodeMember)
+	if err != nil {
+		return err
+	}
+	toMember, err := s.getRecord(appendMemberKey(toBuf[:0], roomID, to), decodeMember)
+	if err != nil {
+		return err
+	}
+
+	fromMember.Role = RoleMember
+	toMember.Role = RoleOwner
+
 	batch := s.db.NewBatch()
 	defer batch.Close()
+	if err := s.setMemberBatch(batch, fromMember); err != nil {
+		return err
+	}
+	if err := s.setMemberBatch(batch, toMember); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+// commitMember persists a member record and its user-room index copy in one batch.
+func (s *Store) commitMember(member Member) error {
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setMemberBatch(batch, member); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) setMemberBatch(batch *pebble.Batch, member Member) error {
+	var mKeyBuf [64]byte
+	mKey := appendMemberKey(mKeyBuf[:0], member.RoomID, member.UserID)
 	if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
 		return err
 	}
 	// Keep the user-room index copy in sync with the member record.
-	if err := s.setBytes(batch, uKey, encodeMember(member)); err != nil {
-		return err
-	}
-	return commit(batch)
+	var uKeyBuf [64]byte
+	uKey := appendUserRoomKey(uKeyBuf[:0], member.UserID, member.RoomID)
+	return s.setBytes(batch, uKey, encodeMember(member))
 }
 
 func (s *Store) UpdateMemberSettings(ctx context.Context, roomID, userID uuid.UUID, isPinned, isMuted *bool) error {
@@ -432,18 +462,7 @@ func (s *Store) UpdateMemberSettings(ctx context.Context, roomID, userID uuid.UU
 		member.IsMuted = *isMuted
 	}
 
-	var uKeyBuf [64]byte
-	uKey := appendUserRoomKey(uKeyBuf[:0], userID, roomID)
-	batch := s.db.NewBatch()
-	defer batch.Close()
-	if err := s.setBytes(batch, mKey, encodeMember(member)); err != nil {
-		return err
-	}
-	// Keep the user-room index copy in sync with the member record.
-	if err := s.setBytes(batch, uKey, encodeMember(member)); err != nil {
-		return err
-	}
-	return commit(batch)
+	return s.commitMember(member)
 }
 
 func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
@@ -484,10 +503,7 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 	if err := commit(batch); err != nil {
 		return err
 	}
-	shard := s.getRoomShard(roomID)
-	shard.mu.Lock()
-	delete(shard.rooms, roomID)
-	shard.mu.Unlock()
+	s.getRoomShard(roomID).rooms.Delete(roomID)
 	return nil
 }
 
