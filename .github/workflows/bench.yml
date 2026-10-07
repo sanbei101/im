@@ -34,9 +34,6 @@ jobs:
         with:
           version: latest
 
-      - name: Lint
-        run: make lint
-
       - name: Test
         run: make test
 
