@@ -347,10 +347,20 @@ func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ids := make([]uuid.UUID, len(members))
+	for i, m := range members {
+		ids[i] = m.UserID
+	}
+	users, err := a.store.UsersByIDs(r.Context(), ids)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	result := make([]MemberInfoResp, 0, len(members))
 	for _, m := range members {
-		u, err := a.store.UserByID(r.Context(), m.UserID)
-		if err != nil {
+		u, ok := users[m.UserID]
+		if !ok {
 			continue
 		}
 		result = append(result, MemberInfoResp{
@@ -384,6 +394,16 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current, err := a.store.Members(r.Context(), roomID)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	existing := make(map[uuid.UUID]struct{}, len(current))
+	for _, m := range current {
+		existing[m.UserID] = struct{}{}
+	}
+
 	req, err := render.ReadBody[AddMembersReq](w, r)
 	if err != nil {
 		return
@@ -396,9 +416,10 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 			render.Error(w, http.StatusBadRequest, "invalid member id: "+raw)
 			return
 		}
-		if _, err := a.store.Member(r.Context(), roomID, uid); err == nil {
+		if _, ok := existing[uid]; ok {
 			continue
 		}
+		existing[uid] = struct{}{}
 		toAdd = append(toAdd, store.Member{UserID: uid, Role: store.RoleMember})
 	}
 

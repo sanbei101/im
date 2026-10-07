@@ -109,6 +109,49 @@ func decodeRoom(data []byte) (Room, error) {
 	}, nil
 }
 
+// decodeRoomHead parses only the leading fields of a room record, without
+// materializing strings or decoding the embedded last message. It serves
+// scans that need just the room id and LastSeq, such as the archiver.
+func decodeRoomHead(data []byte) (Room, error) {
+	d := decoder{data: data}
+	id, err := d.uuid()
+	if err != nil {
+		return Room{}, err
+	}
+	// chatType, name, avatarURL, notice, singleChatHash: length-prefixed,
+	// skipped without copying.
+	for range 5 {
+		if err := skipBytes(&d); err != nil {
+			return Room{}, err
+		}
+	}
+	seq, err := d.u64()
+	if err != nil {
+		return Room{}, err
+	}
+	if _, err = d.i64(); err != nil {
+		return Room{}, err
+	}
+	if _, err = d.i64(); err != nil {
+		return Room{}, err
+	}
+	if d.byte() == 1 {
+		if err := skipBytes(&d); err != nil {
+			return Room{}, err
+		}
+	}
+	if !d.done() {
+		return Room{}, errors.New("invalid room record")
+	}
+	return Room{RoomID: id, LastSeq: seq}, nil
+}
+
+// skipBytes consumes one length-prefixed byte slice without copying it.
+func skipBytes(d *decoder) error {
+	_, err := d.bytes()
+	return err
+}
+
 func encodeMember(member Member) []byte {
 	data := make([]byte, 0, 16*2+4+len(member.Role)+3)
 	data = putUUID(data, member.RoomID)

@@ -139,9 +139,9 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 
 	var keyBuf [64]byte
 	var msgKeyBuf [25]byte
-	var digestBuf [256]byte
 	recBuf := s.recordScratch
 	roomBuf := s.roomScratch
+	var digestInput []byte
 
 	for index := range messages {
 		if results[index].Err != nil {
@@ -162,12 +162,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		}
 		rooms[message.RoomID] = room
 
-		digestInput := digestBuf[:0]
-		needLen := len(message.Payload) + len(message.Ext) + 19
-		if needLen > len(digestBuf) {
-			digestInput = make([]byte, 0, needLen)
-		}
-		digestInput = append(digestInput, byte(message.MsgType))
+		digestInput = append(digestInput[:0], byte(message.MsgType))
 		digestInput = append(digestInput, message.Payload...)
 		digestInput = append(digestInput, 0)
 		digestInput = append(digestInput, message.Ext...)
@@ -259,7 +254,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		}
 		return
 	}
-	s.recordScratch, s.roomScratch = recBuf, roomBuf
+	s.recordScratch, s.roomScratch, s.digestScratch = recBuf, roomBuf, digestInput
 	// The cache is filled only after the commit succeeded, so a message in the
 	// tail cache is always covered by a successful ACK.
 	for _, index := range allocated {

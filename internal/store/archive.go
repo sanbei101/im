@@ -99,23 +99,40 @@ func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params Arc
 	if params.MaxMessages <= 0 || params.MaxBytes <= 0 {
 		return errors.New("invalid archive params")
 	}
-	rooms, err := s.scanPrefix([]byte("r"), decodeRoom)
+
+	// Room scan is key-first: the room id comes straight from the key so the
+	// ownership filter runs before any decode, and only a lightweight header
+	// (no strings, no embedded message) is parsed for the surviving rooms.
+	var prefixBuf [1]byte
+	prefixBuf[0] = 'r'
+	prefix := appendRoomPrefix(prefixBuf[:0])
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return fmt.Errorf("scan rooms: %w", err)
 	}
-	for i := range rooms {
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
 		if err := contextErr(ctx); err != nil {
 			return err
 		}
-		room := &rooms[i]
-		if params.Owns != nil && !params.Owns(room.RoomID) {
+		key := iter.Key()
+		if len(key) != len(prefix)+16 {
 			continue
 		}
-		if err := s.archiveRoom(ctx, objects, params, room); err != nil {
-			log.Warn().Err(err).Str("room", room.RoomID.String()).Msg("archive room failed")
+		var roomID uuid.UUID
+		copy(roomID[:], key[len(prefix):])
+		if params.Owns != nil && !params.Owns(roomID) {
+			continue
+		}
+		room, err := decodeRoomHead(iter.Value())
+		if err != nil {
+			return fmt.Errorf("decode room %s: %w", roomID, err)
+		}
+		if err := s.archiveRoom(ctx, objects, params, &room); err != nil {
+			log.Warn().Err(err).Str("room", roomID.String()).Msg("archive room failed")
 		}
 	}
-	return nil
+	return iter.Error()
 }
 
 func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params ArchiveParams, room *Room) error {

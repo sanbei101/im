@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"uuid"
@@ -96,6 +98,12 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (User
 	if err := s.setBytes(batch, unameKey, user.UserID[:]); err != nil {
 		return User{}, err
 	}
+	// The nickname defaults to the username; index it from day one so
+	// nickname search finds every user.
+	nicknameKey := appendNicknameKey(nil, strings.ToLower(user.Nickname), user.UserID)
+	if err := s.setBytes(batch, nicknameKey, user.UserID[:]); err != nil {
+		return User{}, err
+	}
 	if err := commit(batch); err != nil {
 		return User{}, fmt.Errorf("commit user: %w", err)
 	}
@@ -137,8 +145,10 @@ func (s *Store) UpdateUserProfile(ctx context.Context, id uuid.UUID, nickname, a
 		return User{}, err
 	}
 
-	if strings.TrimSpace(nickname) != "" {
-		user.Nickname = strings.TrimSpace(nickname)
+	var oldNicknameKey []byte
+	if trimmed := strings.TrimSpace(nickname); trimmed != "" && trimmed != user.Nickname {
+		oldNicknameKey = appendNicknameKey(nil, strings.ToLower(user.Nickname), id)
+		user.Nickname = trimmed
 	}
 	if avatarURL != "" {
 		user.AvatarURL = avatarURL
@@ -149,12 +159,24 @@ func (s *Store) UpdateUserProfile(ctx context.Context, id uuid.UUID, nickname, a
 	if err := s.setBytes(batch, userKey, encodeUser(user)); err != nil {
 		return User{}, err
 	}
+	if oldNicknameKey != nil {
+		if err := batch.Delete(oldNicknameKey, nil); err != nil {
+			return User{}, err
+		}
+		newNicknameKey := appendNicknameKey(nil, strings.ToLower(user.Nickname), id)
+		if err := s.setBytes(batch, newNicknameKey, id[:]); err != nil {
+			return User{}, err
+		}
+	}
 	if err := commit(batch); err != nil {
 		return User{}, fmt.Errorf("commit update user: %w", err)
 	}
 	return user, nil
 }
 
+// SearchUsers matches keyword against the lowercase name indexes: 'n' for
+// usernames, 'N' for nicknames. Scanning index keys avoids decoding every
+// user record; only the matches pay for a record read.
 func (s *Store) SearchUsers(ctx context.Context, keyword string, limit int) ([]User, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -162,30 +184,118 @@ func (s *Store) SearchUsers(ctx context.Context, keyword string, limit int) ([]U
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
-	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		return nil, nil
 	}
+	kw := []byte(strings.ToLower(keyword))
 
-	prefix := []byte{'u'}
+	seen := make(map[uuid.UUID]struct{}, limit)
+	ids := make([]uuid.UUID, 0, limit)
+	if err := s.matchUsersByUsername(kw, limit, seen, &ids); err != nil {
+		return nil, err
+	}
+	if len(ids) < limit {
+		if err := s.matchUsersByNickname(kw, limit, seen, &ids); err != nil {
+			return nil, err
+		}
+	}
+
+	usersByID, err := s.UsersByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]User, 0, len(ids))
+	for _, id := range ids {
+		if user, ok := usersByID[id]; ok {
+			users = append(users, user)
+		}
+	}
+	return users, nil
+}
+
+// matchUsersByUsername scans the 'n' index: key 'n'+lower(username), value the
+// user id. Caller provides the seen set to dedupe users matching both indexes.
+func (s *Store) matchUsersByUsername(kw []byte, limit int, seen map[uuid.UUID]struct{}, ids *[]uuid.UUID) error {
+	var buf [1]byte
+	prefix := appendUsernamePrefix(buf[:0])
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid() && len(*ids) < limit; iter.Next() {
+		if !containsFold(iter.Key()[1:], kw) {
+			continue
+		}
+		var id uuid.UUID
+		copy(id[:], iter.Value())
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		*ids = append(*ids, id)
+	}
+	return iter.Error()
+}
+
+// matchUsersByNickname scans the 'N' index: key 'N'+lower(nickname)+user id.
+func (s *Store) matchUsersByNickname(kw []byte, limit int, seen map[uuid.UUID]struct{}, ids *[]uuid.UUID) error {
+	var buf [1]byte
+	prefix := appendNicknamePrefix(buf[:0])
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid() && len(*ids) < limit; iter.Next() {
+		key := iter.Key()
+		if !containsFold(key[1:len(key)-16], kw) {
+			continue
+		}
+		var id uuid.UUID
+		copy(id[:], key[len(key)-16:])
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		*ids = append(*ids, id)
+	}
+	return iter.Error()
+}
+
+// UsersByIDs resolves user records in one iterator: ids are seeked in sorted
+// order instead of one Get per id. Missing ids are simply absent from the map.
+func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]User, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	sorted := slices.Clone(ids)
+	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return a.Compare(b) })
+	sorted = slices.Compact(sorted)
+
+	var buf [1]byte
+	prefix := appendUserPrefix(buf[:0])
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
 
-	var results []User
-	for iter.First(); iter.Valid() && len(results) < limit; iter.Next() {
-		user, err := decodeUser(iter.Value())
-		if err != nil {
+	users := make(map[uuid.UUID]User, len(sorted))
+	var keyBuf [17]byte
+	for _, id := range sorted {
+		key := appendUserKey(keyBuf[:0], id)
+		if !iter.SeekGE(key) || !bytes.Equal(iter.Key(), key) {
 			continue
 		}
-		if strings.Contains(strings.ToLower(user.Username), keyword) ||
-			strings.Contains(strings.ToLower(user.Nickname), keyword) {
-			results = append(results, user)
+		user, err := decodeUser(iter.Value())
+		if err != nil {
+			return nil, err
 		}
+		users[id] = user
 	}
-	return results, iter.Error()
+	return users, iter.Error()
 }
 
 func (s *Store) UpdateUserPassword(ctx context.Context, id uuid.UUID, password string) error {

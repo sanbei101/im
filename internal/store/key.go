@@ -9,6 +9,7 @@ import (
 // Single-byte prefix definitions for unified, zero-alloc binary keys:
 // 'u' - User
 // 'n' - Username index
+// 'N' - Nickname index (lower nickname + user id, value is the user id again)
 // 'r' - Room
 // 'e' - Room Member ('e' for m-e-mber)
 // 'x' - User Room index, the value is the member record
@@ -21,12 +22,35 @@ func appendUserKey(dst []byte, id uuid.UUID) []byte {
 	return append(append(dst, 'u'), id[:]...)
 }
 
+func appendUserPrefix(dst []byte) []byte {
+	return append(dst, 'u')
+}
+
 func appendUsernameKey(dst []byte, name string) []byte {
 	return append(append(dst, 'n'), strings.ToLower(strings.TrimSpace(name))...)
 }
 
+func appendUsernamePrefix(dst []byte) []byte {
+	return append(dst, 'n')
+}
+
+// 'N' mirrors the username index for nicknames: key is
+// 'N' + lower(nickname) + user id (nicknames are not unique, so the id is
+// part of the key), value is the user id again.
+func appendNicknameKey(dst []byte, lower string, id uuid.UUID) []byte {
+	return append(append(append(dst, 'N'), lower...), id[:]...)
+}
+
+func appendNicknamePrefix(dst []byte) []byte {
+	return append(dst, 'N')
+}
+
 func appendRoomKey(dst []byte, id uuid.UUID) []byte {
 	return append(append(dst, 'r'), id[:]...)
+}
+
+func appendRoomPrefix(dst []byte) []byte {
+	return append(dst, 'r')
 }
 
 func appendMemberKey(dst []byte, room, user uuid.UUID) []byte {

@@ -88,6 +88,7 @@ type Store struct {
 	recordScratch []byte
 	dedupScratch  [64]byte
 	roomScratch   []byte
+	digestScratch []byte
 
 	closeSignal chan struct{}
 	writerDone  chan struct{}

@@ -23,6 +23,9 @@ import (
 const (
 	pendingShardCount  = 64
 	roomUserShardCount = 64
+	// sendBatchSize bounds one coalesced SendBatch frame; messages beyond it
+	// stay queued for the next frame.
+	sendBatchSize = 64
 	// roomUserTTL bounds how long a room's active-user entry lives without a
 	// heartbeat; the sweeper evicts stale entries so the maps stay bounded.
 	roomUserTTL = 24 * time.Hour
@@ -358,6 +361,9 @@ func (s *apiStream) loop(ctx context.Context) error {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
+		// batch is owned by this goroutine and reused across frames; Send
+		// serializes synchronously before it returns.
+		var batch []*pb.SendMessage
 		for {
 			select {
 			case <-ctx.Done():
@@ -366,8 +372,21 @@ func (s *apiStream) loop(ctx context.Context) error {
 			case <-stop:
 				return
 			case message := <-s.queue:
+				// Coalesce whatever is already queued into one frame: the
+				// non-blocking drain batches only under backpressure, so
+				// low-load latency is unchanged.
+				batch = append(batch[:0], message)
+			drain:
+				for len(batch) < sendBatchSize {
+					select {
+					case next := <-s.queue:
+						batch = append(batch, next)
+					default:
+						break drain
+					}
+				}
 				if err := stream.Send(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SendBatch{
-					SendBatch: &pb.SendBatch{BatchId: uuid.NewV7().String(), Messages: []*pb.SendMessage{message}},
+					SendBatch: &pb.SendBatch{BatchId: uuid.NewV7().String(), Messages: batch},
 				}}); err != nil {
 					done <- err
 					return

@@ -154,10 +154,20 @@ func (a *FriendAPI) ListFriends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ids := make([]uuid.UUID, len(friends))
+	for i, f := range friends {
+		ids[i] = f.FriendID
+	}
+	users, err := a.store.UsersByIDs(r.Context(), ids)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	result := make([]FriendItemResp, 0, len(friends))
 	for _, f := range friends {
-		u, err := a.store.UserByID(r.Context(), f.FriendID)
-		if err != nil {
+		u, ok := users[f.FriendID]
+		if !ok {
 			continue
 		}
 		result = append(result, FriendItemResp{
@@ -284,10 +294,16 @@ func (a *FriendAPI) ListBlacklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	users, err := a.store.UsersByIDs(r.Context(), targetIDs)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	result := make([]UserProfileResp, 0, len(targetIDs))
 	for _, id := range targetIDs {
-		u, err := a.store.UserByID(r.Context(), id)
-		if err != nil {
+		u, ok := users[id]
+		if !ok {
 			continue
 		}
 		result = append(result, UserProfileResp{
