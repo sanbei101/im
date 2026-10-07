@@ -1,132 +1,93 @@
 package pkg
 
 import (
-	"sync"
 	"testing"
 	"uuid"
 )
 
-func BenchmarkRoomSlot(b *testing.B) {
-	roomID := uuid.NewV7()
-	slots := 1024
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		slot, err := RoomSlot(roomID, slots)
-		if err != nil || slot >= 1024 {
-			b.Fatalf("room slot: %v", err)
+func TestShard(t *testing.T) {
+	t.Run("slot is deterministic and in range", func(t *testing.T) {
+		room := uuid.NewV7()
+		first, err := RoomSlot(room, 1024)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-}
-
-func BenchmarkNodeIndex(b *testing.B) {
-	slots := 1024
-	nodes := 8
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		idx, err := NodeIndex(512, slots, nodes)
-		if err != nil || idx < 0 {
-			b.Fatalf("node index: %v", err)
+		for range 100 {
+			again, err := RoomSlot(room, 1024)
+			if err != nil || again != first {
+				t.Fatalf("slot not deterministic: first=%d again=%d err=%v", first, again, err)
+			}
 		}
-	}
-}
+	})
 
-func BenchmarkSyncMapConcurrent(b *testing.B) {
-	var m sync.Map
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		id := uuid.NewV7()
-		for pb.Next() {
-			m.Store(id, 1)
-			_, _ = m.Load(id)
-			m.Delete(id)
+	t.Run("slots spread rooms across the ring", func(t *testing.T) {
+		const slots = 1024
+		seen := make(map[uint16]bool)
+		for range 5000 {
+			slot, err := RoomSlot(uuid.NewV7(), slots)
+			if err != nil || slot >= slots {
+				t.Fatalf("slot out of range: slot=%d err=%v", slot, err)
+			}
+			seen[slot] = true
+		}
+		if len(seen) < slots*9/10 {
+			t.Fatalf("rooms covered only %d of %d slots", len(seen), slots)
+		}
+	})
+
+	t.Run("invalid slot counts rejected", func(t *testing.T) {
+		for _, slots := range []int{0, -1, 1<<16 + 1} {
+			if _, err := RoomSlot(uuid.NewV7(), slots); err == nil {
+				t.Fatalf("expected error for slots=%d", slots)
+			}
+		}
+	})
+
+	t.Run("node index maps slot to node", func(t *testing.T) {
+		const slots, nodes = 1024, 8
+		last := -1
+		for slot := range slots {
+			index, err := NodeIndex(uint16(slot), slots, nodes)
+			if err != nil || index < 0 || index >= nodes {
+				t.Fatalf("node index: slot=%d index=%d err=%v", slot, index, err)
+			}
+			if index < last {
+				t.Fatalf("node index must not decrease: slot=%d index=%d last=%d", slot, index, last)
+			}
+			last = index
+		}
+		if last != nodes-1 {
+			t.Fatalf("highest slot maps to node %d, want %d", last, nodes-1)
+		}
+	})
+
+	t.Run("invalid topology rejected", func(t *testing.T) {
+		for _, c := range []struct{ slot, slots, nodes int }{
+			{0, 0, 1}, {0, 4, 0}, {4, 4, 2},
+		} {
+			if _, err := NodeIndex(uint16(c.slot), c.slots, c.nodes); err == nil {
+				t.Fatalf("expected error for slot=%d slots=%d nodes=%d", c.slot, c.slots, c.nodes)
+			}
 		}
 	})
 }
 
-func BenchmarkShardedMapConcurrent(b *testing.B) {
-	const shards = 64
-	type shard struct {
-		mu sync.Mutex
-		m  map[uuid.UUID]int
-	}
-	var sh [shards]shard
-	for i := range sh {
-		sh[i].m = make(map[uuid.UUID]int)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		id := uuid.NewV7()
-		idx := id[15] % shards
-		for pb.Next() {
-			s := &sh[idx]
-			s.mu.Lock()
-			s.m[id] = 1
-			_ = s.m[id]
-			delete(s.m, id)
-			s.mu.Unlock()
+func BenchmarkShard(b *testing.B) {
+	room := uuid.NewV7()
+	b.Run("room-slot", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := RoomSlot(room, 1024); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
-}
-
-func BenchmarkSingleRWMutexMap(b *testing.B) {
-	var mu sync.RWMutex
-	m := make(map[uuid.UUID]int)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		id := uuid.NewV7()
-		for pb.Next() {
-			mu.Lock()
-			m[id] = 1
-			mu.Unlock()
-
-			mu.RLock()
-			_ = m[id]
-			mu.RUnlock()
-
-			mu.Lock()
-			delete(m, id)
-			mu.Unlock()
-		}
-	})
-}
-
-func BenchmarkShardedRWMutexMap(b *testing.B) {
-	const shards = 64
-	type shard struct {
-		mu sync.RWMutex
-		m  map[uuid.UUID]int
-	}
-	var sh [shards]shard
-	for i := range sh {
-		sh[i].m = make(map[uuid.UUID]int)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		id := uuid.NewV7()
-		s := &sh[id[15]%shards]
-		for pb.Next() {
-			s.mu.Lock()
-			s.m[id] = 1
-			s.mu.Unlock()
-
-			s.mu.RLock()
-			_ = s.m[id]
-			s.mu.RUnlock()
-
-			s.mu.Lock()
-			delete(s.m, id)
-			s.mu.Unlock()
+	b.Run("node-index", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := NodeIndex(512, 1024, 8); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }

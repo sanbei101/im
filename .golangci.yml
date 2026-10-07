@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://golangci-lint.run/jsonschema/golangci.jsonschema.json
 version: "2"
 run:
-  tests: false
+  tests: true
 
 linters:
   default: standard # 包含 errorcheck, govet, ineffassign, staticcheck, structcheck, unused

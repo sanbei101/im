@@ -19,9 +19,9 @@ shard:
   slots: 1024
 
 storage:
-  endpoint: "127.0.0.1:9000"
+  endpoint: "127.0.0.1:9001"
   bucket: "im-media"
-  access_key_id: "minioadmin"
-  secret_access_key: "minioadmin"
+  access_key_id: "rustfsadmin"
+  secret_access_key: "rustfsadmin"
   use_ssl: false
   public_url_prefix: ""
