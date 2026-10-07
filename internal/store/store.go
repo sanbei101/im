@@ -55,6 +55,8 @@ type Store struct {
 	db *pebble.DB
 
 	roomShards [roomShardCount]roomShard
+	cache      *messageCache
+	remote     *remoteReader
 
 	messageQueue chan messageWriteRequest
 	closeSignal  chan struct{}
@@ -282,6 +284,7 @@ func Open(path string) (*Store, error) {
 	}
 	store := &Store{
 		db:           db,
+		cache:        newMessageCache(),
 		messageQueue: make(chan messageWriteRequest, messageQueueSize),
 		closeSignal:  make(chan struct{}),
 		writerDone:   make(chan struct{}),

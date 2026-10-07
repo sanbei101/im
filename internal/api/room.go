@@ -448,7 +448,8 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if myID != targetID && myMember.Role != store.RoleOwner && (myMember.Role != store.RoleAdmin || targetMember.Role != store.RoleMember) {
+	if myID != targetID && myMember.Role != store.RoleOwner &&
+		(myMember.Role != store.RoleAdmin || targetMember.Role != store.RoleMember) {
 		render.Error(w, http.StatusForbidden, "no permission to remove this member")
 		return
 	}

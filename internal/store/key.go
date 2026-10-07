@@ -13,8 +13,9 @@ import (
 // 'e' - Room Member ('e' for m-e-mber)
 // 'x' - User Room index ('x' for user-room-inde-x)
 // 's' - Single Chat hash index
-// 'm' - Message (ordered by seq)
+// 'm' - Message
 // 'd' - Message Dedup
+// 'A' - Message archive manifest
 
 func appendUserKey(dst []byte, id uuid.UUID) []byte {
 	return append(append(dst, 'u'), id[:]...)
@@ -61,6 +62,17 @@ func appendMessageKey(dst []byte, room uuid.UUID, seq uint64) []byte {
 
 func appendDedupKey(dst []byte, room, sender, client uuid.UUID) []byte {
 	return append(append(append(append(dst, 'd'), room[:]...), sender[:]...), client[:]...)
+}
+
+func appendArchiveIndexKey(dst []byte, room uuid.UUID, startSeq uint64) []byte {
+	dst = append(append(dst, 'A'), room[:]...)
+	var suffix [8]byte
+	binary.BigEndian.PutUint64(suffix[:], startSeq)
+	return append(dst, suffix[:]...)
+}
+
+func appendArchiveIndexPrefix(dst []byte, room uuid.UUID) []byte {
+	return append(append(dst, 'A'), room[:]...)
 }
 
 func appendFriendKey(dst []byte, user, friend uuid.UUID) []byte {

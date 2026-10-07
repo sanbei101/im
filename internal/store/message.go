@@ -129,6 +129,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 	rooms := make(map[uuid.UUID]Room)
 	digests := make([][32]byte, len(messages))
 	pending := make(map[dedupLookupKey]int, len(messages))
+	var allocated []int
 
 	var keyBuf [64]byte
 	var msgKeyBuf [25]byte
@@ -204,6 +205,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		results[index].Message.ServerTime = time.Now().UnixMicro()
 		room.UpdatedAt = time.Now()
 		rooms[message.RoomID] = room
+		allocated = append(allocated, index)
 
 		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
 		if err := s.setBytes(batch, msgKey, encodeMessage(results[index].Message)); err != nil {
@@ -246,6 +248,14 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 				results[index].Err = fmt.Errorf("commit messages: %w", err)
 			}
 		}
+		return
+	}
+	// The cache is filled only after the commit succeeded, so a message in the
+	// tail cache is always covered by a successful ACK.
+	for _, index := range allocated {
+		if results[index].Err == nil {
+			s.cache.append(&results[index].Message)
+		}
 	}
 }
 
@@ -256,33 +266,93 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-
-	var prefixBuf [32]byte
-	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
-	upperBound := messageUpperBound(prefix, before)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
-	if err != nil {
-		return MessagePage{}, err
+	if messages, hasMore, ok := s.cache.page(roomID, before, limit); ok {
+		return MessagePage{Messages: messages, HasMore: hasMore}, nil
 	}
-	defer iter.Close()
 
-	messages := make([]Message, 0, limit)
-	for iter.Last(); iter.Valid() && len(messages) <= limit; iter.Prev() {
-		value := append([]byte(nil), iter.Value()...)
-		message, err := decodeMessage(value)
+	// The history window [lo, hi) spans at most limit+1 seqs. hi needs the
+	// room's LastSeq only for the newest page; a missing room stays an empty
+	// page, as the plain Pebble scan of a missing prefix would be.
+	hi := before
+	if before == 0 {
+		room, err := s.Room(ctx, roomID)
+		if errors.Is(err, ErrNotFound) {
+			return MessagePage{Messages: []Message{}}, nil
+		}
 		if err != nil {
 			return MessagePage{}, err
 		}
-		messages = append(messages, message)
+		hi = room.LastSeq + 1
 	}
-	if err := iter.Error(); err != nil {
+	lo := uint64(1)
+	if hi > uint64(limit)+1 {
+		lo = hi - uint64(limit+1)
+	}
+
+	watermark, err := s.archiveWatermark(roomID)
+	if err != nil {
 		return MessagePage{}, err
+	}
+	warmLo := lo
+	if watermark >= warmLo {
+		warmLo = watermark + 1
+	}
+	warm, err := s.scanWarm(roomID, warmLo, hi)
+	if err != nil {
+		return MessagePage{}, err
+	}
+	cold, err := s.readArchivedRange(ctx, roomID, lo, min64(hi, watermark+1))
+	if err != nil {
+		return MessagePage{}, err
+	}
+
+	ascending := make([]Message, 0, len(warm)+len(cold))
+	ascending = append(ascending, cold...)
+	ascending = append(ascending, warm...)
+	messages := make([]Message, len(ascending))
+	for i := range ascending {
+		messages[len(ascending)-1-i] = ascending[i]
 	}
 	hasMore := len(messages) > limit
 	if hasMore {
 		messages = messages[:limit]
 	}
+	s.cache.put(roomID, ascending)
 	return MessagePage{Messages: messages, HasMore: hasMore}, nil
+}
+
+// scanWarm returns the Pebble messages with seq in [lo, hi) in ascending order.
+func (s *Store) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
+	if hi <= lo {
+		return nil, nil
+	}
+	var lowerBuf, upperBuf [25]byte
+	iter, err := s.db.NewIter(&pebble.IterOptions{
+		LowerBound: appendMessageKey(lowerBuf[:0], roomID, lo),
+		UpperBound: appendMessageKey(upperBuf[:0], roomID, hi),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var messages []Message
+	for iter.First(); iter.Valid(); iter.Next() {
+		value := append([]byte(nil), iter.Value()...)
+		message, err := decodeMessage(value)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, iter.Error()
+}
+
+func min64(a, b uint64) uint64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func messageUpperBound(prefix []byte, before uint64) []byte {
@@ -375,7 +445,13 @@ func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Messa
 
 	var msgKeyBuf [25]byte
 	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
-	return s.getRecord(msgKey, decodeMessage)
+	message, err := s.getRecord(msgKey, decodeMessage)
+	if errors.Is(err, ErrNotFound) {
+		// The body may already be archived; the 'i' index survives archival
+		// precisely so cold messages stay resolvable by id.
+		return s.remoteMessage(ctx, roomID, seq)
+	}
+	return message, err
 }
 
 func (s *Store) RecallMessage(
@@ -406,6 +482,14 @@ func (s *Store) RecallMessage(
 	var msgKeyBuf [25]byte
 	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
 	msg, err := s.getRecord(msgKey, decodeMessage)
+	if errors.Is(err, ErrNotFound) {
+		// The body is archived: it left the local store and cannot be
+		// recalled anymore, no matter who asks.
+		if _, remoteErr := s.remoteMessage(ctx, roomID, seq); remoteErr == nil {
+			return Message{}, ErrRecallTimeout
+		}
+		return Message{}, ErrNotFound
+	}
 	if err != nil {
 		return Message{}, err
 	}
@@ -434,6 +518,9 @@ func (s *Store) RecallMessage(
 	if err := commit(batch); err != nil {
 		return Message{}, err
 	}
+	// A message inside the recall window is always in the tail cache; keep the
+	// cached copy in sync so reads do not serve stale content.
+	s.cache.replace(roomID, &msg)
 	return msg, nil
 }
 

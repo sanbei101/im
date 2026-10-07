@@ -6,10 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
-	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
 )
@@ -18,8 +16,15 @@ type HealthResp struct {
 	Status string `json:"status"`
 }
 
-// NewRouter wires the HTTP handlers into a chi router.
-func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.StorageConfig) http.Handler {
+// NewRouter wires the HTTP handlers into a chi router. objects is the shared
+// S3 client owned by the store: media presigning and message archiving go
+// through the same client and bucket.
+func NewRouter(
+	s *store.Store,
+	streamHandler *StreamHandler,
+	objects *store.MinioObjectStore,
+	publicURLPrefix string,
+) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.Recoverer)
@@ -45,10 +50,7 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
 	friendAPI := &FriendAPI{store: s}
 	conversationAPI := &ConversationAPI{store: s}
-	fileAPI, err := NewFileAPI(storageCfg)
-	if err != nil {
-		log.Error().Err(err).Msg("init minio client failed")
-	}
+	fileAPI := NewFileAPI(objects, publicURLPrefix)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.Ping(r.Context()); err != nil {
@@ -135,9 +137,7 @@ func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.S
 
 		r.Route("/files", func(r chi.Router) {
 			r.Use(jwt.AuthMiddleware)
-			if fileAPI != nil {
-				r.Post("/presign", fileAPI.PresignUpload)
-			}
+			r.Post("/presign", fileAPI.PresignUpload)
 		})
 	})
 

@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"uuid"
 
 	"github.com/cloudwego/kitex/server"
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/api"
 	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/logger"
 	"github.com/sanbei101/im/proto/pb/gatewayservice"
@@ -39,8 +41,23 @@ func run() error {
 		return fmt.Errorf("open pebble store: %w", err)
 	}
 	defer data.Close()
+
+	objects, err := store.NewMinioObjectStore(
+		cfg.Storage.Endpoint, cfg.Storage.Bucket,
+		cfg.Storage.AccessKeyID, cfg.Storage.SecretAccessKey, cfg.Storage.UseSSL,
+	)
+	if err != nil {
+		return fmt.Errorf("create object store: %w", err)
+	}
+	if err := objects.EnsureBucket(ctx); err != nil {
+		return fmt.Errorf("ensure archive bucket: %w", err)
+	}
+	if err := data.AttachRemote(objects, filepath.Join(cfg.Store.Path, "archive-cache"), 512<<20); err != nil {
+		return fmt.Errorf("attach remote archive: %w", err)
+	}
+
 	streamHandler := api.NewStreamHandler(data, cfg.API.NodeID, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
-	r := api.NewRouter(data, streamHandler, cfg.Storage)
+	r := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicURLPrefix)
 	listenAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)
@@ -68,6 +85,30 @@ func run() error {
 				dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
 				if err := data.Checkpoint(ctx, dir); err != nil {
 					log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
+				}
+			}
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		params := store.DefaultArchiveParams()
+		params.Owns = func(roomID uuid.UUID) bool {
+			slot, err := pkg.RoomSlot(roomID, cfg.Shard.Slots)
+			if err != nil {
+				return false
+			}
+			index, err := pkg.NodeIndex(slot, cfg.Shard.Slots, cfg.API.NodeCount)
+			return err == nil && index == cfg.API.NodeIndex
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := data.ArchiveOnce(ctx, objects, params); err != nil {
+					log.Error().Err(err).Msg("message archive failed")
 				}
 			}
 		}
