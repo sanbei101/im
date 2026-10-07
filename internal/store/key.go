@@ -91,6 +91,30 @@ func appendReadSeqKey(dst []byte, user, room uuid.UUID) []byte {
 	return append(append(append(dst, 'q'), user[:]...), room[:]...)
 }
 
+func appendMsgIDIndexKey(dst []byte, room, msgID uuid.UUID) []byte {
+	return append(append(append(dst, 'i'), room[:]...), msgID[:]...)
+}
+
+func appendReactionKey(dst []byte, room, msgID, user uuid.UUID, emoji string) []byte {
+	return append(append(append(append(append(dst, 'R'), room[:]...), msgID[:]...), user[:]...), emoji...)
+}
+
+func appendReactionPrefix(dst []byte, room, msgID uuid.UUID) []byte {
+	return append(append(append(dst, 'R'), room[:]...), msgID[:]...)
+}
+
+func appendPinKey(dst []byte, room, msgID uuid.UUID) []byte {
+	return append(append(append(dst, 'P'), room[:]...), msgID[:]...)
+}
+
+func appendPinPrefix(dst []byte, room uuid.UUID) []byte {
+	return append(append(dst, 'P'), room[:]...)
+}
+
+func appendDeviceKey(dst []byte, user uuid.UUID) []byte {
+	return append(append(dst, 't'), user[:]...)
+}
+
 func prefixUpperBound(prefix []byte) []byte {
 	upperBound := append([]byte(nil), prefix...)
 	for i := len(upperBound) - 1; i >= 0; i-- {

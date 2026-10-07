@@ -4,9 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phuslu/log"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/sanbei101/im/internal/store"
@@ -15,7 +17,8 @@ import (
 )
 
 type UserAPI struct {
-	store *store.Store
+	store         *store.Store
+	streamHandler *StreamHandler
 }
 
 type UserAuthReq struct {
@@ -197,4 +200,75 @@ func (a *UserAPI) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	render.Success(w, "搜索用户成功", result)
+}
+
+type PresenceReq struct {
+	UserIDs []string `json:"user_ids" validate:"required"`
+}
+
+type PresenceResp struct {
+	Presence map[string]bool `json:"presence"`
+}
+
+func (a *UserAPI) Presence(w http.ResponseWriter, r *http.Request) {
+	req, err := render.ReadBody[PresenceReq](w, r)
+	if err != nil {
+		return
+	}
+	result := make(map[string]bool, len(req.UserIDs))
+	for _, uid := range req.UserIDs {
+		online := false
+		if a.streamHandler != nil {
+			online = a.streamHandler.IsOnline(uid)
+		}
+		result[uid] = online
+	}
+	render.Success(w, "获取在线状态成功", PresenceResp{Presence: result})
+}
+
+type DeviceTokenReq struct {
+	Token    string `json:"token"    validate:"required"`
+	Platform string `json:"platform" validate:"required"`
+}
+
+func (a *UserAPI) SaveDeviceToken(w http.ResponseWriter, r *http.Request) {
+	req, err := render.ReadBody[DeviceTokenReq](w, r)
+	if err != nil {
+		return
+	}
+	userIDStr := jwt.GetUserIDFromContext(r)
+	if userIDStr == "" {
+		render.Error(w, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		return
+	}
+	if err := a.store.SaveDeviceToken(r.Context(), userID, store.DeviceInfo{
+		Token:     req.Token,
+		Platform:  req.Platform,
+		UpdatedAt: time.Now(),
+	}); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	render.SuccessNoData(w, http.StatusOK, "保存设备Token成功")
+}
+
+func (a *UserAPI) Logout(w http.ResponseWriter, r *http.Request) {
+	userIDStr := jwt.GetUserIDFromContext(r)
+	if userIDStr != "" {
+		if userID, err := uuid.Parse(userIDStr); err == nil {
+			if delErr := a.store.DeleteDeviceToken(
+				r.Context(),
+				userID,
+			); delErr != nil &&
+				!errors.Is(delErr, store.ErrNotFound) {
+				log.Error().Err(delErr).Msg("delete device token failed")
+			}
+		}
+	}
+	render.SuccessNoData(w, http.StatusOK, "登出成功")
 }

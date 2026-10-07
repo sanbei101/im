@@ -562,3 +562,96 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 
 	render.SuccessNoData(w, http.StatusOK, "解散群聊成功")
 }
+
+type PinReq struct {
+	MsgID string `json:"msg_id" validate:"required,uuid"`
+}
+
+func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	req, err := render.ReadBody[PinReq](w, r)
+	if err != nil {
+		return
+	}
+	msgID, err := uuid.Parse(req.MsgID)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid msg_id")
+		return
+	}
+
+	member, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil || (member.Role != "owner" && member.Role != "admin") {
+		render.Error(w, http.StatusForbidden, "只有群主或管理员可以置顶消息")
+		return
+	}
+
+	if err := a.store.PinMessage(r.Context(), roomID, msgID, myID); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	render.SuccessNoData(w, http.StatusOK, "置顶消息成功")
+}
+
+func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	msgID, err := uuid.Parse(chi.URLParam(r, "msg_id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid msg_id")
+		return
+	}
+
+	member, err := a.store.Member(r.Context(), roomID, myID)
+	if err != nil || (member.Role != "owner" && member.Role != "admin") {
+		render.Error(w, http.StatusForbidden, "只有群主或管理员可以取消置顶消息")
+		return
+	}
+
+	if err := a.store.UnpinMessage(r.Context(), roomID, msgID); err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	render.SuccessNoData(w, http.StatusOK, "取消置顶成功")
+}
+
+func (a *RoomAPI) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
+	myID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return
+	}
+
+	if _, err := a.store.Member(r.Context(), roomID, myID); err != nil {
+		render.Error(w, http.StatusForbidden, "not a room member")
+		return
+	}
+
+	pins, err := a.store.PinnedMessages(r.Context(), roomID)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	render.Success(w, "获取置顶消息成功", pins)
+}

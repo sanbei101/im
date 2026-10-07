@@ -17,6 +17,16 @@ type Config struct {
 	Gateway GatewayConfig `yaml:"gateway"`
 	Store   StoreConfig   `yaml:"store"`
 	Shard   ShardConfig   `yaml:"shard"`
+	Storage StorageConfig `yaml:"storage"`
+}
+
+type StorageConfig struct {
+	Endpoint        string `yaml:"endpoint"`
+	Bucket          string `yaml:"bucket"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+	UseSSL          bool   `yaml:"use_ssl"`
+	PublicURLPrefix string `yaml:"public_url_prefix"`
 }
 
 type APIConfig struct {
@@ -123,6 +133,18 @@ func (c *Config) Default() {
 	}
 	if c.API.NodeCount == 0 {
 		c.API.NodeCount = len(c.Gateway.APIAddrs)
+	}
+	if c.Storage.Endpoint == "" {
+		c.Storage.Endpoint = "127.0.0.1:9000"
+	}
+	if c.Storage.Bucket == "" {
+		c.Storage.Bucket = "im-media"
+	}
+	if c.Storage.AccessKeyID == "" {
+		c.Storage.AccessKeyID = "minioadmin"
+	}
+	if c.Storage.SecretAccessKey == "" {
+		c.Storage.SecretAccessKey = "minioadmin"
 	}
 }
 

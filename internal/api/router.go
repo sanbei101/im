@@ -6,13 +6,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/jwt"
 )
 
 // NewRouter wires the HTTP handlers into a chi router.
-func NewRouter(s *store.Store) http.Handler {
+func NewRouter(s *store.Store, streamHandler *StreamHandler, storageCfg config.StorageConfig) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.Recoverer)
@@ -33,12 +35,15 @@ func NewRouter(s *store.Store) http.Handler {
 		AllowCredentials: true,
 		MaxAge:           86400,
 	}))
-	userAPI := &UserAPI{store: s}
+	userAPI := &UserAPI{store: s, streamHandler: streamHandler}
 	roomAPI := &RoomAPI{store: s}
-	messageAPI := &MessageAPI{store: s}
+	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
 	friendAPI := &FriendAPI{store: s}
 	conversationAPI := &ConversationAPI{store: s}
-	fileAPI := NewFileAPI("")
+	fileAPI, err := NewFileAPI(storageCfg)
+	if err != nil {
+		log.Error().Err(err).Msg("init minio client failed")
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/users", func(r chi.Router) {
@@ -51,7 +56,14 @@ func NewRouter(s *store.Store) http.Handler {
 				r.Get("/profile", userAPI.GetProfile)
 				r.Get("/{id}", userAPI.GetProfile)
 				r.Put("/profile", userAPI.UpdateProfile)
+				r.Post("/presence", userAPI.Presence)
+				r.Post("/logout", userAPI.Logout)
 			})
+		})
+
+		r.Route("/devices", func(r chi.Router) {
+			r.Use(jwt.AuthMiddleware)
+			r.Post("/token", userAPI.SaveDeviceToken)
 		})
 
 		r.Route("/friends", func(r chi.Router) {
@@ -70,6 +82,11 @@ func NewRouter(s *store.Store) http.Handler {
 		r.Route("/messages", func(r chi.Router) {
 			r.Use(jwt.AuthMiddleware)
 			r.Get("/history", messageAPI.GetHistory)
+			r.Post("/recall", messageAPI.Recall)
+			r.Post("/{id}/reactions", messageAPI.AddReaction)
+			r.Delete("/{id}/reactions", messageAPI.RemoveReaction)
+			r.Get("/{id}/reactions", messageAPI.GetReactions)
+			r.Get("/{id}/read_users", messageAPI.GetReadUsers)
 		})
 
 		r.Route("/rooms", func(r chi.Router) {
@@ -87,6 +104,9 @@ func NewRouter(s *store.Store) http.Handler {
 			r.Post("/{id}/transfer", roomAPI.TransferOwner)
 			r.Post("/{id}/read", conversationAPI.MarkRead)
 			r.Put("/{id}/clear_unread", conversationAPI.ClearUnread)
+			r.Post("/{id}/pins", roomAPI.PinMessage)
+			r.Delete("/{id}/pins/{msg_id}", roomAPI.UnpinMessage)
+			r.Get("/{id}/pins", roomAPI.GetPinnedMessages)
 		})
 
 		r.Route("/conversations", func(r chi.Router) {
@@ -97,11 +117,10 @@ func NewRouter(s *store.Store) http.Handler {
 		})
 
 		r.Route("/files", func(r chi.Router) {
-			r.Group(func(r chi.Router) {
-				r.Use(jwt.AuthMiddleware)
-				r.Post("/upload", fileAPI.Upload)
-			})
-			r.Get("/{name}", fileAPI.Serve)
+			r.Use(jwt.AuthMiddleware)
+			if fileAPI != nil {
+				r.Post("/presign", fileAPI.PresignUpload)
+			}
 		})
 	})
 

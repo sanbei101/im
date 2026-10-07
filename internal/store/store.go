@@ -23,6 +23,8 @@ var (
 	ErrAlreadyExists = errors.New("store: already exists")
 	ErrConflict      = errors.New("store: conflict")
 	ErrClosed        = errors.New("store: closed")
+	ErrRecallTimeout = errors.New("store: recall timeout")
+	ErrForbidden     = errors.New("store: forbidden")
 )
 
 const (
@@ -110,6 +112,18 @@ type ConversationInfo struct {
 	LastMessage *Message `json:"last_message,omitempty"`
 }
 
+type ReactionGroup struct {
+	Emoji   string      `json:"emoji"`
+	Count   int         `json:"count"`
+	UserIDs []uuid.UUID `json:"user_ids"`
+}
+
+type DeviceInfo struct {
+	Token     string    `json:"token"`
+	Platform  string    `json:"platform"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type MsgType int8
 
 const (
@@ -118,6 +132,7 @@ const (
 	MsgTypeVideo  MsgType = 3
 	MsgTypeFile   MsgType = 4
 	MsgTypeSystem MsgType = 5
+	MsgTypeRecall MsgType = 6
 )
 
 func (t MsgType) String() string {
@@ -132,17 +147,32 @@ func (t MsgType) String() string {
 		return "file"
 	case MsgTypeSystem:
 		return "system"
+	case MsgTypeRecall:
+		return "recall"
 	default:
 		return strconv.Itoa(int(t))
 	}
 }
 
 func (t MsgType) Valid() bool {
-	return t >= MsgTypeText && t <= MsgTypeSystem
+	return t >= MsgTypeText && t <= MsgTypeRecall
 }
 
 func (t MsgType) MarshalJSONTo(enc *jsontext.Encoder) error {
 	return json.MarshalEncode(enc, t.String())
+}
+
+func (t *MsgType) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	var s string
+	if err := json.UnmarshalDecode(dec, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseMsgType(s)
+	if err != nil {
+		return err
+	}
+	*t = parsed
+	return nil
 }
 
 func ParseMsgType(value string) (MsgType, error) {
@@ -155,6 +185,7 @@ func ParseMsgType(value string) (MsgType, error) {
 		{"video", MsgTypeVideo},
 		{"file", MsgTypeFile},
 		{"system", MsgTypeSystem},
+		{"recall", MsgTypeRecall},
 	} {
 		if value == known.name {
 			return known.typ, nil

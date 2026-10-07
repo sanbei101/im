@@ -68,6 +68,21 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	if input.Type == "ping" {
 		return c.encodeFrame(render.PongFrame{Type: "pong"})
 	}
+	if input.Type == "typing" {
+		if input.RoomID == "" {
+			return errors.New("room_id is required for typing")
+		}
+		c.gateway.TouchRoomUser(input.RoomID, c.UserID)
+		c.gateway.BroadcastTyping(c.UserID, input.RoomID)
+		return nil
+	}
+	if input.Type == "join_room" {
+		if input.RoomID == "" {
+			return errors.New("room_id is required")
+		}
+		c.gateway.TouchRoomUser(input.RoomID, c.UserID)
+		return nil
+	}
 	if input.RoomID == "" || input.ClientMsgID == "" {
 		return errors.New("room_id and client_msg_id are required")
 	}
@@ -88,6 +103,7 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 		RoomId: input.RoomID, MsgType: int32(msgType), Payload: input.Payload, Ext: input.Ext,
 		ReplyToMsgId: input.ReplyToMsgID,
 	}
+	c.gateway.TouchRoomUser(input.RoomID, c.UserID)
 	c.gateway.pending.Store(requestID, c)
 	if err := c.gateway.send(ctx, roomID, message); err != nil {
 		c.gateway.pending.Delete(requestID)

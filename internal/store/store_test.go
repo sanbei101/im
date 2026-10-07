@@ -613,3 +613,210 @@ func TestGroupManagementAndConversations(t *testing.T) {
 		t.Fatalf("expected 0 conversations after dissolve, got %d", len(convs))
 	}
 }
+
+func TestP1StoreFeatures(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	data, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+
+	u1, err := data.CreateUser(ctx, "user1", "pwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := data.CreateUser(ctx, "user2", "pwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u3, err := data.CreateUser(ctx, "user3", "pwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roomID := uuid.NewV7()
+	if err := data.CreateRoom(ctx, Room{
+		RoomID: roomID, ChatType: "group", Name: "Test Room",
+	}, []Member{
+		{UserID: u1.UserID, Role: "owner"},
+		{UserID: u2.UserID, Role: "member"},
+		{UserID: u3.UserID, Role: "member"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. MessageByID and Recall
+	msg, err := data.WriteMessage(ctx, Message{
+		RoomID:      roomID,
+		SenderID:    u2.UserID,
+		ClientMsgID: uuid.NewV7(),
+		MsgType:     MsgTypeText,
+		Payload:     jsontext.Value(`{"text":"hello"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := data.MessageByID(ctx, roomID, msg.MsgID)
+	if err != nil {
+		t.Fatalf("MessageByID failed: %v", err)
+	}
+	if found.RoomSeq != msg.RoomSeq {
+		t.Fatalf("expected seq %d, got %d", msg.RoomSeq, found.RoomSeq)
+	}
+
+	// Unauthorized recall
+	_, err = data.RecallMessage(ctx, roomID, msg.MsgID, u3.UserID, false)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+
+	// Sender recall within timeout
+	recalled, err := data.RecallMessage(ctx, roomID, msg.MsgID, u2.UserID, false)
+	if err != nil {
+		t.Fatalf("RecallMessage failed: %v", err)
+	}
+	if recalled.MsgType != MsgTypeRecall {
+		t.Fatalf("expected MsgTypeRecall, got %v", recalled.MsgType)
+	}
+
+	// Test recall timeout
+	oldMsg, err := data.WriteMessage(ctx, Message{
+		RoomID:      roomID,
+		SenderID:    u2.UserID,
+		ClientMsgID: uuid.NewV7(),
+		MsgType:     MsgTypeText,
+		Payload:     jsontext.Value(`{"text":"old"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Manually simulate old timestamp by overwriting message record
+	oldMsg.ServerTime = 100 // ancient microsecond timestamp
+	var keyBuf [25]byte
+	msgKey := appendMessageKey(keyBuf[:0], roomID, oldMsg.RoomSeq)
+	batch := data.db.NewBatch()
+	_ = data.setBytes(batch, msgKey, encodeMessage(oldMsg))
+	_ = commit(batch)
+	batch.Close()
+
+	// Sender tries recall ancient message -> ErrRecallTimeout
+	_, err = data.RecallMessage(ctx, roomID, oldMsg.MsgID, u2.UserID, false)
+	if !errors.Is(err, ErrRecallTimeout) {
+		t.Fatalf("expected ErrRecallTimeout, got %v", err)
+	}
+
+	// Group owner recalls ancient message -> success
+	recalledByOwner, err := data.RecallMessage(ctx, roomID, oldMsg.MsgID, u1.UserID, true)
+	if err != nil {
+		t.Fatalf("owner recall failed: %v", err)
+	}
+	if recalledByOwner.MsgType != MsgTypeRecall {
+		t.Fatalf("expected MsgTypeRecall, got %v", recalledByOwner.MsgType)
+	}
+
+	// 2. Reactions
+	if err := data.AddReaction(ctx, roomID, msg.MsgID, u1.UserID, "👍"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.AddReaction(ctx, roomID, msg.MsgID, u2.UserID, "👍"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.AddReaction(ctx, roomID, msg.MsgID, u1.UserID, "❤️"); err != nil {
+		t.Fatal(err)
+	}
+
+	reactions, err := data.Reactions(ctx, roomID, msg.MsgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reactions) != 2 {
+		t.Fatalf("expected 2 reaction groups, got %d", len(reactions))
+	}
+	for _, r := range reactions {
+		if r.Emoji == "👍" && r.Count != 2 {
+			t.Fatalf("expected 2 thumbs up, got %d", r.Count)
+		}
+	}
+
+	// Remove reaction
+	if err := data.RemoveReaction(ctx, roomID, msg.MsgID, u2.UserID, "👍"); err != nil {
+		t.Fatal(err)
+	}
+	reactions, _ = data.Reactions(ctx, roomID, msg.MsgID)
+	for _, r := range reactions {
+		if r.Emoji == "👍" && r.Count != 1 {
+			t.Fatalf("expected 1 thumbs up after removal, got %d", r.Count)
+		}
+	}
+
+	// 3. ReadUsers
+	// msg seq is 1, oldMsg seq is 2
+	if err := data.MarkRoomRead(ctx, u1.UserID, roomID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.MarkRoomRead(ctx, u3.UserID, roomID, 1); err != nil {
+		t.Fatal(err)
+	}
+	// msg seq 1 should be read by u1 (read 2) and u3 (read 1)
+	readUsers1, err := data.ReadUsers(ctx, roomID, msg.MsgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readUsers1) != 2 {
+		t.Fatalf("expected 2 read users for msg 1, got %d", len(readUsers1))
+	}
+
+	// oldMsg seq 2 should only be read by u1 (read 2)
+	readUsers2, err := data.ReadUsers(ctx, roomID, oldMsg.MsgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readUsers2) != 1 || readUsers2[0] != u1.UserID {
+		t.Fatalf("expected u1 read msg 2, got %v", readUsers2)
+	}
+
+	// 4. PinMessage / UnpinMessage / PinnedMessages
+	if err := data.PinMessage(ctx, roomID, msg.MsgID, u1.UserID); err != nil {
+		t.Fatal(err)
+	}
+	pins, err := data.PinnedMessages(ctx, roomID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pins) != 1 || pins[0].MsgID != msg.MsgID {
+		t.Fatalf("expected pinned message, got %v", pins)
+	}
+	if err := data.UnpinMessage(ctx, roomID, msg.MsgID); err != nil {
+		t.Fatal(err)
+	}
+	pins, _ = data.PinnedMessages(ctx, roomID)
+	if len(pins) != 0 {
+		t.Fatalf("expected 0 pinned messages after unpin, got %d", len(pins))
+	}
+
+	// 5. DeviceToken
+	if err := data.SaveDeviceToken(ctx, u1.UserID, DeviceInfo{
+		Token:    "apns-token-xyz",
+		Platform: "ios",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dev, err := data.DeviceToken(ctx, u1.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev.Token != "apns-token-xyz" || dev.Platform != "ios" {
+		t.Fatalf("device info mismatch: %+v", dev)
+	}
+	if err := data.DeleteDeviceToken(ctx, u1.UserID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = data.DeviceToken(ctx, u1.UserID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after deleting device token, got %v", err)
+	}
+}

@@ -268,4 +268,15 @@ func (h *StreamHandler) message(input *pb.SendMessage) (store.Message, error) {
 	return message, nil
 }
 
+func (h *StreamHandler) IsOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.sessions[userID]
+	return ok
+}
+
+func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error {
+	return h.push(ctx, message)
+}
+
 var _ pb.GatewayService = (*StreamHandler)(nil)

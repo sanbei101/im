@@ -17,3 +17,11 @@ store:
 
 shard:
   slots: 1024
+
+storage:
+  endpoint: "127.0.0.1:9000"
+  bucket: "im-media"
+  access_key_id: "minioadmin"
+  secret_access_key: "minioadmin"
+  use_ssl: false
+  public_url_prefix: ""

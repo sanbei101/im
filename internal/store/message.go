@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -206,6 +208,14 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			results[index].Err = err
 			continue
 		}
+		var indexKeyBuf [33]byte
+		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], message.RoomID, results[index].Message.MsgID)
+		var seqBytes [8]byte
+		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
+		if err := s.setBytes(batch, indexKey, seqBytes[:]); err != nil {
+			results[index].Err = err
+			continue
+		}
 		if err := s.setBytes(batch, dedupKeyBytes, encodeDedup(Dedup{
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
@@ -287,4 +297,367 @@ func messageUpperBound(prefix []byte, before uint64) []byte {
 	copy(upperBound, prefix)
 	binary.BigEndian.PutUint64(upperBound[len(prefix):], before)
 	return upperBound
+}
+
+func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Message, error) {
+	if err := contextErr(ctx); err != nil {
+		return Message{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var indexKeyBuf [33]byte
+	indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID)
+	data, closer, err := s.db.Get(indexKey)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return Message{}, ErrNotFound
+		}
+		return Message{}, err
+	}
+	defer closer.Close()
+	if len(data) != 8 {
+		return Message{}, errors.New("invalid message index record")
+	}
+	seq := binary.BigEndian.Uint64(data)
+
+	var msgKeyBuf [25]byte
+	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
+	return s.getRecord(msgKey, decodeMessage)
+}
+
+func (s *Store) RecallMessage(
+	ctx context.Context,
+	roomID, msgID, operatorID uuid.UUID,
+	isOwnerOrAdmin bool,
+) (Message, error) {
+	if err := contextErr(ctx); err != nil {
+		return Message{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var indexKeyBuf [33]byte
+	indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID)
+	data, closer, err := s.db.Get(indexKey)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return Message{}, ErrNotFound
+		}
+		return Message{}, err
+	}
+	if len(data) != 8 {
+		closer.Close()
+		return Message{}, errors.New("invalid message index record")
+	}
+	seq := binary.BigEndian.Uint64(data)
+	closer.Close()
+
+	var msgKeyBuf [25]byte
+	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
+	msg, err := s.getRecord(msgKey, decodeMessage)
+	if err != nil {
+		return Message{}, err
+	}
+
+	if msg.MsgType == MsgTypeRecall {
+		return msg, nil
+	}
+
+	if operatorID != msg.SenderID && !isOwnerOrAdmin {
+		return Message{}, ErrForbidden
+	}
+
+	now := time.Now().UnixMicro()
+	if !isOwnerOrAdmin && now-msg.ServerTime > 120*1000*1000 {
+		return Message{}, ErrRecallTimeout
+	}
+
+	msg.MsgType = MsgTypeRecall
+	msg.Payload = jsontext.Value(fmt.Sprintf(`{"recalled_by":"%s"}`, operatorID))
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	if err := s.setBytes(batch, msgKey, encodeMessage(msg)); err != nil {
+		return Message{}, err
+	}
+	if err := commit(batch); err != nil {
+		return Message{}, err
+	}
+	return msg, nil
+}
+
+func (s *Store) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if emoji == "" {
+		return errors.New("emoji cannot be empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	key := appendReactionKey(nil, roomID, msgID, userID, emoji)
+	if err := s.setBytes(batch, key, []byte{}); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	key := appendReactionKey(nil, roomID, msgID, userID, emoji)
+	if err := batch.Delete(key, nil); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]ReactionGroup, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	prefix := appendReactionPrefix(nil, roomID, msgID)
+	upperBound := prefixUpperBound(prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	prefixLen := len(prefix)
+	groups := make(map[string][]uuid.UUID)
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) <= prefixLen+16 {
+			continue
+		}
+		var user uuid.UUID
+		copy(user[:], key[prefixLen:prefixLen+16])
+		emoji := string(key[prefixLen+16:])
+		groups[emoji] = append(groups[emoji], user)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+
+	result := make([]ReactionGroup, 0, len(groups))
+	for emoji, users := range groups {
+		result = append(result, ReactionGroup{
+			Emoji:   emoji,
+			Count:   len(users),
+			UserIDs: users,
+		})
+	}
+	return result, nil
+}
+
+func (s *Store) ReadUsers(ctx context.Context, roomID, msgID uuid.UUID) ([]uuid.UUID, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	msg, err := s.MessageByID(ctx, roomID, msgID)
+	if err != nil {
+		return nil, err
+	}
+
+	members, err := s.Members(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var readUsers []uuid.UUID
+	var keyBuf [33]byte
+	for _, m := range members {
+		key := appendReadSeqKey(keyBuf[:0], m.UserID, roomID)
+		val, closer, err := s.db.Get(key)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		readSeq := binary.BigEndian.Uint64(val)
+		closer.Close()
+		if readSeq >= msg.RoomSeq {
+			readUsers = append(readUsers, m.UserID)
+		}
+	}
+	return readUsers, nil
+}
+
+func (s *Store) PinMessage(ctx context.Context, roomID, msgID, operatorID uuid.UUID) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	if _, err := s.MessageByID(ctx, roomID, msgID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	key := appendPinKey(nil, roomID, msgID)
+	var val [24]byte
+	copy(val[:16], operatorID[:])
+	binary.BigEndian.PutUint64(val[16:], uint64(time.Now().Unix()))
+
+	if err := s.setBytes(batch, key, val[:]); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) UnpinMessage(ctx context.Context, roomID, msgID uuid.UUID) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	key := appendPinKey(nil, roomID, msgID)
+	if err := batch.Delete(key, nil); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) PinnedMessages(ctx context.Context, roomID uuid.UUID) ([]Message, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	prefix := appendPinPrefix(nil, roomID)
+	upperBound := prefixUpperBound(prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var msgIDs []uuid.UUID
+	prefixLen := len(prefix)
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) != prefixLen+16 {
+			continue
+		}
+		var msgID uuid.UUID
+		copy(msgID[:], key[prefixLen:])
+		msgIDs = append(msgIDs, msgID)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+
+	messages := make([]Message, 0, len(msgIDs))
+	var indexKeyBuf [33]byte
+	var msgKeyBuf [25]byte
+	for _, id := range msgIDs {
+		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], roomID, id)
+		data, closer, err := s.db.Get(indexKey)
+		if err != nil {
+			continue
+		}
+		if len(data) != 8 {
+			closer.Close()
+			continue
+		}
+		seq := binary.BigEndian.Uint64(data)
+		closer.Close()
+
+		msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
+		msg, err := s.getRecord(msgKey, decodeMessage)
+		if err != nil {
+			continue
+		}
+		messages = append(messages, msg)
+	}
+	return messages, nil
+}
+
+func (s *Store) SaveDeviceToken(ctx context.Context, userID uuid.UUID, info DeviceInfo) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	key := appendDeviceKey(nil, userID)
+	data, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("marshal device info: %w", err)
+	}
+	if err := s.setBytes(batch, key, data); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) DeleteDeviceToken(ctx context.Context, userID uuid.UUID) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	key := appendDeviceKey(nil, userID)
+	if err := batch.Delete(key, nil); err != nil {
+		return err
+	}
+	return commit(batch)
+}
+
+func (s *Store) DeviceToken(ctx context.Context, userID uuid.UUID) (DeviceInfo, error) {
+	if err := contextErr(ctx); err != nil {
+		return DeviceInfo{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	key := appendDeviceKey(nil, userID)
+	data, closer, err := s.db.Get(key)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return DeviceInfo{}, ErrNotFound
+		}
+		return DeviceInfo{}, err
+	}
+	defer closer.Close()
+
+	var info DeviceInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return DeviceInfo{}, fmt.Errorf("unmarshal device info: %w", err)
+	}
+	return info, nil
 }

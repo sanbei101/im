@@ -149,6 +149,13 @@ type PongFrame struct {
 	Type string `json:"type"`
 }
 
+// TypingFrame 正在输入状态帧
+type TypingFrame struct {
+	Type   string `json:"type"`
+	RoomID string `json:"room_id"`
+	UserID string `json:"user_id,omitempty"`
+}
+
 // FrameWriter 持有可复用的 jsontext.Encoder,把下行帧流式编码进内部 buffer
 type FrameWriter struct {
 	mu  sync.Mutex

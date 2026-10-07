@@ -11,6 +11,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/cors v1.2.2
 	github.com/kamalyes/go-argus v0.3.1
+	github.com/minio/minio-go/v7 v7.3.0
 	github.com/phuslu/log v1.0.136
 	golang.org/x/crypto v0.57.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -38,35 +39,44 @@ require (
 	github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506 // indirect
 	github.com/cockroachdb/redact v1.1.8 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/getsentry/sentry-go v0.49.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/pprof v0.0.0-20260926063103-aaccee046517 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/iancoleman/strcase v0.3.0 // indirect
 	github.com/jhump/protoreflect v1.18.1 // indirect
 	github.com/jhump/protoreflect/v2 v2.0.0-beta.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
+	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/minio/crc64nvme v1.1.1 // indirect
+	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
+	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.72.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
+	github.com/rs/xid v1.6.0 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.2 // indirect
+	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
@@ -77,4 +87,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
+	gopkg.in/ini.v1 v1.67.3 // indirect
 )

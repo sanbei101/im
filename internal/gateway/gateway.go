@@ -25,6 +25,12 @@ type Gateway struct {
 	Config             *config.Config
 	streams            []*apiStream
 	pending            sync.Map
+	roomUsers          sync.Map
+}
+
+type roomUserSet struct {
+	mu    sync.RWMutex
+	users map[uuid.UUID]time.Time
 }
 
 func NewGateway(cfg *config.Config) *Gateway {
@@ -33,6 +39,52 @@ func NewGateway(cfg *config.Config) *Gateway {
 		g.streams = append(g.streams, newAPIStream(g, fmt.Sprintf("gateway-%d", index), address))
 	}
 	return g
+}
+
+func (g *Gateway) TouchRoomUser(roomID string, userID uuid.UUID) {
+	val, _ := g.roomUsers.LoadOrStore(roomID, &roomUserSet{users: make(map[uuid.UUID]time.Time)})
+	set, ok := val.(*roomUserSet)
+	if !ok {
+		return
+	}
+	set.mu.Lock()
+	set.users[userID] = time.Now()
+	set.mu.Unlock()
+}
+
+func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
+	val, ok := g.roomUsers.Load(roomID)
+	if !ok {
+		return
+	}
+	set, ok := val.(*roomUserSet)
+	if !ok {
+		return
+	}
+	set.mu.RLock()
+	var targets []uuid.UUID
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for uid, lastSeen := range set.users {
+		if uid != senderID && lastSeen.After(cutoff) {
+			targets = append(targets, uid)
+		}
+	}
+	set.mu.RUnlock()
+
+	frame := render.TypingFrame{
+		Type:   "typing",
+		RoomID: roomID,
+		UserID: senderID.String(),
+	}
+	for _, targetID := range targets {
+		if session, ok := g.UserSessionManager.Load(targetID); ok {
+			for _, client := range session.Clients() {
+				if err := client.encodeFrame(frame); err != nil {
+					log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send typing frame failed")
+				}
+			}
+		}
+	}
 }
 
 func (g *Gateway) Start(ctx context.Context) {

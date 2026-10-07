@@ -39,8 +39,8 @@ func run() error {
 		return fmt.Errorf("open pebble store: %w", err)
 	}
 	defer data.Close()
-	r := api.NewRouter(data)
 	streamHandler := api.NewStreamHandler(data, cfg.API.NodeID, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
+	r := api.NewRouter(data, streamHandler, cfg.Storage)
 	listenAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)
