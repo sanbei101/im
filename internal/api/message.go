@@ -103,7 +103,7 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, store.ErrRecallTimeout) {
-			render.Error(w, http.StatusBadRequest, "消息发送已超过2分钟，无法撤回")
+			render.Error(w, http.StatusBadRequest, "消息发送已超过2分钟,无法撤回")
 			return
 		}
 		if errors.Is(err, store.ErrForbidden) {

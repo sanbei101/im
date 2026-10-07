@@ -548,7 +548,7 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if member.Role == store.RoleOwner {
-		render.Error(w, http.StatusBadRequest, "群主无法直接退群，请先转让群主或解散群聊")
+		render.Error(w, http.StatusBadRequest, "群主无法直接退群,请先转让群主或解散群聊")
 		return
 	}
 
