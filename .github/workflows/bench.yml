@@ -6,6 +6,25 @@ on:
       - dev
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: true
+          cache-dependency-path: 'go.sum'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -28,11 +47,6 @@ jobs:
           go-version: stable
           cache: true
           cache-dependency-path: 'go.sum'
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
 
       - name: Test
         run: make test
