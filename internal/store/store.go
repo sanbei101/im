@@ -252,16 +252,17 @@ func ParseMsgType(value string) (MsgType, error) {
 }
 
 type Message struct {
-	MsgID        uuid.UUID      `json:"msg_id"`
-	ClientMsgID  uuid.UUID      `json:"client_msg_id"`
-	SenderID     uuid.UUID      `json:"sender_id"`
-	RoomID       uuid.UUID      `json:"room_id"`
-	RoomSeq      uint64         `json:"room_seq"`
-	ServerTime   int64          `json:"server_time"`
-	ReplyToMsgID uuid.UUID      `json:"reply_to_msg_id,omitzero"`
-	MsgType      MsgType        `json:"msg_type"`
-	Payload      jsontext.Value `json:"payload,omitzero"`
-	Ext          jsontext.Value `json:"ext,omitzero"`
+	MsgID        uuid.UUID       `json:"msg_id"`
+	ClientMsgID  uuid.UUID       `json:"client_msg_id"`
+	SenderID     uuid.UUID       `json:"sender_id"`
+	RoomID       uuid.UUID       `json:"room_id"`
+	RoomSeq      uint64          `json:"room_seq"`
+	ServerTime   int64           `json:"server_time"`
+	ReplyToMsgID uuid.UUID       `json:"reply_to_msg_id,omitzero"`
+	MsgType      MsgType         `json:"msg_type"`
+	Payload      jsontext.Value  `json:"payload,omitzero"`
+	Ext          jsontext.Value  `json:"ext,omitzero"`
+	Reactions    []ReactionGroup `json:"reactions,omitempty"`
 }
 
 func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {

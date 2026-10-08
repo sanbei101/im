@@ -272,6 +272,9 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 		limit = 20
 	}
 	if messages, hasMore, ok := s.cache.page(roomID, before, limit); ok {
+		if err := s.populateReactions(ctx, roomID, messages); err != nil {
+			return MessagePage{}, err
+		}
 		return MessagePage{Messages: messages, HasMore: hasMore}, nil
 	}
 
@@ -325,6 +328,9 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 
 	if before == 0 {
 		s.cache.put(roomID, ascending, hi-1)
+	}
+	if err := s.populateReactions(ctx, roomID, messages); err != nil {
+		return MessagePage{}, err
 	}
 	return MessagePage{Messages: messages, HasMore: hasMore}, nil
 }
@@ -422,6 +428,9 @@ func (s *Store) SearchRoomMessages(
 	if err := iter.Error(); err != nil {
 		return nil, err
 	}
+	if err := s.populateReactions(ctx, roomID, messages); err != nil {
+		return nil, err
+	}
 	return messages, nil
 }
 
@@ -477,9 +486,19 @@ func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Messa
 	if errors.Is(err, ErrNotFound) {
 		// The body may already be archived; the 'i' index survives archival
 		// precisely so cold messages stay resolvable by id.
-		return s.remoteMessage(ctx, roomID, seq)
+		message, err = s.remoteMessage(ctx, roomID, seq)
+		if err != nil {
+			return Message{}, err
+		}
+	} else if err != nil {
+		return Message{}, err
 	}
-	return message, err
+	reactions, err := s.Reactions(ctx, roomID, msgID)
+	if err != nil {
+		return Message{}, err
+	}
+	message.Reactions = reactions
+	return message, nil
 }
 
 func (s *Store) RecallMessage(
@@ -670,6 +689,77 @@ func (s *Store) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]React
 		})
 	}
 	return result, nil
+}
+
+func (s *Store) roomReactions(ctx context.Context, roomID uuid.UUID) (map[uuid.UUID][]ReactionGroup, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+
+	prefix := appendReactionRoomPrefix(nil, roomID)
+	upperBound := prefixUpperBound(prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	const minKeyLen = 1 + 16 + 16 + 16 // 49
+	grouped := make(map[uuid.UUID]map[string][]uuid.UUID)
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) <= minKeyLen {
+			continue
+		}
+		var msgID uuid.UUID
+		copy(msgID[:], key[17:33])
+		var user uuid.UUID
+		copy(user[:], key[33:49])
+		emoji := string(key[49:])
+
+		msgMap := grouped[msgID]
+		if msgMap == nil {
+			msgMap = make(map[string][]uuid.UUID)
+			grouped[msgID] = msgMap
+		}
+		msgMap[emoji] = append(msgMap[emoji], user)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+
+	result := make(map[uuid.UUID][]ReactionGroup, len(grouped))
+	for msgID, emojis := range grouped {
+		groups := make([]ReactionGroup, 0, len(emojis))
+		for emoji, users := range emojis {
+			groups = append(groups, ReactionGroup{
+				Emoji:   emoji,
+				Count:   len(users),
+				UserIDs: users,
+			})
+		}
+		result[msgID] = groups
+	}
+	return result, nil
+}
+
+func (s *Store) populateReactions(ctx context.Context, roomID uuid.UUID, messages []Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	reactions, err := s.roomReactions(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if len(reactions) == 0 {
+		return nil
+	}
+	for i := range messages {
+		if groups, ok := reactions[messages[i].MsgID]; ok {
+			messages[i].Reactions = groups
+		}
+	}
+	return nil
 }
 
 func (s *Store) ReadUsers(ctx context.Context, roomID, msgID uuid.UUID) ([]uuid.UUID, error) {

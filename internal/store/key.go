@@ -153,6 +153,10 @@ func appendReactionPrefix(dst []byte, room, msgID uuid.UUID) []byte {
 	return append(append(append(dst, 'R'), room[:]...), msgID[:]...)
 }
 
+func appendReactionRoomPrefix(dst []byte, room uuid.UUID) []byte {
+	return append(append(dst, 'R'), room[:]...)
+}
+
 func appendPinKey(dst []byte, room, msgID uuid.UUID) []byte {
 	return append(append(append(dst, 'P'), room[:]...), msgID[:]...)
 }

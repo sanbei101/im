@@ -717,6 +717,26 @@ func TestStoreInteractions(t *testing.T) {
 				t.Fatalf("thumbs up count after removal = %d, want 2", group.Count)
 			}
 		}
+
+		page, err := s.Messages(ctx, room.RoomID, 0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var foundMsg *Message
+		for i := range page.Messages {
+			if page.Messages[i].MsgID == msg.MsgID {
+				foundMsg = &page.Messages[i]
+				break
+			}
+		}
+		if foundMsg == nil || len(foundMsg.Reactions) != 2 {
+			t.Fatalf("history message reactions: %+v", foundMsg)
+		}
+
+		gotMsg, err := s.MessageByID(ctx, room.RoomID, msg.MsgID)
+		if err != nil || len(gotMsg.Reactions) != 2 {
+			t.Fatalf("message by id reactions: gotMsg=%+v err=%v", gotMsg, err)
+		}
 	})
 
 	t.Run("read users follow read sequence", func(t *testing.T) {
