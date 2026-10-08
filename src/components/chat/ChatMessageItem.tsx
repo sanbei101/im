@@ -2,25 +2,11 @@ import { MessageType } from "go-chat-sdk";
 import { Check, CheckCheck, Clock, AlertCircle, FileText, Download, Reply } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  Message,
-  MessageAvatar,
-  MessageContent,
-  MessageHeader,
-  MessageFooter,
-} from "@/components/ui/message";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
-import {
-  Attachment,
-  AttachmentMedia,
-  AttachmentContent,
-  AttachmentTitle,
-  AttachmentDescription,
-  AttachmentActions,
-} from "@/components/ui/attachment";
+import { useChat } from "@/context/ChatContext";
+import { cn } from "@/lib/utils";
 import {
   type UIMessage,
   isTextPayload,
@@ -31,7 +17,6 @@ import {
   getInitials,
   getMessagePreviewText,
 } from "@/types/chat";
-import { useChat } from "@/context/ChatContext";
 
 import { MessageActions, MessageReactions } from "./MessageActions";
 import { MessageContextMenu } from "./MessageContextMenu";
@@ -66,6 +51,7 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
     };
   }, [actionsOpen]);
 
+  // System notice
   if (message.msgType === MessageType.System || message.msgType === "system") {
     let systemText = "System notice";
     if (isTextPayload(message.payload)) {
@@ -74,13 +60,22 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
       systemText = message.payload;
     }
     return (
-      <div className="my-2 flex justify-center">
-        <Badge
-          variant="secondary"
-          className="text-muted-foreground px-2.5 py-0.5 text-xs font-normal"
-        >
+      <div className="my-3 flex justify-center select-none">
+        <span className="bg-muted/80 dark:bg-muted/40 text-muted-foreground rounded-full px-3 py-0.5 text-xs font-normal">
           {systemText}
-        </Badge>
+        </span>
+      </div>
+    );
+  }
+
+  // Recalled message notice (QQ style centered notice)
+  if (message.recalled) {
+    const senderDisplay = isSelf ? "你" : message.senderId.slice(0, 8) || "对方";
+    return (
+      <div className="my-3 flex justify-center select-none">
+        <span className="bg-muted/60 dark:bg-muted/30 text-muted-foreground rounded-full px-3 py-1 text-xs font-normal">
+          {senderDisplay} 撤回了一条消息
+        </span>
       </div>
     );
   }
@@ -131,16 +126,19 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
     if (message.msgType === MessageType.Image || message.msgType === "image") {
       if (isImagePayload(message.payload)) {
         return (
-          <Bubble variant={isSelf ? "default" : "muted"}>
-            <BubbleContent className="p-1 rounded-xl overflow-hidden">
-              <img
-                src={message.payload.url}
-                alt="Sent attachment"
-                className="max-h-60 rounded-lg object-cover transition-opacity hover:opacity-90"
-                loading="lazy"
-              />
-            </BubbleContent>
-          </Bubble>
+          <div
+            className={cn(
+              "overflow-hidden rounded-2xl shadow-xs border border-border/40 transition-transform active:scale-[0.99]",
+              isSelf ? "rounded-tr-xs bg-[#0099ff]/10" : "rounded-tl-xs bg-card",
+            )}
+          >
+            <img
+              src={message.payload.url}
+              alt="Sent attachment"
+              className="max-h-72 max-w-xs rounded-xl object-cover transition-opacity hover:opacity-95 sm:max-w-sm"
+              loading="lazy"
+            />
+          </div>
         );
       }
     }
@@ -148,30 +146,36 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
     if (message.msgType === MessageType.File || message.msgType === "file") {
       if (isFilePayload(message.payload)) {
         return (
-          <Attachment size="sm" className="max-w-xs">
-            <AttachmentMedia variant="icon">
-              <FileText className="size-4" />
-            </AttachmentMedia>
-            <AttachmentContent>
-              <AttachmentTitle className="truncate max-w-44 text-xs">
+          <div
+            className={cn(
+              "flex items-center gap-3 rounded-2xl p-3 border shadow-xs max-w-xs sm:max-w-sm transition-all",
+              isSelf
+                ? "rounded-tr-xs bg-primary/10 border-primary/25 text-foreground"
+                : "rounded-tl-xs bg-card border-border/80 text-foreground",
+            )}
+          >
+            <div className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
+              <FileText className="size-5" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-xs leading-tight font-semibold">
                 {message.payload.name}
-              </AttachmentTitle>
-              <AttachmentDescription className="text-[11px]">
+              </span>
+              <span className="text-muted-foreground mt-0.5 text-[11px]">
                 {formatFileSize(message.payload.size)}
-              </AttachmentDescription>
-            </AttachmentContent>
-            <AttachmentActions>
-              <a
-                href={message.payload.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:bg-muted text-muted-foreground hover:text-foreground rounded-md p-1.5"
-                title="Download file"
-              >
-                <Download className="size-3.5" />
-              </a>
-            </AttachmentActions>
-          </Attachment>
+              </span>
+            </div>
+            <a
+              href={message.payload.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1.5 transition-colors"
+              title="Download file"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download className="size-4" />
+            </a>
+          </div>
         );
       }
     }
@@ -187,18 +191,23 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
     }
 
     return (
-      <Bubble variant={isSelf ? "default" : "muted"}>
-        <BubbleContent className="whitespace-pre-wrap break-words leading-relaxed text-sm">
-          {text}
-        </BubbleContent>
-      </Bubble>
+      <div
+        className={cn(
+          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-xs whitespace-pre-wrap break-words [word-break:break-word] select-text",
+          isSelf
+            ? "rounded-tr-xs bg-[#0099ff] text-white hover:bg-[#008de6]"
+            : "rounded-tl-xs bg-card border border-border/70 dark:border-zinc-700/60 text-foreground hover:bg-card/90",
+        )}
+      >
+        {text}
+      </div>
     );
   };
 
   const quotedMessage = message.replyToMsgId
-    ? messages.find(
+    ? (messages.find(
         (m) => m.id === message.replyToMsgId || m.clientMsgId === message.replyToMsgId,
-      ) ?? null
+      ) ?? null)
     : null;
 
   const handleScrollToOriginal = () => {
@@ -225,12 +234,12 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
       return null;
     }
 
-    const quotedText = quotedMessage
-      ? getMessagePreviewText(quotedMessage)
-      : "Original message";
+    const quotedText = quotedMessage ? getMessagePreviewText(quotedMessage) : "Original message";
     const isQuotedSelf = currentUser !== null && quotedMessage?.senderId === currentUser.user_id;
     const quotedSender = quotedMessage
-      ? (isQuotedSelf ? "You" : quotedMessage.senderId.slice(0, 8))
+      ? isQuotedSelf
+        ? "You"
+        : quotedMessage.senderId.slice(0, 8)
       : "Message";
 
     return (
@@ -238,53 +247,98 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
         type="button"
         onClick={handleScrollToOriginal}
         title="Click to locate original message"
-        className="mb-1 flex max-w-full items-center gap-1.5 rounded-r-md border-l-2 border-primary/70 bg-muted/50 hover:bg-muted/80 px-2 py-1 text-left text-xs transition-colors"
+        className={cn(
+          "mb-1.5 flex max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-colors",
+          isSelf
+            ? "border-r-2 border-[#0099ff] bg-[#0099ff]/10 hover:bg-[#0099ff]/20 text-right self-end"
+            : "border-l-2 border-primary/70 bg-muted/60 hover:bg-muted/90 text-left self-start",
+        )}
       >
-        <Reply className="size-3 text-primary shrink-0 rotate-180" />
-        <span className="font-semibold text-foreground/80 shrink-0 text-[11px]">
+        <Reply className={cn("size-3 text-primary shrink-0", !isSelf && "rotate-180")} />
+        <span className="text-foreground/80 shrink-0 text-[11px] font-semibold">
           {quotedSender}:
         </span>
-        <span className="truncate text-muted-foreground text-[11px]">
-          {quotedText}
-        </span>
+        <span className="text-muted-foreground truncate text-[11px]">{quotedText}</span>
       </button>
     );
   };
 
   const formattedTime = formatTime(message.serverTime);
-  const initials = getInitials(message.senderId);
+  const initials = isSelf
+    ? currentUser
+      ? getInitials(currentUser.username)
+      : "ME"
+    : getInitials(message.senderId);
 
   return (
-    <Message
+    <div
       id={`msg-${message.id || message.clientMsgId}`}
-      align={isSelf ? "end" : "start"}
-      className="group relative my-1.5 rounded-lg p-0.5 transition-colors duration-300"
+      className={cn(
+        "group relative my-3 flex items-start gap-2.5 px-3 sm:px-5 transition-colors duration-200",
+        isSelf ? "flex-row-reverse" : "flex-row",
+      )}
     >
-      {!isSelf && showAvatar && (
-        <MessageAvatar className="size-8">
-          <Avatar className="size-8">
-            <AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-        </MessageAvatar>
+      {/* Avatar */}
+      {showAvatar && (
+        <Avatar className="ring-border/50 size-9 shrink-0 shadow-2xs ring-1">
+          <AvatarFallback
+            className={cn(
+              "text-xs font-semibold select-none",
+              isSelf
+                ? "bg-[#0099ff]/15 text-[#0099ff] dark:bg-primary/20 dark:text-primary"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {initials}
+          </AvatarFallback>
+        </Avatar>
       )}
 
-      <MessageContent className="gap-0.5">
+      {/* Main message column */}
+      <div
+        className={cn(
+          "flex flex-col min-w-0 max-w-[75%] sm:max-w-[70%]",
+          isSelf ? "items-end" : "items-start",
+        )}
+      >
+        {/* Nickname (shown only for other users in group chat) */}
         {!isSelf && isGroup && (
-          <MessageHeader className="text-[11px] text-muted-foreground px-1 mb-0.5 font-mono">
+          <span className="text-muted-foreground mb-1 px-1 text-[12px] font-medium select-none">
             {message.senderId.slice(0, 8)}
-          </MessageHeader>
+          </span>
         )}
 
-        <div className="relative">
-          {renderQuotedMessage()}
-          {/* The bubble is the primary hit target: click opens the inline bar,
-              right-click opens the full context menu, double-click replies. */}
+        {renderQuotedMessage()}
+
+        {/* Bubble container with hover action toolbar */}
+        <div className="group/bubble relative flex items-center">
+          {/* Action Toolbar on hover */}
+          <div
+            className={cn(
+              "absolute top-1/2 -translate-y-1/2 z-20 transition-all duration-150",
+              isSelf ? "right-[calc(100%+8px)]" : "left-[calc(100%+8px)]",
+              actionsOpen
+                ? "opacity-100 pointer-events-auto"
+                : "opacity-0 group-hover/bubble:opacity-100 pointer-events-none group-hover/bubble:pointer-events-auto",
+            )}
+          >
+            <div
+              className="bg-background/95 flex items-center rounded-full border px-1 py-0.5 shadow-md backdrop-blur-xs"
+              data-message-actions=""
+            >
+              <MessageActions
+                message={message}
+                isSelf={isSelf}
+                onDismiss={() => setActionsOpen(false)}
+              />
+            </div>
+          </div>
+
+          {/* Interactive bubble */}
           <button
             type="button"
             aria-label="Message actions"
-            className="block w-full cursor-pointer rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="block cursor-pointer text-left transition-transform focus-visible:outline-none active:scale-[0.99]"
             onClick={() => {
               setActionsOpen((prev) => !prev);
             }}
@@ -296,40 +350,11 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
               setMenuAnchor({ x: event.clientX, y: event.clientY });
             }}
           >
-            {message.recalled ? (
-              <Bubble variant="muted">
-                <BubbleContent className="text-muted-foreground text-sm italic">
-                  This message was recalled
-                </BubbleContent>
-              </Bubble>
-            ) : (
-              renderBody()
-            )}
+            {renderBody()}
           </button>
-
-          {/* Inline action bar: always visible for own messages, hover for others. */}
-          <div
-            className={
-              isSelf || actionsOpen
-                ? "absolute top-1 left-0 -translate-x-full pr-1.5 flex items-center z-10"
-                : "absolute top-1 right-0 translate-x-full pl-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity hidden sm:flex items-center z-10"
-            }
-          >
-            <div
-              className="bg-background/95 border shadow-2xs rounded-md p-0.5 flex items-center backdrop-blur-xs"
-              data-message-actions=""
-            >
-              <MessageActions
-                message={message}
-                isSelf={isSelf}
-                onDismiss={() => {
-                  setActionsOpen(false);
-                }}
-              />
-            </div>
-          </div>
         </div>
 
+        {/* Right-click Context Menu */}
         {menuAnchor &&
           createPortal(
             <MessageContextMenu
@@ -343,15 +368,21 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
             document.body,
           )}
 
-        {!message.recalled && <MessageReactions message={message} />}
+        <MessageReactions message={message} />
 
-        <MessageFooter className="gap-1.5 px-1 text-[10px] text-muted-foreground select-none">
+        {/* Footer timestamp & status */}
+        <div
+          className={cn(
+            "flex items-center gap-1.5 mt-1 px-1 text-[11px] text-muted-foreground select-none",
+            isSelf ? "justify-end" : "justify-start",
+          )}
+        >
           {formattedTime && <span>{formattedTime}</span>}
           {message.roomSeq > 0 && <span>#{message.roomSeq}</span>}
-          {message.pinned && <span className="text-primary/70">pinned</span>}
+          {message.pinned && <span className="font-medium text-[#0099ff]">pinned</span>}
           {renderStatus()}
-        </MessageFooter>
-      </MessageContent>
-    </Message>
+        </div>
+      </div>
+    </div>
   );
 }

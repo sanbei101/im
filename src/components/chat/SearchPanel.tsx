@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChat } from "@/context/ChatContext";
+import { cn } from "@/lib/utils";
 import { formatTime, getMessagePreviewText, mapSdkMessageToUIMessage } from "@/types/chat";
 
 interface SearchPanelProps {
   readonly onClose: () => void;
+  readonly embedded?: boolean;
 }
 
 /** Room-scoped message search; the backend requires a room_id. */
-export function SearchPanel({ onClose }: SearchPanelProps) {
+export function SearchPanel({ onClose, embedded = false }: SearchPanelProps) {
   const { activeRoomId, activeRoom, searchResults, isSearching, searchMessages, selectRoom } =
     useChat();
   const [keyword, setKeyword] = useState("");
@@ -33,7 +35,12 @@ export function SearchPanel({ onClose }: SearchPanelProps) {
   }, [activeRoomId]);
 
   return (
-    <aside className="bg-background/50 flex h-full w-80 shrink-0 flex-col border-l">
+    <aside
+      className={cn(
+        "bg-background/50 flex h-full flex-col",
+        embedded ? "w-full" : "w-80 shrink-0 border-l",
+      )}
+    >
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <span className="flex items-center gap-2 text-sm font-semibold">
           <Search className="size-4" />

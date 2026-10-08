@@ -1,13 +1,16 @@
-import { useCallback } from "react";
 import type { Message, ReactionGroup } from "go-chat-sdk";
+import { useCallback } from "react";
+
+import { applyReactions, isErrorWithMessage, markRecalled, type UIMessage } from "@/types/chat";
 
 import type { ChatDomainDeps } from "./domain-deps";
-import { applyReactions, isErrorWithMessage, markRecalled, type UIMessage } from "@/types/chat";
 
 export interface MessagesState {
   readonly messagesByRoom: Readonly<Record<string, readonly UIMessage[]>>;
   readonly setMessagesByRoom: (
-    fn: (prev: Readonly<Record<string, readonly UIMessage[]>>) => Record<string, readonly UIMessage[]>,
+    fn: (
+      prev: Readonly<Record<string, readonly UIMessage[]>>,
+    ) => Record<string, readonly UIMessage[]>,
   ) => void;
   readonly searchResults: readonly Message[];
   readonly setSearchResults: (value: readonly Message[]) => void;

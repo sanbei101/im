@@ -1,8 +1,9 @@
-import { useCallback } from "react";
 import type { MessageType as SdkMessageType } from "go-chat-sdk";
+import { useCallback } from "react";
+
+import { updateMessageAck, updateMessageStatus, type UIMessage } from "@/types/chat";
 
 import type { ChatDomainDeps } from "./domain-deps";
-import { updateMessageAck, updateMessageStatus, type UIMessage } from "@/types/chat";
 
 /** What a sender needs: the SDK call plus the type/payload the bubble renders. */
 export interface OutgoingSend {
@@ -110,7 +111,12 @@ export function useSenders(options: UseSendersOptions): UseSendersResult {
   } = options;
 
   const sendMessage = useCallback(
-    async (msgType: SdkMessageType | string, payload: unknown, send: OutgoingSend, fallbackError: string) => {
+    async (
+      msgType: SdkMessageType | string,
+      payload: unknown,
+      send: OutgoingSend,
+      fallbackError: string,
+    ) => {
       if (!activeRoomId || !currentUser) {
         return;
       }
@@ -187,7 +193,13 @@ export function useSenders(options: UseSendersOptions): UseSendersResult {
   );
 
   const sendImageMessage = useCallback(
-    async (url: string, width?: number, height?: number, size?: number, explicitReplyToId?: string) => {
+    async (
+      url: string,
+      width?: number,
+      height?: number,
+      size?: number,
+      explicitReplyToId?: string,
+    ) => {
       const replyTo = explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
       await sendMessage(
         "image",

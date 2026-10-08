@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Copy, Eye, Pin, PinOff, Reply, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Separator } from "@/components/ui/separator";
 import { useChat } from "@/context/ChatContext";
@@ -153,7 +153,9 @@ export function MessageContextMenu({ message, isSelf, anchor, onClose }: Message
         icon={isPinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
         label={isPinned ? "Unpin" : "Pin"}
         disabled={pending}
-        onClick={() => void run(() => (isPinned ? unpinMessage(message.id) : pinMessage(message.id)))}
+        onClick={() =>
+          void run(() => (isPinned ? unpinMessage(message.id) : pinMessage(message.id)))
+        }
       />
 
       <MenuItem

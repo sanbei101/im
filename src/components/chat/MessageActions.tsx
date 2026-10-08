@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { MoreVertical, Pin, PinOff, Reply, SmilePlus, Trash2 } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -63,9 +63,7 @@ export function MessageActions({ message, isSelf, onDismiss }: MessageActionsPro
     <div className="flex items-center gap-0.5">
       <Popover open={reactorOpen} onOpenChange={setReactorOpen}>
         <PopoverTrigger
-          render={
-            <Button variant="ghost" size="icon-sm" aria-label="React" disabled={pending} />
-          }
+          render={<Button variant="ghost" size="icon-sm" aria-label="React" disabled={pending} />}
         >
           <SmilePlus className="size-3.5" />
         </PopoverTrigger>

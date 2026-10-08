@@ -1,8 +1,9 @@
-import { useCallback } from "react";
 import type { MemberInfo, Message, RoomDetail } from "go-chat-sdk";
+import { useCallback } from "react";
+
+import { isErrorWithMessage } from "@/types/chat";
 
 import type { ChatDomainDeps } from "./domain-deps";
-import { isErrorWithMessage } from "@/types/chat";
 
 export interface RoomsState {
   readonly activeRoomDetail: RoomDetail | null;

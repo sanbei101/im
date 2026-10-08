@@ -1,8 +1,9 @@
-import { useCallback } from "react";
 import type { FriendApplication, FriendItem, PresenceResponse, UserProfile } from "go-chat-sdk";
+import { useCallback } from "react";
+
+import { isErrorWithMessage } from "@/types/chat";
 
 import type { ChatDomainDeps } from "./domain-deps";
-import { isErrorWithMessage } from "@/types/chat";
 
 export interface ContactsState {
   readonly friends: readonly FriendItem[];

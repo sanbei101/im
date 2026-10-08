@@ -1,8 +1,9 @@
-import { useCallback } from "react";
 import type { ConversationInfo, MemberInfo, Message } from "go-chat-sdk";
+import { useCallback } from "react";
+
+import { isErrorWithMessage, type UIMessage } from "@/types/chat";
 
 import type { ChatDomainDeps } from "./domain-deps";
-import { isErrorWithMessage, type UIMessage } from "@/types/chat";
 
 /** State owned by the conversations domain. */
 export interface ConversationsState {
@@ -30,7 +31,9 @@ export interface UseConversationsOptions extends ChatDomainDeps {
   readonly setActiveRoomDetail: (value: null) => void;
   readonly setPinnedMessages: (value: readonly Message[]) => void;
   readonly setMessagesByRoom: (
-    fn: (prev: Readonly<Record<string, readonly UIMessage[]>>) => Record<string, readonly UIMessage[]>,
+    fn: (
+      prev: Readonly<Record<string, readonly UIMessage[]>>,
+    ) => Record<string, readonly UIMessage[]>,
   ) => void;
   readonly rooms: RoomsCrossTalk;
 }

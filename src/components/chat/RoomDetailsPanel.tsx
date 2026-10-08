@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   BellOff,
   BellRing,
@@ -13,6 +12,7 @@ import {
   UserX,
   X,
 } from "lucide-react";
+import { useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +111,9 @@ export function RoomDetailsPanel({ onClose }: RoomDetailsPanelProps) {
 
       <div className="flex flex-col items-center p-4 text-center">
         <Avatar className="mb-2 size-16">
-          <AvatarFallback className="bg-secondary text-lg">{getInitials(displayName)}</AvatarFallback>
+          <AvatarFallback className="bg-secondary text-lg">
+            {getInitials(displayName)}
+          </AvatarFallback>
         </Avatar>
         <h3 className="max-w-full truncate text-base font-semibold">{displayName}</h3>
         <div className="mt-1 flex items-center gap-1.5">
@@ -163,7 +165,9 @@ export function RoomDetailsPanel({ onClose }: RoomDetailsPanelProps) {
                 <label className="text-muted-foreground font-medium" htmlFor="room-id">
                   Room ID
                 </label>
-                <code className="bg-muted rounded px-2 py-1 text-[11px] break-all">{activeRoomId}</code>
+                <code className="bg-muted rounded px-2 py-1 text-[11px] break-all">
+                  {activeRoomId}
+                </code>
               </div>
 
               {isGroup && isAdmin && (
@@ -332,7 +336,7 @@ export function RoomDetailsPanel({ onClose }: RoomDetailsPanelProps) {
                   return (
                     <div
                       key={member.user_id}
-                      className="flex items-center gap-2 rounded-md p-2 hover:bg-muted/60"
+                      className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
                     >
                       <Avatar className="size-8">
                         <AvatarFallback className="text-xs">
@@ -362,9 +366,7 @@ export function RoomDetailsPanel({ onClose }: RoomDetailsPanelProps) {
                               size="icon-sm"
                               aria-label={`Transfer ownership to ${member.username}`}
                               disabled={busy}
-                              onClick={() =>
-                                void run(() => transferOwnership(member.user_id))
-                              }
+                              onClick={() => void run(() => transferOwnership(member.user_id))}
                             >
                               <Crown className="size-3.5" />
                             </Button>
@@ -375,7 +377,9 @@ export function RoomDetailsPanel({ onClose }: RoomDetailsPanelProps) {
                               size="icon-sm"
                               aria-label={`Promote ${member.username}`}
                               disabled={busy}
-                              onClick={() => void run(() => updateMemberRole(member.user_id, "admin"))}
+                              onClick={() =>
+                                void run(() => updateMemberRole(member.user_id, "admin"))
+                              }
                             >
                               <Shield className="size-3.5" />
                             </Button>
@@ -386,7 +390,9 @@ export function RoomDetailsPanel({ onClose }: RoomDetailsPanelProps) {
                               size="icon-sm"
                               aria-label={`Demote ${member.username}`}
                               disabled={busy}
-                              onClick={() => void run(() => updateMemberRole(member.user_id, "member"))}
+                              onClick={() =>
+                                void run(() => updateMemberRole(member.user_id, "member"))
+                              }
                             >
                               <BellOff className="size-3.5" />
                             </Button>

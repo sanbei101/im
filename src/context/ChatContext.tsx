@@ -30,9 +30,9 @@ import {
   isErrorWithMessage,
 } from "@/types/chat";
 
+import { type ChatContextValue } from "./chat-context-value";
 import { useAccount } from "./use-account";
 import { useContacts } from "./use-contacts";
-import { type ChatContextValue } from "./chat-context-value";
 import { useConversations } from "./use-conversations";
 import { useMessages } from "./use-messages";
 import { useRooms } from "./use-rooms";

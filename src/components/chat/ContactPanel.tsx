@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { UserProfile } from "go-chat-sdk";
 import {
   Ban,
   Bell,
@@ -11,7 +11,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import type { UserProfile } from "go-chat-sdk";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -20,15 +20,17 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useChat } from "@/context/ChatContext";
+import { cn } from "@/lib/utils";
 
 interface ContactPanelProps {
   readonly onClose: () => void;
+  readonly embedded?: boolean;
 }
 
 type ContactTab = "friends" | "requests" | "blacklist" | "discover";
 
 /** Friends, friend requests, blacklist and user discovery in one drawer. */
-export function ContactPanel({ onClose }: ContactPanelProps) {
+export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
   const {
     friends,
     friendApplications,
@@ -101,22 +103,24 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
     [friendApplications],
   );
 
-  const run = useCallback(
-    async (userId: string, action: () => Promise<unknown>) => {
-      setBusyUserId(userId);
-      try {
-        await action();
-      } catch {
-        // Error banner is already set by the context action.
-      } finally {
-        setBusyUserId(null);
-      }
-    },
-    [],
-  );
+  const run = useCallback(async (userId: string, action: () => Promise<unknown>) => {
+    setBusyUserId(userId);
+    try {
+      await action();
+    } catch {
+      // Error banner is already set by the context action.
+    } finally {
+      setBusyUserId(null);
+    }
+  }, []);
 
   return (
-    <aside className="bg-background/50 flex h-full w-80 shrink-0 flex-col border-l">
+    <aside
+      className={cn(
+        "bg-background/50 flex h-full flex-col",
+        embedded ? "w-full" : "w-80 shrink-0 border-l",
+      )}
+    >
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <span className="flex items-center gap-2 text-sm font-semibold">
           <Users className="size-4" />
@@ -165,7 +169,10 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                 />
               )}
               {friends.map((friend) => (
-                <div key={friend.user_id} className="group/friend flex flex-col gap-1 rounded-md p-2 hover:bg-muted/60">
+                <div
+                  key={friend.user_id}
+                  className="group/friend hover:bg-muted/60 flex flex-col gap-1 rounded-md p-2"
+                >
                   <div className="flex items-center gap-2">
                     <span className="relative">
                       <Avatar className="size-8">
@@ -174,7 +181,7 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                         </AvatarFallback>
                       </Avatar>
                       {presence[friend.user_id] && (
-                        <span className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-background bg-success" />
+                        <span className="border-background bg-success absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
                       )}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -188,9 +195,11 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`Message ${friend.username}`}
-                        onClick={() => void run(friend.user_id, async () => {
-                          await createSingleRoom(friend.user_id);
-                        })}
+                        onClick={() =>
+                          void run(friend.user_id, async () => {
+                            await createSingleRoom(friend.user_id);
+                          })
+                        }
                       >
                         <MessageSquare className="size-3.5" />
                       </Button>
@@ -218,7 +227,9 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                     className="flex items-center gap-1"
                     onSubmit={(e) => {
                       e.preventDefault();
-                      void run(friend.user_id, () => updateFriendRemark(friend.user_id, remarkDraft.trim()));
+                      void run(friend.user_id, () =>
+                        updateFriendRemark(friend.user_id, remarkDraft.trim()),
+                      );
                       setRemarkDraft("");
                     }}
                   >
@@ -251,9 +262,16 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                 />
               )}
               {pendingRequests.map((request) => (
-                <div key={request.from_user_id} className="flex flex-col gap-1 rounded-md p-2 hover:bg-muted/60">
-                  <p className="truncate text-sm font-medium">{request.from_user_id.slice(0, 12)}</p>
-                  <p className="text-muted-foreground text-xs">{request.greeting || "Wants to add you"}</p>
+                <div
+                  key={request.from_user_id}
+                  className="hover:bg-muted/60 flex flex-col gap-1 rounded-md p-2"
+                >
+                  <p className="truncate text-sm font-medium">
+                    {request.from_user_id.slice(0, 12)}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {request.greeting || "Wants to add you"}
+                  </p>
                   <div className="flex items-center gap-1">
                     <Button
                       size="xs"
@@ -298,7 +316,10 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                 />
               )}
               {blacklist.map((user) => (
-                <div key={user.user_id} className="flex items-center gap-2 rounded-md p-2 hover:bg-muted/60">
+                <div
+                  key={user.user_id}
+                  className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
+                >
                   <Avatar className="size-8">
                     <AvatarFallback className="text-xs">
                       {(user.nickname || user.username).slice(0, 2)}
@@ -338,8 +359,10 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
             </div>
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex flex-col gap-1 px-3 pb-3">
-                {keyword.trim() !== "" && !isSearching && results.length === 0 && (
-                  searchError ? (
+                {keyword.trim() !== "" &&
+                  !isSearching &&
+                  results.length === 0 &&
+                  (searchError ? (
                     <EmptyState
                       icon={<X className="size-5" />}
                       title="Search failed"
@@ -351,17 +374,21 @@ export function ContactPanel({ onClose }: ContactPanelProps) {
                       title="No users found"
                       hint="Try a different username."
                     />
-                  )
-                )}
+                  ))}
                 {results.map((user) => (
-                  <div key={user.user_id} className="flex items-center gap-2 rounded-md p-2 hover:bg-muted/60">
+                  <div
+                    key={user.user_id}
+                    className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
+                  >
                     <Avatar className="size-8">
                       <AvatarFallback className="text-xs">
                         {(user.nickname || user.username).slice(0, 2)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{user.nickname || user.username}</p>
+                      <p className="truncate text-sm font-medium">
+                        {user.nickname || user.username}
+                      </p>
                       <p className="text-muted-foreground truncate text-xs">@{user.username}</p>
                     </div>
                     <Button

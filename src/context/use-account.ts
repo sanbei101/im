@@ -1,8 +1,9 @@
-import { useCallback } from "react";
 import type { UserProfile, UserResponse } from "go-chat-sdk";
+import { useCallback } from "react";
+
+import { isErrorWithMessage } from "@/types/chat";
 
 import type { ChatDomainDeps } from "./domain-deps";
-import { isErrorWithMessage } from "@/types/chat";
 
 export interface AccountState {
   readonly profile: UserProfile | null;

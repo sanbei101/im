@@ -1,18 +1,17 @@
+import { ConnectionState } from "go-chat-sdk";
 import {
   MessageSquare,
   Search,
-  Settings,
   Users,
   User,
   LogOut,
-  Copy,
-  Check,
   RefreshCw,
   PanelLeftClose,
   PanelLeftOpen,
   MessageSquarePlus,
   BellOff,
   Pin,
+  Settings,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -21,33 +20,25 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChat } from "@/context/ChatContext";
+import { cn } from "@/lib/utils";
 import { getInitials } from "@/types/chat";
 
+import { ContactPanel } from "./ContactPanel";
 import { CreateRoomDialog } from "./CreateRoomDialog";
+import { SearchPanel } from "./SearchPanel";
 import { SettingsDialog } from "./SettingsDialog";
+
+export type NavTab = "chats" | "contacts" | "search";
 
 interface ChatSidebarProps {
   readonly isCollapsed: boolean;
   readonly onToggleCollapse: () => void;
-  readonly onShowContacts: () => void;
-  readonly onShowSearch: () => void;
   readonly onShowProfile: () => void;
-  readonly contactsOpen: boolean;
-  readonly searchOpen: boolean;
 }
 
-export function ChatSidebar({
-  isCollapsed,
-  onToggleCollapse,
-  onShowContacts,
-  onShowSearch,
-  onShowProfile,
-  contactsOpen,
-  searchOpen,
-}: ChatSidebarProps) {
+export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: ChatSidebarProps) {
   const {
     rooms,
     activeRoomId,
@@ -59,15 +50,20 @@ export function ChatSidebar({
     conversations,
     refreshConversations,
     friendApplications,
+    connectionState,
+    connect,
   } = useChat();
 
+  const [navTab, setNavTab] = useState<NavTab>("chats");
   const [searchQuery, setSearchQuery] = useState("");
-  const [copiedUserId, setCopiedUserId] = useState(false);
 
-  // Unread counts come from the conversation list, keyed by room id.
+  // Calculate unread counts
   const unreadCountByRoom: Record<string, number> = {};
+  let totalUnread = 0;
   for (const conversation of conversations) {
-    unreadCountByRoom[conversation.room.room_id] = conversation.unread_count;
+    const unread = conversation.unread_count || 0;
+    unreadCountByRoom[conversation.room.room_id] = unread;
+    totalUnread += unread;
   }
 
   const pendingRequests = friendApplications.filter((a) => a.status === "pending").length;
@@ -82,200 +78,151 @@ export function ChatSidebar({
     return nameMatch || idMatch;
   });
 
-  const handleCopyUserId = async () => {
-    if (currentUser && typeof navigator !== "undefined" && navigator.clipboard) {
-      await navigator.clipboard.writeText(currentUser.user_id);
-      setCopiedUserId(true);
-      setTimeout(() => {
-        setCopiedUserId(false);
-      }, 2000);
-    }
-  };
+  const isConnected = connectionState === ConnectionState.Connected;
 
-  // Render collapsed mini-rail
-  if (isCollapsed) {
-    return (
-      <aside className="bg-muted/20 flex h-full w-16 shrink-0 flex-col items-center border-r py-2 select-none transition-[width] duration-200">
-        <div className="flex flex-col items-center gap-2 pb-2">
+  return (
+    <div className="flex h-full shrink-0 select-none">
+      {/* 1. Left Dock Navigation Rail (Classic QQ style, ~60px) */}
+      <aside className="border-border/70 z-10 flex h-full w-15 shrink-0 flex-col items-center justify-between border-r bg-[#f0f2f5] py-3.5 dark:bg-[#16171a]">
+        {/* Top: User Avatar with online indicator */}
+        <div className="flex flex-col items-center gap-4">
           <Tooltip>
             <TooltipTrigger>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleCollapse}
-                className="hover:bg-accent size-9"
+              <button
+                type="button"
+                onClick={onShowProfile}
+                className="relative rounded-full transition-transform hover:scale-105 focus-visible:outline-none"
               >
-                <PanelLeftOpen className="size-4" />
-              </Button>
+                <Avatar className="ring-background size-10 shadow-xs ring-2">
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                    {currentUser ? getInitials(currentUser.username) : "QQ"}
+                  </AvatarFallback>
+                </Avatar>
+                {/* Online presence badge */}
+                <span
+                  className={cn(
+                    "absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-background",
+                    isConnected ? "bg-emerald-500" : "bg-zinc-400",
+                  )}
+                />
+              </button>
             </TooltipTrigger>
-            <TooltipContent side="right">Expand Sidebar</TooltipContent>
+            <TooltipContent side="right">
+              <span className="font-medium">{currentUser?.username || "个人资料"}</span>
+              <span className="text-muted-foreground block text-[10px]">
+                {isConnected ? "在线" : "离线"} · 点击查看设置
+              </span>
+            </TooltipContent>
           </Tooltip>
 
-          <CreateRoomDialog
-            trigger={
-              <Tooltip>
-                <TooltipTrigger>
-                  <Button variant="default" size="icon" className="size-9 rounded-lg shadow-xs">
-                    <MessageSquarePlus className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">New Conversation</TooltipContent>
-              </Tooltip>
-            }
-          />
-        </div>
-
-        <Separator className="w-8 my-1" />
-
-        <div className="relative min-h-0 flex-1 w-full">
-          <ScrollArea className="h-full w-full">
-            <div className="flex flex-col items-center gap-2 px-2 py-1">
-              {filteredRooms.map((room) => {
-                const isActive = room.room_id === activeRoomId;
-                const isGroup = room.chat_type === "group";
-                const displayName = room.name || (isGroup ? "Group Chat" : "Direct Chat");
-                const initials = getInitials(displayName);
-
-                return (
-                  <Tooltip key={room.room_id}>
-                    <TooltipTrigger>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          selectRoom(room.room_id);
-                        }}
-                        className={
-                          isActive
-                            ? "ring-2 ring-primary bg-primary/10 rounded-full transition-all"
-                            : "hover:opacity-80 rounded-full transition-all"
-                        }
-                      >
-                        <Avatar className="size-9">
-                          <AvatarFallback className="text-xs font-semibold">
-                            {initials}
-                          </AvatarFallback>
-                        </Avatar>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="flex items-center gap-1.5 text-xs">
-                      <span>{displayName}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono">
-                        ({isGroup ? "Group" : "Direct"})
-                      </span>
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </div>
-
-        <Separator className="w-8 my-1" />
-
-        <div className="flex flex-col items-center gap-2 pt-1">
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  void refreshRooms();
-                }}
-                disabled={isLoadingRooms}
-                className="size-8 text-muted-foreground hover:text-foreground"
-              >
-                <RefreshCw className={isLoadingRooms ? "size-3.5 animate-spin" : "size-3.5"} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Refresh</TooltipContent>
-          </Tooltip>
-
-          <SettingsDialog
-            trigger={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground hover:text-foreground"
-              >
-                <MessageSquare className="size-3.5" />
-              </Button>
-            }
-          />
-
-          {currentUser && (
+          {/* Navigation Tab Icons */}
+          <div className="mt-1 flex flex-col items-center gap-2">
+            {/* Chats tab */}
             <Tooltip>
               <TooltipTrigger>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={logout}
-                  className="size-8 text-muted-foreground hover:text-destructive"
-                >
-                  <LogOut className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <span>Sign Out ({currentUser.username})</span>
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      </aside>
-    );
-  }
-
-  // Render expanded sidebar
-  return (
-    <aside className="bg-muted/20 flex h-full w-80 shrink-0 flex-col border-r select-none transition-[width] duration-200">
-      <div className="bg-background/50 flex h-14 items-center justify-between border-b px-3.5">
-        <div className="flex items-center gap-2">
-          <div className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg font-bold">
-            <MessageSquare className="size-4" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm leading-tight font-semibold">Go IM</span>
-            <span className="text-muted-foreground text-[10px] leading-tight">
-              Instant Messenger
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onShowContacts}
-                aria-pressed={contactsOpen}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <span className="relative">
-                  <Users className="size-3.5" />
-                  {pendingRequests > 0 && (
-                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-destructive" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNavTab("chats");
+                    if (isCollapsed) {
+                      onToggleCollapse();
+                    }
+                  }}
+                  className={cn(
+                    "relative flex size-10 items-center justify-center rounded-xl transition-all",
+                    navTab === "chats"
+                      ? "bg-[#0099ff] text-white shadow-xs"
+                      : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
                   )}
-                </span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Contacts</TooltipContent>
-          </Tooltip>
+                >
+                  <MessageSquare className="size-5" />
+                  {totalUnread > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-2xs">
+                      {totalUnread > 99 ? "99+" : totalUnread}
+                    </span>
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">消息列表</TooltipContent>
+            </Tooltip>
 
+            {/* Contacts tab */}
+            <Tooltip>
+              <TooltipTrigger>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNavTab("contacts");
+                    if (isCollapsed) {
+                      onToggleCollapse();
+                    }
+                  }}
+                  className={cn(
+                    "relative flex size-10 items-center justify-center rounded-xl transition-all",
+                    navTab === "contacts"
+                      ? "bg-[#0099ff] text-white shadow-xs"
+                      : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+                  )}
+                >
+                  <Users className="size-5" />
+                  {pendingRequests > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-2xs">
+                      {pendingRequests}
+                    </span>
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">通讯录 / 好友</TooltipContent>
+            </Tooltip>
+
+            {/* Search tab */}
+            <Tooltip>
+              <TooltipTrigger>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNavTab("search");
+                    if (isCollapsed) {
+                      onToggleCollapse();
+                    }
+                  }}
+                  className={cn(
+                    "relative flex size-10 items-center justify-center rounded-xl transition-all",
+                    navTab === "search"
+                      ? "bg-[#0099ff] text-white shadow-xs"
+                      : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+                  )}
+                >
+                  <Search className="size-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">消息搜索</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Bottom Actions */}
+        <div className="flex flex-col items-center gap-2">
+          {/* Collapse/Expand Sidebar */}
           <Tooltip>
             <TooltipTrigger>
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={onShowSearch}
-                aria-pressed={searchOpen}
-                className="text-muted-foreground hover:text-foreground"
+                onClick={onToggleCollapse}
+                className="text-muted-foreground hover:text-foreground size-8 rounded-lg"
               >
-                <Search className="size-3.5" />
+                {isCollapsed ? (
+                  <PanelLeftOpen className="size-4" />
+                ) : (
+                  <PanelLeftClose className="size-4" />
+                )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Search messages</TooltipContent>
+            <TooltipContent side="right">{isCollapsed ? "展开面板" : "折叠面板"}</TooltipContent>
           </Tooltip>
 
+          {/* Refresh data */}
           <Tooltip>
             <TooltipTrigger>
               <Button
@@ -284,192 +231,186 @@ export function ChatSidebar({
                 onClick={() => {
                   void refreshRooms();
                   void refreshConversations();
+                  if (!isConnected) {
+                    void connect();
+                  }
                 }}
                 disabled={isLoadingRooms}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground size-8 rounded-lg"
               >
-                <RefreshCw className={isLoadingRooms ? "size-3.5 animate-spin" : "size-3.5"} />
+                <RefreshCw
+                  className={isLoadingRooms ? "text-primary size-4 animate-spin" : "size-4"}
+                />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Refresh</TooltipContent>
+            <TooltipContent side="right">刷新数据</TooltipContent>
           </Tooltip>
 
-          <SettingsDialog />
-
-          <Tooltip>
-            <TooltipTrigger>
+          {/* Settings Dialog */}
+          <SettingsDialog
+            trigger={
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={onToggleCollapse}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground size-8 rounded-lg"
               >
-                <PanelLeftClose className="size-3.5" />
+                <Settings className="size-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Collapse Sidebar</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      <div className="bg-background/30 flex flex-col gap-2 border-b p-3">
-        <CreateRoomDialog />
-
-        <div className="relative">
-          <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-            }}
-            placeholder="Search conversations..."
-            className="bg-background/60 h-8 pl-8 text-xs"
+            }
           />
-        </div>
-      </div>
 
-      <div className="relative min-h-0 flex-1">
-        <ScrollArea className="h-full">
-          <div className="flex flex-col gap-1 p-2">
-            {filteredRooms.length === 0 ? (
-              <div className="text-muted-foreground p-6 text-center text-xs">
-                {searchQuery ? "No matching conversations" : "No conversations yet"}
-              </div>
-            ) : (
-              filteredRooms.map((room) => {
-                const isActive = room.room_id === activeRoomId;
-                const isGroup = room.chat_type === "group";
-                const displayName = room.name || (isGroup ? "Group Chat" : "Direct Chat");
-                const initials = getInitials(displayName);
-                const unread = unreadCountByRoom[room.room_id] ?? 0;
-                const conv = conversations.find((c) => c.room.room_id === room.room_id);
-                const convMuted = conv?.member.is_muted ?? false;
-                const convPinned = conv?.member.is_pinned ?? false;
-
-                return (
-                  <button
-                    key={room.room_id}
-                    type="button"
-                    onClick={() => {
-                      selectRoom(room.room_id);
-                    }}
-                    className={
-                      isActive
-                        ? "bg-accent text-accent-foreground flex w-full items-center gap-3 rounded-lg p-2.5 text-left shadow-2xs transition-colors"
-                        : "hover:bg-muted/60 text-foreground flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition-colors"
-                    }
-                  >
-                    <Avatar className="size-9 shrink-0">
-                      <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                        {initials}
-                      </AvatarFallback>
-                    </Avatar>
-
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate text-xs leading-tight font-semibold">
-                          {displayName}
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1">
-                          {unread > 0 && (
-                            <Badge variant={convMuted ? "secondary" : "default"} className="h-4 px-1.5 text-[10px]">
-                              {unread}
-                            </Badge>
-                          )}
-                          {convMuted && <BellOff className="text-muted-foreground size-3" />}
-                          {convPinned && <Pin className="text-muted-foreground size-3" />}
-                          <Badge
-                            variant={isActive ? "default" : "secondary"}
-                            className="h-3.5 shrink-0 px-1 py-0 text-[9px]"
-                          >
-                            {isGroup ? (
-                              <Users className="size-2.5" />
-                            ) : (
-                              <User className="size-2.5" />
-                            )}
-                          </Badge>
-                        </span>
-                      </div>
-
-                      <span className="text-muted-foreground mt-0.5 truncate font-mono text-[11px]">
-                        {room.room_id}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-
-      <Separator />
-
-      {currentUser && (
-        <div className="bg-background/50 flex items-center justify-between p-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <Avatar className="size-8 shrink-0">
-              <AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-medium">
-                {getInitials(currentUser.username)}
-              </AvatarFallback>
-            </Avatar>
-
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate text-xs leading-tight font-semibold">
-                {currentUser.username}
-              </span>
-              <div className="mt-0.5 flex items-center gap-1">
-                <span className="text-muted-foreground max-w-[120px] truncate font-mono text-[10px]">
-                  {currentUser.user_id}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <button
-                      type="button"
-                      onClick={handleCopyUserId}
-                      className="text-muted-foreground hover:text-foreground rounded-xs p-0.5 transition-colors"
-                    >
-                      {copiedUserId ? (
-                        <Check className="size-2.5 text-emerald-500" />
-                      ) : (
-                        <Copy className="size-2.5" />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <span>{copiedUserId ? "Copied!" : "Copy My User ID"}</span>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={onShowProfile}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Account settings"
-            >
-              <Settings className="size-4" />
-            </Button>
+          {/* Sign Out */}
+          {currentUser && (
             <Tooltip>
               <TooltipTrigger>
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   onClick={logout}
-                  className="text-muted-foreground hover:text-destructive"
+                  className="text-muted-foreground size-8 rounded-lg hover:text-rose-600"
                 >
                   <LogOut className="size-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Sign Out</TooltipContent>
+              <TooltipContent side="right">退出登录 ({currentUser.username})</TooltipContent>
             </Tooltip>
-          </div>
+          )}
+        </div>
+      </aside>
+
+      {/* 2. Middle Sub-Panel (Conversations / Contacts / Search, ~280px-300px) */}
+      {!isCollapsed && (
+        <div className="bg-card border-border/70 flex h-full w-72 flex-col border-r transition-all duration-200 sm:w-80 dark:bg-[#1c1d22]">
+          {navTab === "chats" && (
+            <>
+              {/* Header with Search + Add Button */}
+              <div className="border-border/70 flex h-14 items-center justify-between gap-2 border-b px-3.5">
+                <div className="relative flex-1">
+                  <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="搜索"
+                    className="bg-muted/50 focus-visible:border-primary/50 focus-visible:bg-background h-8 rounded-lg border-transparent pl-8 text-xs"
+                  />
+                </div>
+
+                <CreateRoomDialog
+                  trigger={
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-muted-foreground hover:text-foreground hover:bg-muted size-8 shrink-0 rounded-lg"
+                        >
+                          <MessageSquarePlus className="size-4.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>发起新聊天 / 创建群聊</TooltipContent>
+                    </Tooltip>
+                  }
+                />
+              </div>
+
+              {/* Conversation List */}
+              <ScrollArea className="h-[calc(100%-3.5rem)]">
+                <div className="flex flex-col gap-0.5 p-2">
+                  {filteredRooms.length === 0 ? (
+                    <div className="text-muted-foreground p-8 text-center text-xs">
+                      {searchQuery ? "未找到匹配会话" : "暂无会话，点击右上角发起聊天"}
+                    </div>
+                  ) : (
+                    filteredRooms.map((room) => {
+                      const isActive = room.room_id === activeRoomId;
+                      const isGroup = room.chat_type === "group";
+                      const displayName = room.name || (isGroup ? "群聊" : "私聊");
+                      const initials = getInitials(displayName);
+                      const unread = unreadCountByRoom[room.room_id] ?? 0;
+                      const conv = conversations.find((c) => c.room.room_id === room.room_id);
+                      const convMuted = conv?.member.is_muted ?? false;
+                      const convPinned = conv?.member.is_pinned ?? false;
+
+                      return (
+                        <button
+                          key={room.room_id}
+                          type="button"
+                          onClick={() => {
+                            selectRoom(room.room_id);
+                          }}
+                          className={cn(
+                            "group/item relative flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors cursor-pointer",
+                            isActive
+                              ? "bg-[#0099ff]/10 text-primary font-medium"
+                              : "hover:bg-muted/60 text-foreground",
+                          )}
+                        >
+                          {/* Room Avatar */}
+                          <div className="relative shrink-0">
+                            <Avatar className="ring-border/40 size-10 shadow-2xs ring-1">
+                              <AvatarFallback
+                                className={cn(
+                                  "text-xs font-semibold",
+                                  isActive
+                                    ? "bg-[#0099ff] text-white"
+                                    : "bg-primary/10 text-primary",
+                                )}
+                              >
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                          </div>
+
+                          {/* Room Details */}
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="truncate text-xs leading-tight font-semibold">
+                                {displayName}
+                              </span>
+
+                              <div className="flex shrink-0 items-center gap-1">
+                                {convMuted && <BellOff className="text-muted-foreground size-3" />}
+                                {convPinned && <Pin className="size-3 text-[#0099ff]" />}
+                                <Badge
+                                  variant="secondary"
+                                  className="h-3.5 shrink-0 px-1 py-0 text-[9px] font-normal"
+                                >
+                                  {isGroup ? (
+                                    <Users className="mr-0.5 size-2.5" />
+                                  ) : (
+                                    <User className="mr-0.5 size-2.5" />
+                                  )}
+                                  {isGroup ? "群" : "私"}
+                                </Badge>
+                              </div>
+                            </div>
+
+                            <div className="mt-1 flex items-center justify-between gap-1">
+                              <span className="text-muted-foreground max-w-[150px] truncate font-mono text-[11px] leading-tight">
+                                {room.room_id.slice(0, 10)}...
+                              </span>
+
+                              {unread > 0 && (
+                                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-2xs">
+                                  {unread}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+            </>
+          )}
+
+          {navTab === "contacts" && <ContactPanel onClose={() => setNavTab("chats")} embedded />}
+
+          {navTab === "search" && <SearchPanel onClose={() => setNavTab("chats")} embedded />}
         </div>
       )}
-    </aside>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { ConnectionState } from "go-chat-sdk";
-import { Send, Image as ImageIcon, Paperclip, Reply, X } from "lucide-react";
-import { useState, useRef, useEffect, type KeyboardEvent } from "react";
+import { Send, Image as ImageIcon, Paperclip, Reply, X, Smile, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect, type KeyboardEvent, type ClipboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,139 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChat } from "@/context/ChatContext";
 import { getMessagePreviewText } from "@/types/chat";
+
+const COMMON_EMOJIS = [
+  "😀",
+  "😁",
+  "😂",
+  "🤣",
+  "😃",
+  "😄",
+  "😅",
+  "😆",
+  "😉",
+  "😊",
+  "😋",
+  "😎",
+  "😍",
+  "😘",
+  "🥰",
+  "😗",
+  "😚",
+  "☺️",
+  "🙂",
+  "🤗",
+  "🤩",
+  "🤔",
+  "🫡",
+  "🤨",
+  "😐",
+  "😑",
+  "😶",
+  "🙄",
+  "😏",
+  "😣",
+  "😥",
+  "😮",
+  "🤐",
+  "😯",
+  "😪",
+  "😫",
+  "🥱",
+  "😴",
+  "😌",
+  "😛",
+  "😜",
+  "😝",
+  "🤤",
+  "😒",
+  "😓",
+  "😔",
+  "😕",
+  "🙃",
+  "🫠",
+  "🤑",
+  "😲",
+  "☹️",
+  "🙁",
+  "😖",
+  "😞",
+  "😟",
+  "😤",
+  "😢",
+  "😭",
+  "😦",
+  "😩",
+  "🤯",
+  "😬",
+  "😮‍💨",
+  "😰",
+  "😱",
+  "🥵",
+  "🥶",
+  "😳",
+  "🤪",
+  "😵",
+  "🥴",
+  "😠",
+  "😡",
+  "🤬",
+  "😷",
+  "🤒",
+  "🤕",
+  "🤢",
+  "🤮",
+  "😇",
+  "🥳",
+  "🥺",
+  "🥹",
+  "🤠",
+  "🤡",
+  "💩",
+  "👻",
+  "💀",
+  "🤖",
+  "👋",
+  "👌",
+  "🤌",
+  "✌️",
+  "🤞",
+  "🫰",
+  "🤟",
+  "🤘",
+  "🤙",
+  "👈",
+  "👉",
+  "👆",
+  "👇",
+  "👍",
+  "👎",
+  "✊",
+  "👊",
+  "👏",
+  "🙌",
+  "🫶",
+  "🤝",
+  "🙏",
+  "💪",
+  "❤️",
+  "🧡",
+  "💛",
+  "💚",
+  "💙",
+  "💜",
+  "🖤",
+  "💔",
+  "❤️‍🔥",
+  "✨",
+  "🔥",
+  "💯",
+  "🎉",
+  "🎊",
+  "⭐",
+  "🌟",
+  "☕",
+] as const;
 
 export function ChatInput() {
   const {
@@ -21,17 +154,19 @@ export function ChatInput() {
     setReplyingToMessage,
     currentUser,
   } = useChat();
+
   const [text, setText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // Image popover
+  // Popovers
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [imagePopoverOpen, setImagePopoverOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
 
-  // File popover
-  const [filePopoverOpen, setFilePopoverOpen] = useState(false);
-
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto focus when replyingToMessage is set
   useEffect(() => {
@@ -41,8 +176,6 @@ export function ChatInput() {
   }, [replyingToMessage]);
 
   const isConnected = connectionState === ConnectionState.Connected;
-
-  const [isUploading, setIsUploading] = useState(false);
 
   const handleSendText = async () => {
     const trimmed = text.trim();
@@ -68,9 +201,45 @@ export function ChatInput() {
     }
   };
 
-  // Images and files go through the backend presign endpoint, then a direct
-  // PUT to object storage; only the resulting URL is sent over the wire.
-  const handleSendImage = async () => {
+  // Support pasting images directly from clipboard (e.g. screenshots)
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          void handleUpload(file, "image");
+          return;
+        }
+      }
+    }
+  };
+
+  const handleInsertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setText((prev) => prev + emoji);
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const nextText = text.substring(0, start) + emoji + text.substring(end);
+    setText(nextText);
+    setEmojiOpen(false);
+
+    // Restore focus and cursor position after insertion
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+    }, 0);
+  };
+
+  const handleSendImageUrl = async () => {
     const trimmed = imageUrl.trim();
     if (!trimmed) {
       return;
@@ -86,7 +255,6 @@ export function ChatInput() {
     }
     setIsUploading(true);
     setImagePopoverOpen(false);
-    setFilePopoverOpen(false);
     setImageUrl("");
     try {
       const uploaded = await uploadFile(file);
@@ -96,174 +264,227 @@ export function ChatInput() {
         await sendFileMessage(uploaded.url, uploaded.name, uploaded.size, file.type);
       }
     } catch {
-      // Error banner is set by the context action.
+      // Error is handled in context
     } finally {
       setIsUploading(false);
     }
   };
 
   return (
-    <footer className="bg-background/95 shrink-0 border-t p-3 backdrop-blur-xs">
-      <div className="flex flex-col gap-2">
-        <div className="bg-muted/30 focus-within:border-ring focus-within:ring-ring/20 relative rounded-lg border transition-all focus-within:ring-2">
-          {replyingToMessage && (
-            <div className="bg-muted/70 border-b flex items-center justify-between px-3 py-1.5 text-xs rounded-t-lg select-none">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-0.5 h-6 bg-primary rounded-full shrink-0" />
-                <Reply className="size-3.5 text-primary shrink-0" />
-                <div className="flex flex-col min-w-0">
-                  <span className="font-semibold text-[11px] leading-tight text-foreground truncate">
-                    Replying to {replyingToMessage.senderId === currentUser?.user_id ? "yourself" : replyingToMessage.senderId.slice(0, 8)}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground truncate leading-tight">
-                    {getMessagePreviewText(replyingToMessage)}
-                  </span>
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => {
-                  setReplyingToMessage(null);
-                }}
-                className="text-muted-foreground hover:text-foreground shrink-0 size-6"
-                title="Cancel reply"
-              >
-                <X className="size-3.5" />
-              </Button>
-            </div>
-          )}
+    <footer className="bg-background shrink-0 border-t transition-colors select-none">
+      {/* Hidden file inputs for toolbar buttons */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        aria-label="Upload image"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) {
+            void handleUpload(file, "image");
+          }
+        }}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        aria-label="Upload file"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) {
+            void handleUpload(file, "file");
+          }
+        }}
+      />
 
+      <div className="flex flex-col">
+        {/* Replying banner */}
+        {replyingToMessage && (
+          <div className="bg-muted/50 flex items-center justify-between border-b px-4 py-1.5 text-xs">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="bg-primary h-3.5 w-1 shrink-0 rounded-full" />
+              <Reply className="text-primary size-3 shrink-0" />
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="text-foreground shrink-0 text-[11px] font-semibold">
+                  回复{" "}
+                  {replyingToMessage.senderId === currentUser?.user_id
+                    ? "自己"
+                    : replyingToMessage.senderId.slice(0, 8)}
+                  :
+                </span>
+                <span className="text-muted-foreground truncate text-[11px]">
+                  {getMessagePreviewText(replyingToMessage)}
+                </span>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => {
+                setReplyingToMessage(null);
+              }}
+              className="text-muted-foreground hover:text-foreground size-5 shrink-0"
+              title="取消回复"
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
+        )}
+
+        {/* Top Toolbar (QQ style) */}
+        <div className="border-b/30 flex items-center justify-between px-3 pt-2 pb-1">
+          <div className="flex items-center gap-0.5">
+            {/* Emoji Popover */}
+            <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+              <PopoverTrigger>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground hover:bg-muted size-7"
+                  title="表情"
+                >
+                  <Smile className="size-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-2" align="start">
+                <div className="grid max-h-52 grid-cols-8 gap-1 overflow-y-auto p-1">
+                  {COMMON_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => handleInsertEmoji(emoji)}
+                      className="hover:bg-muted flex size-7 items-center justify-center rounded text-base transition-colors"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Image Upload Button & URL Popover */}
+            <Popover open={imagePopoverOpen} onOpenChange={setImagePopoverOpen}>
+              <PopoverTrigger>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground hover:bg-muted size-7"
+                  title="发送图片"
+                >
+                  <ImageIcon className="size-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3" align="start">
+                <div className="flex flex-col gap-2.5">
+                  <span className="text-xs font-semibold">发送图片</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    从本地选择图片
+                  </Button>
+                  <div className="relative my-1">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="border-border w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase">
+                      <span className="bg-popover text-muted-foreground px-2">或输入 URL</span>
+                    </div>
+                  </div>
+                  <Input
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    placeholder="https://..."
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    type="button"
+                    size="xs"
+                    onClick={() => void handleSendImageUrl()}
+                    disabled={!imageUrl.trim() || isUploading}
+                    className="w-full"
+                  >
+                    发送图片链接
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* File Upload Button */}
+            <Tooltip>
+              <TooltipTrigger>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="text-muted-foreground hover:text-foreground hover:bg-muted size-7"
+                >
+                  {isUploading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="size-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>发送文件</TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Quick upload indicator */}
+          {isUploading && (
+            <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
+              <Loader2 className="text-primary size-3 animate-spin" />
+              正在上传...
+            </span>
+          )}
+        </div>
+
+        {/* Text input area */}
+        <div className="px-3 py-1">
           <Textarea
             ref={textareaRef}
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-            }}
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
               isConnected
-                ? "Type a message... (Press Enter to send, Shift+Enter for new line)"
-                : "WebSocket offline - messages will queue or reconnect..."
+                ? "输入消息... (Enter 发送，Shift+Enter 换行，支持截图粘贴)"
+                : "网络离线中..."
             }
-            className="max-h-36 min-h-[60px] resize-none border-0 bg-transparent p-2.5 text-sm shadow-none focus-visible:ring-0"
+            className="placeholder:text-muted-foreground/60 h-20 max-h-36 min-h-[60px] resize-none border-0 bg-transparent p-1 text-sm leading-relaxed shadow-none focus-visible:ring-0"
           />
+        </div>
 
-          <div className="flex items-center justify-between px-2 pb-2">
-            <div className="flex items-center gap-1">
-              {/* Image message popover */}
-              <Popover open={imagePopoverOpen} onOpenChange={setImagePopoverOpen}>
-                <PopoverTrigger>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    title="Send Image"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <ImageIcon className="size-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-80 p-3" align="start">
-                  <div className="flex flex-col gap-2.5">
-                    <span className="text-xs font-semibold">Send Image Message</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      aria-label="Choose image"
-                      className="text-xs"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (file) {
-                          void handleUpload(file, "image");
-                        }
-                      }}
-                    />
-                    <span className="text-muted-foreground text-[11px]">
-                      Uploaded through the server presign endpoint.
-                    </span>
-                    <Input
-                      value={imageUrl}
-                      onChange={(e) => {
-                        setImageUrl(e.target.value);
-                      }}
-                      placeholder="…or paste an image URL"
-                      className="h-8 text-xs"
-                    />
-                    <div className="flex items-center justify-between">
-                      <Button
-                        type="button"
-                        size="xs"
-                        onClick={() => {
-                          void handleSendImage();
-                        }}
-                        disabled={!imageUrl.trim() || isUploading}
-                      >
-                        {isUploading ? "Uploading…" : "Send URL"}
-                      </Button>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+        {/* Bottom bar with shortcuts and Send button */}
+        <div className="flex items-center justify-between px-3 pt-0.5 pb-2.5">
+          <span className="text-muted-foreground/70 hidden text-[11px] sm:inline-block">
+            按 Enter 发送，Shift+Enter 换行
+          </span>
 
-              {/* File message popover */}
-              <Popover open={filePopoverOpen} onOpenChange={setFilePopoverOpen}>
-                <PopoverTrigger>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    title="Send File"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <Paperclip className="size-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-80 p-3" align="start">
-                  <div className="flex flex-col gap-2.5">
-                    <span className="text-xs font-semibold">Send File Message</span>
-                    <input
-                      type="file"
-                      aria-label="Choose file"
-                      className="text-xs"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (file) {
-                          void handleUpload(file, "file");
-                        }
-                      }}
-                    />
-                    <span className="text-muted-foreground text-[11px]">
-                      The file name and size are sent with the uploaded URL.
-                    </span>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger>
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    onClick={() => {
-                      void handleSendText();
-                    }}
-                    disabled={!text.trim() || isSending}
-                    className="rounded-lg shadow-xs"
-                  >
-                    <Send className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <span>Send (Enter)</span>
-                </TooltipContent>
-              </Tooltip>
-            </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSendText()}
+              disabled={!text.trim() || isSending}
+              className="h-8 gap-1.5 rounded-lg bg-[#0099ff] px-4 text-xs font-medium text-white shadow-xs transition-colors hover:bg-[#008de6] disabled:opacity-40"
+            >
+              <span>发送</span>
+              <Send className="size-3" />
+            </Button>
           </div>
         </div>
       </div>

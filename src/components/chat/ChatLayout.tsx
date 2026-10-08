@@ -5,15 +5,11 @@ import { useChat } from "@/context/ChatContext";
 
 import { ChatArea } from "./ChatArea";
 import { ChatSidebar } from "./ChatSidebar";
-import { ContactPanel } from "./ContactPanel";
-import { SearchPanel } from "./SearchPanel";
 import { ProfileDialog } from "./ProfileDialog";
 
 export function ChatLayout() {
   const { error, clearError } = useChat();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [showContacts, setShowContacts] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
   const handleToggleSidebar = () => {
@@ -31,7 +27,7 @@ export function ChatLayout() {
           <button
             type="button"
             onClick={clearError}
-            className="hover:bg-destructive/10 rounded-sm p-1"
+            className="hover:bg-destructive/10 cursor-pointer rounded-sm p-1"
           >
             <X className="size-3.5" />
           </button>
@@ -42,43 +38,12 @@ export function ChatLayout() {
         <ChatSidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}
-          onShowContacts={() => {
-            setShowSearch(false);
-            setShowContacts(true);
-          }}
-          onShowSearch={() => {
-            setShowContacts(false);
-            setShowSearch(true);
-          }}
           onShowProfile={() => setShowProfile(true)}
-          contactsOpen={showContacts}
-          searchOpen={showSearch}
         />
-        <ChatArea
-          isSidebarCollapsed={isSidebarCollapsed}
-          onToggleSidebar={handleToggleSidebar}
-        />
-
-        {showContacts && (
-          <ContactPanel
-            onClose={() => {
-              setShowContacts(false);
-            }}
-          />
-        )}
-        {showSearch && (
-          <SearchPanel
-            onClose={() => {
-              setShowSearch(false);
-            }}
-          />
-        )}
+        <ChatArea isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={handleToggleSidebar} />
       </div>
 
-      <ProfileDialog
-        open={showProfile}
-        onOpenChange={setShowProfile}
-      />
+      <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
     </div>
   );
 }

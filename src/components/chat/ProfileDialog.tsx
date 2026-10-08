@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { KeyRound, Loader2, LogOut, Smartphone, UserCog } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -131,13 +131,19 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
 
           <TabsContent value="profile" className="flex flex-col gap-3 pt-2">
             <div className="flex flex-col gap-1.5">
-              <label className="text-muted-foreground text-xs font-medium" htmlFor="profile-username">
+              <label
+                className="text-muted-foreground text-xs font-medium"
+                htmlFor="profile-username"
+              >
                 Username
               </label>
               <Input id="profile-username" value={currentUser?.username ?? ""} disabled />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-muted-foreground text-xs font-medium" htmlFor="profile-nickname">
+              <label
+                className="text-muted-foreground text-xs font-medium"
+                htmlFor="profile-nickname"
+              >
                 Nickname
               </label>
               <Input
@@ -213,7 +219,10 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-muted-foreground text-xs font-medium" htmlFor="device-platform">
+              <label
+                className="text-muted-foreground text-xs font-medium"
+                htmlFor="device-platform"
+              >
                 Platform
               </label>
               <Input
