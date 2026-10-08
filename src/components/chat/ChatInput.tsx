@@ -1,5 +1,5 @@
 import { ConnectionState } from "go-chat-sdk";
-import { Send, Image as ImageIcon, Paperclip, Sparkles, Reply, X } from "lucide-react";
+import { Send, Image as ImageIcon, Paperclip, Reply, X } from "lucide-react";
 import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ export function ChatInput() {
     sendTextMessage,
     sendImageMessage,
     sendFileMessage,
+    uploadFile,
     connectionState,
     replyingToMessage,
     setReplyingToMessage,
@@ -29,8 +30,6 @@ export function ChatInput() {
 
   // File popover
   const [filePopoverOpen, setFilePopoverOpen] = useState(false);
-  const [fileUrl, setFileUrl] = useState("");
-  const [fileName, setFileName] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -42,6 +41,8 @@ export function ChatInput() {
   }, [replyingToMessage]);
 
   const isConnected = connectionState === ConnectionState.Connected;
+
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleSendText = async () => {
     const trimmed = text.trim();
@@ -67,6 +68,8 @@ export function ChatInput() {
     }
   };
 
+  // Images and files go through the backend presign endpoint, then a direct
+  // PUT to object storage; only the resulting URL is sent over the wire.
   const handleSendImage = async () => {
     const trimmed = imageUrl.trim();
     if (!trimmed) {
@@ -77,16 +80,26 @@ export function ChatInput() {
     await sendImageMessage(trimmed, 400, 300);
   };
 
-  const handleSendFile = async () => {
-    const trimmedUrl = fileUrl.trim();
-    const trimmedName = fileName.trim() || "document.pdf";
-    if (!trimmedUrl) {
+  const handleUpload = async (file: File, kind: "image" | "file") => {
+    if (isUploading) {
       return;
     }
+    setIsUploading(true);
+    setImagePopoverOpen(false);
     setFilePopoverOpen(false);
-    setFileUrl("");
-    setFileName("");
-    await sendFileMessage(trimmedUrl, trimmedName, 1024 * 512, "application/octet-stream");
+    setImageUrl("");
+    try {
+      const uploaded = await uploadFile(file);
+      if (kind === "image") {
+        await sendImageMessage(uploaded.url, undefined, undefined, uploaded.size);
+      } else {
+        await sendFileMessage(uploaded.url, uploaded.name, uploaded.size, file.type);
+      }
+    } catch {
+      // Error banner is set by the context action.
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -155,37 +168,40 @@ export function ChatInput() {
                 <PopoverContent className="w-80 p-3" align="start">
                   <div className="flex flex-col gap-2.5">
                     <span className="text-xs font-semibold">Send Image Message</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      aria-label="Choose image"
+                      className="text-xs"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) {
+                          void handleUpload(file, "image");
+                        }
+                      }}
+                    />
+                    <span className="text-muted-foreground text-[11px]">
+                      Uploaded through the server presign endpoint.
+                    </span>
                     <Input
                       value={imageUrl}
                       onChange={(e) => {
                         setImageUrl(e.target.value);
                       }}
-                      placeholder="Enter image URL"
+                      placeholder="…or paste an image URL"
                       className="h-8 text-xs"
                     />
                     <div className="flex items-center justify-between">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => {
-                          setImageUrl(
-                            "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop",
-                          );
-                        }}
-                        className="text-muted-foreground gap-1 text-[11px]"
-                      >
-                        <Sparkles className="size-3" /> Sample Photo
-                      </Button>
                       <Button
                         type="button"
                         size="xs"
                         onClick={() => {
                           void handleSendImage();
                         }}
-                        disabled={!imageUrl.trim()}
+                        disabled={!imageUrl.trim() || isUploading}
                       >
-                        Send
+                        {isUploading ? "Uploading…" : "Send URL"}
                       </Button>
                     </div>
                   </div>
@@ -208,48 +224,21 @@ export function ChatInput() {
                 <PopoverContent className="w-80 p-3" align="start">
                   <div className="flex flex-col gap-2.5">
                     <span className="text-xs font-semibold">Send File Message</span>
-                    <Input
-                      value={fileName}
+                    <input
+                      type="file"
+                      aria-label="Choose file"
+                      className="text-xs"
                       onChange={(e) => {
-                        setFileName(e.target.value);
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) {
+                          void handleUpload(file, "file");
+                        }
                       }}
-                      placeholder="File Name (e.g. project_plan.pdf)"
-                      className="h-8 text-xs"
                     />
-                    <Input
-                      value={fileUrl}
-                      onChange={(e) => {
-                        setFileUrl(e.target.value);
-                      }}
-                      placeholder="File URL"
-                      className="h-8 text-xs"
-                    />
-                    <div className="flex items-center justify-between">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => {
-                          setFileName("specification_v1.pdf");
-                          setFileUrl(
-                            "https://raw.githubusercontent.com/sanbei101/im/dev/README.md",
-                          );
-                        }}
-                        className="text-muted-foreground gap-1 text-[11px]"
-                      >
-                        <Sparkles className="size-3" /> Sample File
-                      </Button>
-                      <Button
-                        type="button"
-                        size="xs"
-                        onClick={() => {
-                          void handleSendFile();
-                        }}
-                        disabled={!fileUrl.trim()}
-                      >
-                        Send
-                      </Button>
-                    </div>
+                    <span className="text-muted-foreground text-[11px]">
+                      The file name and size are sent with the uploaded URL.
+                    </span>
                   </div>
                 </PopoverContent>
               </Popover>

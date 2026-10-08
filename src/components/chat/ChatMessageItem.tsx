@@ -1,8 +1,9 @@
 import { MessageType } from "go-chat-sdk";
 import { Check, CheckCheck, Clock, AlertCircle, FileText, Download, Reply } from "lucide-react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Message,
@@ -32,6 +33,9 @@ import {
 } from "@/types/chat";
 import { useChat } from "@/context/ChatContext";
 
+import { MessageActions, MessageReactions } from "./MessageActions";
+import { MessageContextMenu } from "./MessageContextMenu";
+
 interface ChatMessageItemProps {
   readonly message: UIMessage;
   readonly isSelf: boolean;
@@ -40,7 +44,27 @@ interface ChatMessageItemProps {
 
 export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMessageItemProps) {
   const { activeRoom, messages, currentUser, setReplyingToMessage } = useChat();
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const isGroup = activeRoom ? activeRoom.chat_type === "group" : false;
+
+  // Clicking anywhere else collapses the action bar again.
+  useEffect(() => {
+    if (!actionsOpen) {
+      return;
+    }
+    const close = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-message-actions]")) {
+        return;
+      }
+      setActionsOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => {
+      document.removeEventListener("click", close);
+    };
+  }, [actionsOpen]);
 
   if (message.msgType === MessageType.System || message.msgType === "system") {
     let systemText = "System notice";
@@ -255,47 +279,76 @@ export function ChatMessageItem({ message, isSelf, showAvatar = true }: ChatMess
 
         <div className="relative">
           {renderQuotedMessage()}
-          <div
+          {/* The bubble is the primary hit target: click opens the inline bar,
+              right-click opens the full context menu, double-click replies. */}
+          <button
+            type="button"
+            aria-label="Message actions"
+            className="block w-full cursor-pointer rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            onClick={() => {
+              setActionsOpen((prev) => !prev);
+            }}
             onDoubleClick={() => {
               setReplyingToMessage(message);
             }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setMenuAnchor({ x: event.clientX, y: event.clientY });
+            }}
           >
-            {renderBody()}
-          </div>
+            {message.recalled ? (
+              <Bubble variant="muted">
+                <BubbleContent className="text-muted-foreground text-sm italic">
+                  This message was recalled
+                </BubbleContent>
+              </Bubble>
+            ) : (
+              renderBody()
+            )}
+          </button>
 
-          {/* Quick Action Bar on Hover */}
+          {/* Inline action bar: always visible for own messages, hover for others. */}
           <div
             className={
-              isSelf
-                ? "absolute top-1 left-0 -translate-x-full pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:flex items-center z-10"
-                : "absolute top-1 right-0 translate-x-full pl-1.5 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:flex items-center z-10"
+              isSelf || actionsOpen
+                ? "absolute top-1 left-0 -translate-x-full pr-1.5 flex items-center z-10"
+                : "absolute top-1 right-0 translate-x-full pl-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity hidden sm:flex items-center z-10"
             }
           >
-            <div className="bg-background/95 border shadow-2xs rounded-md p-0.5 flex items-center backdrop-blur-xs">
-              <Tooltip>
-                <TooltipTrigger>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={() => {
-                      setReplyingToMessage(message);
-                    }}
-                    className="size-6 text-muted-foreground hover:text-foreground"
-                    title="Reply"
-                  >
-                    <Reply className="size-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Reply</TooltipContent>
-              </Tooltip>
+            <div
+              className="bg-background/95 border shadow-2xs rounded-md p-0.5 flex items-center backdrop-blur-xs"
+              data-message-actions=""
+            >
+              <MessageActions
+                message={message}
+                isSelf={isSelf}
+                onDismiss={() => {
+                  setActionsOpen(false);
+                }}
+              />
             </div>
           </div>
         </div>
 
+        {menuAnchor &&
+          createPortal(
+            <MessageContextMenu
+              message={message}
+              isSelf={isSelf}
+              anchor={menuAnchor}
+              onClose={() => {
+                setMenuAnchor(null);
+              }}
+            />,
+            document.body,
+          )}
+
+        {!message.recalled && <MessageReactions message={message} />}
+
         <MessageFooter className="gap-1.5 px-1 text-[10px] text-muted-foreground select-none">
           {formattedTime && <span>{formattedTime}</span>}
           {message.roomSeq > 0 && <span>#{message.roomSeq}</span>}
+          {message.pinned && <span className="text-primary/70">pinned</span>}
           {renderStatus()}
         </MessageFooter>
       </MessageContent>

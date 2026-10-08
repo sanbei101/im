@@ -8,7 +8,7 @@ import { useChat } from "@/context/ChatContext";
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageItem } from "./ChatMessageItem";
-import { ChatRoomDetails } from "./ChatRoomDetails";
+import { RoomDetailsPanel } from "./RoomDetailsPanel";
 
 interface ChatAreaProps {
   readonly isSidebarCollapsed?: boolean;
@@ -16,7 +16,17 @@ interface ChatAreaProps {
 }
 
 export function ChatArea({ isSidebarCollapsed = false, onToggleSidebar }: ChatAreaProps) {
-  const { activeRoomId, messages, currentUser, isLoadingHistory } = useChat();
+  const {
+    activeRoomId,
+    activeRoom,
+    messages,
+    currentUser,
+    isLoadingHistory,
+    hasMoreHistory,
+    isLoadingMoreHistory,
+    loadMoreHistory,
+    markActiveRoomRead,
+  } = useChat();
   const [showDetails, setShowDetails] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -26,6 +36,13 @@ export function ChatArea({ isSidebarCollapsed = false, onToggleSidebar }: ChatAr
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages.length]);
+
+  // Mark the active room read once its history is loaded.
+  useEffect(() => {
+    if (activeRoomId && !isLoadingHistory) {
+      void markActiveRoomRead();
+    }
+  }, [activeRoomId, isLoadingHistory, markActiveRoomRead]);
 
   if (!activeRoomId) {
     return (
@@ -68,6 +85,21 @@ export function ChatArea({ isSidebarCollapsed = false, onToggleSidebar }: ChatAr
 
         <div className="relative min-h-0 flex-1">
           <ScrollArea className="h-full px-4 py-3">
+            {hasMoreHistory && (
+              <div className="mb-2 flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoadingMoreHistory}
+                  onClick={() => void loadMoreHistory()}
+                  className="text-muted-foreground gap-1.5 text-xs"
+                >
+                  <RefreshCw className={isLoadingMoreHistory ? "size-3.5 animate-spin" : "size-3.5"} />
+                  {isLoadingMoreHistory ? "Loading…" : "Load older messages"}
+                </Button>
+              </div>
+            )}
+
             {isLoadingHistory && messages.length === 0 && (
               <div className="text-muted-foreground flex items-center justify-center gap-2 py-12">
                 <RefreshCw className="size-4 animate-spin" />
@@ -101,8 +133,8 @@ export function ChatArea({ isSidebarCollapsed = false, onToggleSidebar }: ChatAr
         <ChatInput />
       </div>
 
-      {showDetails && (
-        <ChatRoomDetails
+      {showDetails && activeRoom && (
+        <RoomDetailsPanel
           onClose={() => {
             setShowDetails(false);
           }}

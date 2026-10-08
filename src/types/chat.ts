@@ -1,10 +1,11 @@
+import { MessageType } from "go-chat-sdk";
 import type {
   Message,
   TextPayload,
   ImagePayload,
   FilePayload,
   VideoPayload,
-  MessageType,
+  ReactionGroup,
 } from "go-chat-sdk";
 
 export type MessageStatus = "sending" | "sent" | "error";
@@ -21,6 +22,12 @@ export interface UIMessage {
   readonly replyToMsgId?: string;
   readonly status: MessageStatus;
   readonly errorMessage?: string;
+  /** Set once the server confirms the message was recalled. */
+  readonly recalled?: boolean;
+  /** True when this message is pinned in its room. */
+  readonly pinned?: boolean;
+  /** Latest reaction summary for this message, if loaded. */
+  readonly reactions?: readonly ReactionGroup[];
 }
 
 export interface ServerConfig {
@@ -80,6 +87,9 @@ export function mapSdkMessageToUIMessage(msg: Message, status: MessageStatus = "
     payload: msg.payload,
     replyToMsgId: msg.reply_to_msg_id || undefined,
     status,
+    // The server rewrites a recalled message to msg_type=recall, so both the
+    // optimistic flag and the server type mark a recalled message.
+    recalled: msg.msg_type === MessageType.Recall || msg.msg_type === "recall",
   };
 }
 
@@ -155,6 +165,22 @@ export function updateMessageAck(
     serverTime,
     status: "sent",
   };
+}
+
+/** Marks a message as recalled, which the bubble renders as a placeholder. */
+export function markRecalled(message: UIMessage): UIMessage {
+  return { ...message, recalled: true };
+}
+
+/** Applies a reaction summary on top of an existing message. */
+export function applyReactions(
+  messages: readonly UIMessage[],
+  messageId: string,
+  reactions: readonly ReactionGroup[],
+): readonly UIMessage[] {
+  return messages.map((m) =>
+    m.id === messageId || m.clientMsgId === messageId ? { ...m, reactions } : m,
+  );
 }
 
 export function getInitials(name: string): string {

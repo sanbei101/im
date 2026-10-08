@@ -2,9 +2,15 @@ import {
   ChatSDK,
   ConnectionState,
   ChatEventType,
-  MessageType,
   type UserResponse,
   type RoomInfo,
+  type FriendItem,
+  type FriendApplication,
+  type UserProfile,
+  type MemberInfo,
+  type RoomDetail,
+  type ConversationInfo,
+  type Message,
 } from "go-chat-sdk";
 import {
   createContext,
@@ -20,52 +26,17 @@ import {
   type UIMessage,
   type ServerConfig,
   mapSdkMessageToUIMessage,
-  updateMessageStatus,
   updateMessageAck,
   isErrorWithMessage,
 } from "@/types/chat";
 
-interface ChatContextValue {
-  readonly sdk: ChatSDK;
-  readonly config: ServerConfig;
-  readonly currentUser: UserResponse | null;
-  readonly connectionState: ConnectionState;
-  readonly rooms: readonly RoomInfo[];
-  readonly activeRoomId: string | null;
-  readonly activeRoom: RoomInfo | null;
-  readonly messages: readonly UIMessage[];
-  readonly isLoadingRooms: boolean;
-  readonly isLoadingHistory: boolean;
-  readonly error: string | null;
-  readonly updateConfig: (config: ServerConfig) => void;
-  readonly login: (req: { username: string; password: string }) => Promise<void>;
-  readonly register: (req: { username: string; password: string }) => Promise<void>;
-  readonly logout: () => void;
-  readonly connect: () => Promise<void>;
-  readonly disconnect: () => void;
-  readonly selectRoom: (roomId: string) => void;
-  readonly refreshRooms: () => Promise<void>;
-  readonly createSingleRoom: (targetUserId: string) => Promise<string>;
-  readonly createGroupRoom: (name: string, memberIds: readonly string[]) => Promise<string>;
-  readonly replyingToMessage: UIMessage | null;
-  readonly setReplyingToMessage: (msg: UIMessage | null) => void;
-  readonly sendTextMessage: (text: string, replyToMsgId?: string) => Promise<void>;
-  readonly sendImageMessage: (
-    url: string,
-    width?: number,
-    height?: number,
-    size?: number,
-    replyToMsgId?: string,
-  ) => Promise<void>;
-  readonly sendFileMessage: (
-    url: string,
-    name: string,
-    size: number,
-    mimeType?: string,
-    replyToMsgId?: string,
-  ) => Promise<void>;
-  readonly clearError: () => void;
-}
+import { useAccount } from "./use-account";
+import { useContacts } from "./use-contacts";
+import { type ChatContextValue } from "./chat-context-value";
+import { useConversations } from "./use-conversations";
+import { useMessages } from "./use-messages";
+import { useRooms } from "./use-rooms";
+import { useSenders } from "./use-senders";
 
 const DEFAULT_CONFIG: ServerConfig = {
   baseURL: "http://127.0.0.1:8801",
@@ -178,11 +149,38 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   );
   const [rooms, setRooms] = useState<readonly RoomInfo[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
-  const [messagesByRoom, setMessagesByRoom] = useState<Record<string, readonly UIMessage[]>>({});
+  const [messagesByRoom, setMessagesByRoom] = useState<
+    Readonly<Record<string, readonly UIMessage[]>>
+  >({});
   const [isLoadingRooms, setIsLoadingRooms] = useState<boolean>(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [replyingToMessage, setReplyingToMessage] = useState<UIMessage | null>(null);
+
+  // Conversations, friends, presence and profile.
+  const [conversations, setConversations] = useState<readonly ConversationInfo[]>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState<boolean>(false);
+  const [friends, setFriends] = useState<readonly FriendItem[]>([]);
+  const [friendApplications, setFriendApplications] = useState<readonly FriendApplication[]>([]);
+  const [blacklist, setBlacklist] = useState<readonly UserProfile[]>([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState<boolean>(false);
+  const [presence, setPresence] = useState<Readonly<Record<string, boolean>>>({});
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false);
+
+  // Active room detail: members, my role and pinned messages.
+  const [activeRoomDetail, setActiveRoomDetail] = useState<RoomDetail | null>(null);
+  const [members, setMembers] = useState<readonly MemberInfo[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(false);
+  const [pinnedMessages, setPinnedMessages] = useState<readonly Message[]>([]);
+
+  // History pagination: the lowest room_seq already rendered.
+  const [hasMoreHistory, setHasMoreHistory] = useState<boolean>(false);
+  const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState<boolean>(false);
+
+  // Message search results.
+  const [searchResults, setSearchResults] = useState<readonly Message[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
 
   const sdkRef = useRef<ChatSDK | null>(null);
 
@@ -200,6 +198,16 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   }
 
   const sdk = sdkRef.current;
+
+  const isAuthenticated = useCallback(() => sdk.isAuthenticated(), [sdk]);
+
+  // Reads that back the message senders and the reaction author check.
+  const currentUserId = currentUser?.user_id ?? null;
+
+  // Several domains need to reload the room list, but it is defined further
+  // down because it depends on selectRoom. This ref breaks that cycle without
+  // leaking a stale closure.
+  const refreshRoomsRef = useRef<() => Promise<void>>(async () => undefined);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -248,6 +256,102 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     setConnectionState(ConnectionState.Disconnected);
   }, [sdk]);
 
+  // Domain hooks. Each owns one slice of state; ChatContext only wires them.
+  const conversationsDomain = useConversations({
+    sdk,
+    activeRoomId,
+    setActiveRoomId,
+    setMembers,
+    setActiveRoomDetail,
+    setPinnedMessages,
+    setMessagesByRoom,
+    setError,
+    isAuthenticated,
+    state: {
+      conversations,
+      setConversations,
+      isLoadingConversations,
+      setIsLoadingConversations,
+    },
+    rooms: { refreshRooms: () => refreshRoomsRef.current() },
+  });
+
+  const roomsDomain = useRooms({
+    sdk,
+    activeRoomId,
+    setActiveRoomId,
+    setError,
+    isAuthenticated,
+    state: {
+      activeRoomDetail,
+      setActiveRoomDetail,
+      members,
+      setMembers,
+      isLoadingMembers,
+      setIsLoadingMembers,
+      pinnedMessages,
+      setPinnedMessages,
+    },
+    refreshRooms: () => refreshRoomsRef.current(),
+  });
+
+  const contactsDomain = useContacts({
+    sdk,
+    activeRoomId,
+    setActiveRoomId,
+    setError,
+    isAuthenticated,
+    state: {
+      friends,
+      setFriends,
+      friendApplications,
+      setFriendApplications,
+      blacklist,
+      setBlacklist,
+      isLoadingFriends,
+      setIsLoadingFriends,
+      presence,
+      setPresence,
+    },
+  });
+
+  const messagesDomain = useMessages({
+    sdk,
+    activeRoomId,
+    setActiveRoomId,
+    setError,
+    isAuthenticated,
+    currentUserId,
+    state: {
+      messagesByRoom,
+      setMessagesByRoom,
+      searchResults,
+      setSearchResults,
+      isSearching,
+      setIsSearching,
+    },
+    refreshRoomDetail: () => roomsDomain.refreshRoomDetail(),
+  });
+
+  const accountDomain = useAccount({
+    sdk,
+    activeRoomId,
+    setActiveRoomId,
+    setError,
+    isAuthenticated,
+    state: { profile, setProfile, isLoadingProfile, setIsLoadingProfile },
+    currentUser,
+    setCurrentUser,
+    resetSessionState: () => {
+      setRooms([]);
+      setActiveRoomId(null);
+      setReplyingToMessage(null);
+      setMessagesByRoom({});
+      setConnectionState(ConnectionState.Disconnected);
+    },
+    removeStoredUser: removeSessionString.bind(null, STORAGE_KEYS.USER),
+  });
+
   // Select room & load history
   const selectRoom = useCallback(
     async (roomId: string) => {
@@ -268,7 +372,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
           mapSdkMessageToUIMessage(m, "sent"),
         );
 
-        // Sort by server_time or room_seq ascending
+        // Sort by room_seq ascending, falling back to server_time.
         const sorted = [...historyMsgs].sort((a, b) => {
           if (a.roomSeq !== b.roomSeq) {
             return a.roomSeq - b.roomSeq;
@@ -280,6 +384,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
           ...prev,
           [roomId]: sorted,
         }));
+        setHasMoreHistory(resp.has_more);
       } catch (err) {
         const msg = isErrorWithMessage(err) ? err.message : "Failed to fetch room history";
         setError(msg);
@@ -290,7 +395,6 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     [sdk],
   );
 
-  // Refresh rooms list
   const refreshRooms = useCallback(async () => {
     if (!sdk.isAuthenticated()) {
       return;
@@ -300,10 +404,13 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       const resp = await sdk.listRooms();
       const loadedRooms = resp.rooms ?? [];
       setRooms(loadedRooms);
-      if (loadedRooms.length > 0) {
-        const targetId = activeRoomId ?? loadedRooms[0]?.room_id;
-        if (targetId) {
-          void selectRoom(targetId);
+      // Only auto-select when nothing is selected yet: re-selecting the active
+      // room would refetch its history and drop locally merged state such as
+      // reactions.
+      if (loadedRooms.length > 0 && !activeRoomId) {
+        const first = loadedRooms[0]?.room_id;
+        if (first) {
+          void selectRoom(first);
         }
       }
     } catch (err) {
@@ -312,7 +419,9 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     } finally {
       setIsLoadingRooms(false);
     }
-  }, [sdk, activeRoomId, selectRoom]);
+  }, [sdk, activeRoomId]);
+
+  refreshRoomsRef.current = refreshRooms;
 
   // Login handler
   const login = useCallback(
@@ -333,7 +442,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         throw err;
       }
     },
-    [sdk]
+    [sdk],
   );
 
   // Register handler
@@ -355,21 +464,8 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         throw err;
       }
     },
-    [sdk]
+    [sdk],
   );
-
-  // Logout handler
-  const logout = useCallback(() => {
-    sdk.disconnect();
-    sdk.clearAuth();
-    setCurrentUser(null);
-    setRooms([]);
-    setActiveRoomId(null);
-    setReplyingToMessage(null);
-    setMessagesByRoom({});
-    setConnectionState(ConnectionState.Disconnected);
-    removeSessionString(STORAGE_KEYS.USER);
-  }, [sdk]);
 
   // Create single room
   const createSingleRoom = useCallback(
@@ -408,225 +504,101 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     [sdk, refreshRooms, selectRoom],
   );
 
-  // Send Text Message
-  const sendTextMessage = useCallback(
-    async (text: string, explicitReplyToId?: string) => {
-      if (!activeRoomId || !currentUser || !text.trim()) {
-        return;
-      }
-      const targetReplyId =
-        explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
-      const clientMsgId = sdk.generateMessageId();
-      const optimisticMsg: UIMessage = {
-        id: clientMsgId,
-        clientMsgId,
-        senderId: currentUser.user_id,
-        roomId: activeRoomId,
-        roomSeq: 0,
-        serverTime: Date.now(),
-        msgType: MessageType.Text,
-        payload: { text },
-        replyToMsgId: targetReplyId,
-        status: "sending",
-      };
-
+  // History pagination: pull the page below the oldest rendered room_seq.
+  const loadMoreHistory = useCallback(async () => {
+    if (!activeRoomId || isLoadingMoreHistory) {
+      return;
+    }
+    const rendered = messagesByRoom[activeRoomId] ?? [];
+    const oldestSeq = rendered.reduce<number | null>(
+      (min, m) => (min === null || m.roomSeq < min ? m.roomSeq : min),
+      null,
+    );
+    if (oldestSeq === null || oldestSeq <= 1) {
+      return;
+    }
+    setIsLoadingMoreHistory(true);
+    try {
+      const resp = await sdk.getHistoryMessages({
+        room_id: activeRoomId,
+        before_seq: oldestSeq,
+        page_size: 50,
+      });
+      const older: readonly UIMessage[] = resp.messages.map((m) =>
+        mapSdkMessageToUIMessage(m, "sent"),
+      );
       setMessagesByRoom((prev) => {
         const existing = prev[activeRoomId] ?? [];
-        return {
-          ...prev,
-          [activeRoomId]: [...existing, optimisticMsg],
-        };
+        const known = new Set(existing.map((m) => m.id));
+        const merged = [...older.filter((m) => !known.has(m.id)), ...existing];
+        return { ...prev, [activeRoomId]: merged };
       });
+      setHasMoreHistory(resp.has_more);
+    } catch (err) {
+      const msg = isErrorWithMessage(err) ? err.message : "Failed to load older messages";
+      setError(msg);
+    } finally {
+      setIsLoadingMoreHistory(false);
+    }
+  }, [sdk, activeRoomId, isLoadingMoreHistory, messagesByRoom]);
 
-      // Clear replying indicator
-      setReplyingToMessage(null);
+  // Marking read needs the conversation's last_seq, refreshed after every
+  // message so the watermark never regresses.
+  const markActiveRoomRead = useCallback(async () => {
+    if (!activeRoomId) {
+      return;
+    }
+    const roomSeq = conversations.find((c) => c.room.room_id === activeRoomId)?.room.last_seq ?? 0;
+    if (roomSeq <= 0) {
+      return;
+    }
+    try {
+      await sdk.markRead(activeRoomId, { read_seq: roomSeq });
+      await conversationsDomain.refreshConversations();
+    } catch (err) {
+      const msg = isErrorWithMessage(err) ? err.message : "Failed to mark room read";
+      setError(msg);
+    }
+  }, [sdk, activeRoomId, conversations, conversationsDomain]);
 
-      try {
-        const ack = await sdk.sendTextMessage({
-          room_id: activeRoomId,
-          client_msg_id: clientMsgId,
-          text,
-          reply_to_msg_id: targetReplyId,
-        });
-
-        // Update status and ACK server fields
-        setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          return {
-            ...prev,
-            [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId
-                ? updateMessageAck(m, ack.msg_id, ack.room_seq, ack.server_time)
-                : m,
-            ),
-          };
-        });
-      } catch (err) {
-        const msg = isErrorWithMessage(err) ? err.message : "Failed to send message";
-        setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          return {
-            ...prev,
-            [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId ? updateMessageStatus(m, "error", msg) : m,
-            ),
-          };
-        });
-      }
+  // Message sending: one optimistic/ack pipeline behind typed wrappers.
+  const senders = useSenders({
+    sdk,
+    activeRoomId,
+    setActiveRoomId,
+    setError,
+    isAuthenticated,
+    currentUser,
+    replyingToMessage,
+    setReplyingToMessage,
+    setMessagesByRoom,
+    onSent: () => {
+      void conversationsDomain.refreshConversations();
     },
-    [activeRoomId, currentUser, sdk, replyingToMessage],
-  );
+  });
 
-  // Send Image Message
-  const sendImageMessage = useCallback(
-    async (
-      url: string,
-      width?: number,
-      height?: number,
-      size?: number,
-      explicitReplyToId?: string,
-    ) => {
-      if (!activeRoomId || !currentUser || !url.trim()) {
-        return;
+  // Uploads go through the backend presign, then a raw PUT to object storage.
+  const uploadFile = useCallback(
+    async (file: File) => {
+      const presign = await sdk.presignUpload({
+        file_name: file.name,
+        content_type: file.type || "application/octet-stream",
+      });
+      const upload = await fetch(presign.upload_url, {
+        method: "PUT",
+        body: file,
+        headers: file.type ? { "Content-Type": file.type } : undefined,
+      });
+      if (!upload.ok) {
+        throw new Error(`upload failed: HTTP ${upload.status}`);
       }
-      const targetReplyId =
-        explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
-      const clientMsgId = sdk.generateMessageId();
-      const optimisticMsg: UIMessage = {
-        id: clientMsgId,
-        clientMsgId,
-        senderId: currentUser.user_id,
-        roomId: activeRoomId,
-        roomSeq: 0,
-        serverTime: Date.now(),
-        msgType: MessageType.Image,
-        payload: { url, width, height, size },
-        replyToMsgId: targetReplyId,
-        status: "sending",
+      return {
+        url: presign.download_url,
+        name: file.name,
+        size: file.size,
       };
-
-      setMessagesByRoom((prev) => {
-        const existing = prev[activeRoomId] ?? [];
-        return {
-          ...prev,
-          [activeRoomId]: [...existing, optimisticMsg],
-        };
-      });
-
-      setReplyingToMessage(null);
-
-      try {
-        const ack = await sdk.sendImageMessage({
-          room_id: activeRoomId,
-          client_msg_id: clientMsgId,
-          url,
-          width,
-          height,
-          size,
-          reply_to_msg_id: targetReplyId,
-        });
-
-        setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          return {
-            ...prev,
-            [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId
-                ? updateMessageAck(m, ack.msg_id, ack.room_seq, ack.server_time)
-                : m,
-            ),
-          };
-        });
-      } catch (err) {
-        const msg = isErrorWithMessage(err) ? err.message : "Failed to send image";
-        setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          return {
-            ...prev,
-            [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId ? updateMessageStatus(m, "error", msg) : m,
-            ),
-          };
-        });
-      }
     },
-    [activeRoomId, currentUser, sdk, replyingToMessage],
-  );
-
-  // Send File Message
-  const sendFileMessage = useCallback(
-    async (
-      url: string,
-      name: string,
-      size: number,
-      mimeType?: string,
-      explicitReplyToId?: string,
-    ) => {
-      if (!activeRoomId || !currentUser || !url.trim()) {
-        return;
-      }
-      const targetReplyId =
-        explicitReplyToId ?? replyingToMessage?.id ?? replyingToMessage?.clientMsgId;
-      const clientMsgId = sdk.generateMessageId();
-      const optimisticMsg: UIMessage = {
-        id: clientMsgId,
-        clientMsgId,
-        senderId: currentUser.user_id,
-        roomId: activeRoomId,
-        roomSeq: 0,
-        serverTime: Date.now(),
-        msgType: MessageType.File,
-        payload: { url, name, size, mime_type: mimeType },
-        replyToMsgId: targetReplyId,
-        status: "sending",
-      };
-
-      setMessagesByRoom((prev) => {
-        const existing = prev[activeRoomId] ?? [];
-        return {
-          ...prev,
-          [activeRoomId]: [...existing, optimisticMsg],
-        };
-      });
-
-      setReplyingToMessage(null);
-
-      try {
-        const ack = await sdk.sendFileMessage({
-          room_id: activeRoomId,
-          client_msg_id: clientMsgId,
-          url,
-          name,
-          size,
-          mime_type: mimeType,
-          reply_to_msg_id: targetReplyId,
-        });
-
-        setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          return {
-            ...prev,
-            [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId
-                ? updateMessageAck(m, ack.msg_id, ack.room_seq, ack.server_time)
-                : m,
-            ),
-          };
-        });
-      } catch (err) {
-        const msg = isErrorWithMessage(err) ? err.message : "Failed to send file";
-        setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          return {
-            ...prev,
-            [activeRoomId]: list.map((m) =>
-              m.clientMsgId === clientMsgId ? updateMessageStatus(m, "error", msg) : m,
-            ),
-          };
-        });
-      }
-    },
-    [activeRoomId, currentUser, sdk, replyingToMessage],
+    [sdk],
   );
 
   // Attach SDK listeners
@@ -649,7 +621,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       setMessagesByRoom((prev) => {
         const roomMessages = prev[targetRoomId] ?? [];
 
-        // Check if message is already present by clientMsgId or msg_id
+        // A message is already present when echo matches on msg_id or client_msg_id.
         const alreadyExists = roomMessages.some(
           (m) =>
             (incoming.msg_id && m.id === incoming.msg_id) ||
@@ -681,6 +653,9 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
           [targetRoomId]: [...roomMessages, newMsg],
         };
       });
+
+      // Unread counts and the sidebar preview come from the conversation list.
+      void conversationsDomain.refreshConversations();
     });
 
     const unsubAck = sdk.on(ChatEventType.MessageSent, (event) => {
@@ -709,16 +684,28 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       unsubAck();
       unsubErr();
     };
-  }, [sdk]);
+  }, [sdk, refreshRooms, conversationsDomain]);
 
-  // Initial connect & room load on mount if user authenticated
+  // Initial connect & room load on mount if user authenticated.
   useEffect(() => {
     if (currentUser) {
       sdk.setAuth(currentUser);
       void connect();
       void refreshRooms();
+      void conversationsDomain.refreshConversations();
+      void contactsDomain.refreshFriends();
+      void accountDomain.refreshProfile();
     }
-  }, [currentUser, sdk, connect, refreshRooms]);
+    // Domain objects are memoized per render but their methods read fresh
+    // state through their own hooks, so keying on currentUser is enough.
+  }, [currentUser, sdk, connect, refreshRooms, conversationsDomain, contactsDomain, accountDomain]);
+
+  // Room detail (members, role, pins) follows the active room.
+  useEffect(() => {
+    if (activeRoomId) {
+      void roomsDomain.refreshRoomDetail();
+    }
+  }, [activeRoomId, roomsDomain]);
 
   // Update document title for multi-tab testing
   useEffect(() => {
@@ -752,16 +739,69 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     updateConfig,
     login,
     register,
-    logout,
+    logout: accountDomain.logout,
     connect,
     disconnect,
     selectRoom,
     refreshRooms,
     createSingleRoom,
     createGroupRoom,
-    sendTextMessage,
-    sendImageMessage,
-    sendFileMessage,
+    conversations,
+    isLoadingConversations,
+    refreshConversations: conversationsDomain.refreshConversations,
+    muteConversation: conversationsDomain.muteConversation,
+    pinConversation: conversationsDomain.pinConversation,
+    clearUnread: conversationsDomain.clearUnread,
+    deleteRoom: conversationsDomain.deleteRoom,
+    activeRoomDetail,
+    members,
+    isLoadingMembers,
+    pinnedMessages,
+    refreshRoomDetail: roomsDomain.refreshRoomDetail,
+    updateActiveRoom: roomsDomain.updateActiveRoom,
+    leaveActiveRoom: roomsDomain.leaveActiveRoom,
+    addMembers: roomsDomain.addMembers,
+    updateMemberRole: roomsDomain.updateMemberRole,
+    removeMember: roomsDomain.removeMember,
+    transferOwnership: roomsDomain.transferOwnership,
+    friends,
+    friendApplications,
+    blacklist,
+    isLoadingFriends,
+    refreshFriends: contactsDomain.refreshFriends,
+    applyFriend: contactsDomain.applyFriend,
+    auditFriend: contactsDomain.auditFriend,
+    deleteFriend: contactsDomain.deleteFriend,
+    updateFriendRemark: contactsDomain.updateFriendRemark,
+    addBlacklist: contactsDomain.addBlacklist,
+    removeBlacklist: contactsDomain.removeBlacklist,
+    searchUsers: contactsDomain.searchUsers,
+    presence,
+    queryPresence: contactsDomain.queryPresence,
+    hasMoreHistory,
+    isLoadingMoreHistory,
+    loadMoreHistory,
+    searchResults,
+    isSearching,
+    searchMessages: messagesDomain.searchMessages,
+    clearSearchResults: messagesDomain.clearSearchResults,
+    recallMessage: messagesDomain.recallMessage,
+    getReadUsers: messagesDomain.getReadUsers,
+    toggleReaction: messagesDomain.toggleReaction,
+    pinMessage: messagesDomain.pinMessage,
+    unpinMessage: messagesDomain.unpinMessage,
+    markActiveRoomRead,
+    uploadFile,
+    profile,
+    isLoadingProfile,
+    refreshProfile: accountDomain.refreshProfile,
+    updateProfile: accountDomain.updateProfile,
+    updatePassword: accountDomain.updatePassword,
+    saveDeviceToken: accountDomain.saveDeviceToken,
+    sendTextMessage: senders.sendTextMessage,
+    sendImageMessage: senders.sendImageMessage,
+    sendVideoMessage: senders.sendVideoMessage,
+    sendFileMessage: senders.sendFileMessage,
     clearError,
   };
 

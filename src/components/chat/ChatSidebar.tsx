@@ -1,6 +1,7 @@
 import {
   MessageSquare,
   Search,
+  Settings,
   Users,
   User,
   LogOut,
@@ -10,6 +11,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   MessageSquarePlus,
+  BellOff,
+  Pin,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,14 +32,45 @@ import { SettingsDialog } from "./SettingsDialog";
 interface ChatSidebarProps {
   readonly isCollapsed: boolean;
   readonly onToggleCollapse: () => void;
+  readonly onShowContacts: () => void;
+  readonly onShowSearch: () => void;
+  readonly onShowProfile: () => void;
+  readonly contactsOpen: boolean;
+  readonly searchOpen: boolean;
 }
 
-export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps) {
-  const { rooms, activeRoomId, selectRoom, currentUser, logout, refreshRooms, isLoadingRooms } =
-    useChat();
+export function ChatSidebar({
+  isCollapsed,
+  onToggleCollapse,
+  onShowContacts,
+  onShowSearch,
+  onShowProfile,
+  contactsOpen,
+  searchOpen,
+}: ChatSidebarProps) {
+  const {
+    rooms,
+    activeRoomId,
+    selectRoom,
+    currentUser,
+    logout,
+    refreshRooms,
+    isLoadingRooms,
+    conversations,
+    refreshConversations,
+    friendApplications,
+  } = useChat();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedUserId, setCopiedUserId] = useState(false);
+
+  // Unread counts come from the conversation list, keyed by room id.
+  const unreadCountByRoom: Record<string, number> = {};
+  for (const conversation of conversations) {
+    unreadCountByRoom[conversation.room.room_id] = conversation.unread_count;
+  }
+
+  const pendingRequests = friendApplications.filter((a) => a.status === "pending").length;
 
   const filteredRooms = rooms.filter((room) => {
     if (!searchQuery.trim()) {
@@ -193,7 +227,6 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
   // Render expanded sidebar
   return (
     <aside className="bg-muted/20 flex h-full w-80 shrink-0 flex-col border-r select-none transition-[width] duration-200">
-      {/* Top Header */}
       <div className="bg-background/50 flex h-14 items-center justify-between border-b px-3.5">
         <div className="flex items-center gap-2">
           <div className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg font-bold">
@@ -213,8 +246,44 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
               <Button
                 variant="ghost"
                 size="icon-xs"
+                onClick={onShowContacts}
+                aria-pressed={contactsOpen}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <span className="relative">
+                  <Users className="size-3.5" />
+                  {pendingRequests > 0 && (
+                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-destructive" />
+                  )}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Contacts</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={onShowSearch}
+                aria-pressed={searchOpen}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Search className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Search messages</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger>
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => {
                   void refreshRooms();
+                  void refreshConversations();
                 }}
                 disabled={isLoadingRooms}
                 className="text-muted-foreground hover:text-foreground"
@@ -222,7 +291,7 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
                 <RefreshCw className={isLoadingRooms ? "size-3.5 animate-spin" : "size-3.5"} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Refresh Rooms</TooltipContent>
+            <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
 
           <SettingsDialog />
@@ -243,7 +312,6 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
         </div>
       </div>
 
-      {/* Action button & Search */}
       <div className="bg-background/30 flex flex-col gap-2 border-b p-3">
         <CreateRoomDialog />
 
@@ -260,7 +328,6 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
         </div>
       </div>
 
-      {/* Rooms list */}
       <div className="relative min-h-0 flex-1">
         <ScrollArea className="h-full">
           <div className="flex flex-col gap-1 p-2">
@@ -274,6 +341,10 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
                 const isGroup = room.chat_type === "group";
                 const displayName = room.name || (isGroup ? "Group Chat" : "Direct Chat");
                 const initials = getInitials(displayName);
+                const unread = unreadCountByRoom[room.room_id] ?? 0;
+                const conv = conversations.find((c) => c.room.room_id === room.room_id);
+                const convMuted = conv?.member.is_muted ?? false;
+                const convPinned = conv?.member.is_pinned ?? false;
 
                 return (
                   <button
@@ -299,12 +370,25 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
                         <span className="truncate text-xs leading-tight font-semibold">
                           {displayName}
                         </span>
-                        <Badge
-                          variant={isActive ? "default" : "secondary"}
-                          className="h-3.5 shrink-0 px-1 py-0 text-[9px]"
-                        >
-                          {isGroup ? <Users className="size-2.5" /> : <User className="size-2.5" />}
-                        </Badge>
+                        <span className="flex shrink-0 items-center gap-1">
+                          {unread > 0 && (
+                            <Badge variant={convMuted ? "secondary" : "default"} className="h-4 px-1.5 text-[10px]">
+                              {unread}
+                            </Badge>
+                          )}
+                          {convMuted && <BellOff className="text-muted-foreground size-3" />}
+                          {convPinned && <Pin className="text-muted-foreground size-3" />}
+                          <Badge
+                            variant={isActive ? "default" : "secondary"}
+                            className="h-3.5 shrink-0 px-1 py-0 text-[9px]"
+                          >
+                            {isGroup ? (
+                              <Users className="size-2.5" />
+                            ) : (
+                              <User className="size-2.5" />
+                            )}
+                          </Badge>
+                        </span>
                       </div>
 
                       <span className="text-muted-foreground mt-0.5 truncate font-mono text-[11px]">
@@ -321,7 +405,6 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
 
       <Separator />
 
-      {/* User profile footer */}
       {currentUser && (
         <div className="bg-background/50 flex items-center justify-between p-3">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -361,19 +444,30 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse }: ChatSidebarProps)
             </div>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={logout}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <LogOut className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Sign Out</TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onShowProfile}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Account settings"
+            >
+              <Settings className="size-4" />
+            </Button>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={logout}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <LogOut className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Sign Out</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       )}
     </aside>
