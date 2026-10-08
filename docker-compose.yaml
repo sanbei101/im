@@ -2,34 +2,54 @@ services:
   api:
     build: .
     container_name: im-api
+    restart: on-failure
     environment:
       API_NODE_ID: api-1
       API_ADDR: ":9000"
-      STORE_PATH: "/data/api-1"
-      BACKUP_PATH: "/backup/api-1"
+      STORE_PATH: /data/api-1
+      BACKUP_PATH: /backup/api-1
+      STORAGE_ENDPOINT: rustfs:9000
+      http_proxy: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
     ports:
       - "9000:9000"
       - "8801:8801"
     volumes:
       - api-data:/data
       - api-backup:/backup
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8801/api/v1/users/batch || exit 1"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
 
   gateway:
     build: .
     container_name: im-gateway
+    restart: on-failure
+    command: ["/app/gateway"]
     environment:
       GATEWAY_ADDR: ":8800"
+      GATEWAY_API_ADDRS: "api:9000"
+      http_proxy: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
     ports:
       - "8800:8800"
-    depends_on:
-      api:
-        condition: service_healthy
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: im-rustfs
+    user: "0:0"
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_VOLUMES: /data
+    ports:
+      - "19901:9000"
+    volumes:
+      - rustfs-data:/data
 
 volumes:
   api-data:
   api-backup:
+  rustfs-data:

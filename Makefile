@@ -3,7 +3,13 @@ PPROF_DIR := .tmp/pprof
 RUSTFS_PORT := 19901
 RUSTFS_DATA := .tmp/rustfs/data
 
-.PHONY: gen lint test bench verify pprof analyze clean
+.PHONY: gen lint test bench verify pprof analyze clean dev
+
+dev:
+	for p in 19901 9000 8801 8800; do fuser -kn tcp $$p 2>/dev/null && echo "killed on $$p" || true; done
+	docker compose up -d --build
+	docker compose ps
+	docker compose logs --tail 50
 
 gen:
 	kitex -type protobuf -streamx -module github.com/sanbei101/im -gen-path proto/pb proto/gateway.proto

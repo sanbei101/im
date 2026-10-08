@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 	"uuid"
@@ -296,7 +297,15 @@ func (s *apiStream) waitRetry(ctx context.Context) bool {
 // ensureClient lazily creates the Kitex client once. The generated client
 // interface does not expose Close, but one client per API address lives for
 // the process lifetime, so there is nothing to leak across reconnects.
+//
+// The address is resolved first: kitex's WithHostPorts silently falls back to
+// a unix socket when the hostport does not resolve (ResolveUnixAddr only
+// checks the string shape), and that wrong client is cached for the process
+// lifetime. Resolving up front turns a startup race into a retry.
 func (s *apiStream) ensureClient() error {
+	if err := resolveAddress(s.address); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.client != nil {
@@ -308,6 +317,22 @@ func (s *apiStream) ensureClient() error {
 	}
 	s.client = cli
 	return nil
+}
+
+// resolveAddress reports whether the hostport can be dialed as TCP. Literal
+// IPs and ports always resolve without DNS.
+func resolveAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("split api address %q: %w", address, err)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return nil
+	}
+	if ips, err := net.DefaultResolver.LookupHost(context.Background(), host); err == nil && len(ips) > 0 {
+		return nil
+	}
+	return fmt.Errorf("api address %q does not resolve yet", address)
 }
 
 func (s *apiStream) connect(ctx context.Context) error {

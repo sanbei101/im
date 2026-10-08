@@ -120,6 +120,18 @@ func (c *Config) Default() {
 	if value := os.Getenv("GATEWAY_ADDR"); value != "" {
 		c.Gateway.Addr = value
 	}
+	if value := os.Getenv("GATEWAY_API_ADDRS"); value != "" {
+		addrs := strings.Split(value, ",")
+		trimmed := make([]string, 0, len(addrs))
+		for _, addr := range addrs {
+			if addr = strings.TrimSpace(addr); addr != "" {
+				trimmed = append(trimmed, addr)
+			}
+		}
+		if len(trimmed) > 0 {
+			c.Gateway.APIAddrs = trimmed
+		}
+	}
 	if value := os.Getenv("STORE_PATH"); value != "" {
 		c.Store.Path = value
 	}
