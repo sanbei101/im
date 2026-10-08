@@ -352,6 +352,18 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     removeStoredUser: removeSessionString.bind(null, STORAGE_KEYS.USER),
   });
 
+  const conversationsDomainRef = useRef(conversationsDomain);
+  conversationsDomainRef.current = conversationsDomain;
+
+  const roomsDomainRef = useRef(roomsDomain);
+  roomsDomainRef.current = roomsDomain;
+
+  const contactsDomainRef = useRef(contactsDomain);
+  contactsDomainRef.current = contactsDomain;
+
+  const accountDomainRef = useRef(accountDomain);
+  accountDomainRef.current = accountDomain;
+
   // Select room & load history
   const selectRoom = useCallback(
     async (roomId: string) => {
@@ -613,7 +625,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
 
       setRooms((currentRooms) => {
         if (!currentRooms.some((r) => r.room_id === targetRoomId)) {
-          void refreshRooms();
+          void refreshRoomsRef.current();
         }
         return currentRooms;
       });
@@ -640,6 +652,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
                 return {
                   ...mapped,
                   replyToMsgId: mapped.replyToMsgId || m.replyToMsgId,
+                  reactions: m.reactions ?? mapped.reactions,
                 };
               }
               return m;
@@ -655,7 +668,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       });
 
       // Unread counts and the sidebar preview come from the conversation list.
-      void conversationsDomain.refreshConversations();
+      void conversationsDomainRef.current.refreshConversations();
     });
 
     const unsubAck = sdk.on(ChatEventType.MessageSent, (event) => {
@@ -672,6 +685,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
           }),
         };
       });
+      void conversationsDomainRef.current.refreshConversations();
     });
 
     const unsubErr = sdk.on(ChatEventType.Error, (event) => {
@@ -684,28 +698,35 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       unsubAck();
       unsubErr();
     };
-  }, [sdk, refreshRooms, conversationsDomain]);
+  }, [sdk]);
+
+  const loggedInUserIdRef = useRef<string | null>(null);
 
   // Initial connect & room load on mount if user authenticated.
   useEffect(() => {
     if (currentUser) {
+      if (loggedInUserIdRef.current === currentUser.user_id) {
+        return;
+      }
+      loggedInUserIdRef.current = currentUser.user_id;
+
       sdk.setAuth(currentUser);
       void connect();
-      void refreshRooms();
-      void conversationsDomain.refreshConversations();
-      void contactsDomain.refreshFriends();
-      void accountDomain.refreshProfile();
+      void refreshRoomsRef.current();
+      void conversationsDomainRef.current.refreshConversations();
+      void contactsDomainRef.current.refreshFriends();
+      void accountDomainRef.current.refreshProfile();
+    } else {
+      loggedInUserIdRef.current = null;
     }
-    // Domain objects are memoized per render but their methods read fresh
-    // state through their own hooks, so keying on currentUser is enough.
-  }, [currentUser, sdk, connect, refreshRooms, conversationsDomain, contactsDomain, accountDomain]);
+  }, [currentUser, sdk, connect]);
 
   // Room detail (members, role, pins) follows the active room.
   useEffect(() => {
     if (activeRoomId) {
-      void roomsDomain.refreshRoomDetail();
+      void roomsDomainRef.current.refreshRoomDetail();
     }
-  }, [activeRoomId, roomsDomain]);
+  }, [activeRoomId]);
 
   // Update document title for multi-tab testing
   useEffect(() => {

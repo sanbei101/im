@@ -36,6 +36,8 @@ export interface Message {
   payload: unknown;
   /** 扩展字段 */
   ext?: Record<string, unknown>;
+  /** 表情表态聚合列表 */
+  reactions?: ReactionGroup[];
 }
 
 // WebSocket 下行帧判别联合 (Discriminated Union)

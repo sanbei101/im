@@ -87,6 +87,7 @@ export function mapSdkMessageToUIMessage(msg: Message, status: MessageStatus = "
     payload: msg.payload,
     replyToMsgId: msg.reply_to_msg_id || undefined,
     status,
+    reactions: msg.reactions,
     // The server rewrites a recalled message to msg_type=recall, so both the
     // optimistic flag and the server type mark a recalled message.
     recalled: msg.msg_type === MessageType.Recall || msg.msg_type === "recall",
