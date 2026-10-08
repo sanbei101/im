@@ -20,7 +20,8 @@
   "types": "./dist/index.d.mts",
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run test/unit.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "test:integration": "vitest run test/*.test.ts"
   },
   "devDependencies": {

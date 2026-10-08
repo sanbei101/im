@@ -201,23 +201,21 @@ describe("消息发送与接收集成测试", () => {
     expect(receivedMessages[0].client_msg_id).toBe(clientMsgId);
   });
 
-  it("未连接时不应该能发送消息", async () => {
-    const disconnectedSdk = new ChatSDK(TEST_CONFIG);
-    await disconnectedSdk.register({
-      username: randomUsername(),
-      password: randomPassword(),
+  it("历史分页保留 has_more 与排他序号游标", async () => {
+    const room = await sdk1.createGroupRoom({ member_ids: [user1Id, user2Id] });
+    const first = await sdk1.sendTextMessage({ room_id: room.room_id, text: "page one" });
+    const second = await sdk1.sendTextMessage({ room_id: room.room_id, text: "page two" });
+
+    const latest = await sdk1.getHistoryMessages({ room_id: room.room_id, page_size: 1 });
+    expect(latest.messages.map((message) => message.msg_id)).toEqual([second.msg_id]);
+    expect(latest.has_more).toBe(true);
+
+    const previous = await sdk1.getHistoryMessages({
+      room_id: room.room_id,
+      before_seq: second.room_seq,
+      page_size: 1,
     });
-
-    // 注意:当前实现在未连接时会将消息加入队列而不是报错
-    // 这里测试的是消息被队列化的情况
-    // 不应该抛出错误(消息会被缓存)
-    expect(() => {
-      void disconnectedSdk.sendTextMessage({
-        room_id: user2Id,
-        text: "This message should be queued",
-      });
-    }).not.toThrow();
-
-    disconnectedSdk.disconnect();
+    expect(previous.messages.map((message) => message.msg_id)).toEqual([first.msg_id]);
+    expect(previous.has_more).toBe(false);
   });
 });

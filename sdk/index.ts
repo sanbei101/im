@@ -1,62 +1,60 @@
 import { APIClient } from "./api";
 import type {
+  AddMembersRequest,
+  ApplyFriendRequest,
+  AuditFriendRequest,
+  BlacklistRequest,
   ChatSDKOptions,
   ConnectionState,
-  SendMessageRequest,
-  RegisterRequest,
-  LoginRequest,
-  UserResponse,
-  HistoryQueryParams,
-  HistoryMessagesResponse,
+  DeviceTokenRequest,
   EventListener,
-  TextPayload,
-  ImagePayload,
-  VideoPayload,
   FilePayload,
+  HistoryMessagesResponse,
+  HistoryQueryParams,
+  ImagePayload,
+  ListConversationsResponse,
+  ListRoomsResponse,
+  LoginRequest,
+  MarkReadRequest,
+  MemberInfo,
+  Message,
+  MuteConversationRequest,
+  PinConversationRequest,
+  PinMessageRequest,
+  PresenceRequest,
+  PresenceResponse,
+  PresignUploadRequest,
+  PresignUploadResponse,
+  ReactionGroup,
+  ReactionRequest,
+  ReadUsersResponse,
+  RecallMessageRequest,
+  RegisterRequest,
+  RoomDetail,
+  SearchMessagesParams,
+  SendMessageRequest,
+  TextPayload,
+  TransferOwnerRequest,
+  UpdateMemberRoleRequest,
+  UpdatePasswordRequest,
+  UpdateProfileRequest,
+  UpdateRemarkRequest,
+  UpdateRoomRequest,
+  UserProfile,
+  UserResponse,
+  VideoPayload,
+  FriendApplication,
+  FriendItem,
   CreateRoomRequest,
   CreateRoomResponse,
   CreateGroupRoomRequest,
-  ListRoomsResponse,
   AckFrame,
 } from "./types";
 import { MessageType, type ChatEventType } from "./types";
 import { EventEmitter, generateUUID, isValidUUID } from "./utils";
 import { WebSocketManager } from "./websocket";
 
-export type {
-  ChatSDKOptions,
-  SendMessageRequest,
-  RegisterRequest,
-  LoginRequest,
-  UserResponse,
-  HistoryQueryParams,
-  HistoryMessagesResponse,
-  EventListener,
-  TextPayload,
-  ImagePayload,
-  VideoPayload,
-  FilePayload,
-  CreateRoomRequest,
-  CreateRoomResponse,
-  CreateGroupRoomRequest,
-  ListRoomsResponse,
-  AckFrame,
-  Message,
-  MessagePushFrame,
-  PongFrame,
-  ErrorFrame,
-  GatewayFrame,
-  MessageReceivedData,
-  MessageSentData,
-  ConnectionStateChangeData,
-  ErrorData,
-  ConnectData,
-  DisconnectData,
-  ChatEventDataMap,
-  ChatEvent,
-  RoomInfo,
-} from "./types";
-export { ChatType, MessageType, ConnectionState, ChatEventType } from "./types";
+export * from "./types";
 export * from "./utils";
 export { APIClient, APIError } from "./api";
 export { WebSocketManager } from "./websocket";
@@ -304,6 +302,182 @@ export class ChatSDK {
    */
   async listRooms(): Promise<ListRoomsResponse> {
     return this.api.listRooms();
+  }
+
+  async getProfile(userId?: string): Promise<UserProfile> {
+    return this.api.getProfile(userId);
+  }
+
+  async updateProfile(req: UpdateProfileRequest): Promise<UserProfile> {
+    return this.api.updateProfile(req);
+  }
+
+  async searchUsers(keyword: string): Promise<UserProfile[]> {
+    return this.api.searchUsers(keyword);
+  }
+
+  async getPresence(req: PresenceRequest): Promise<PresenceResponse> {
+    return this.api.getPresence(req);
+  }
+
+  async updatePassword(req: UpdatePasswordRequest): Promise<void> {
+    return this.api.updatePassword(req);
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.api.logout();
+    } finally {
+      this.disconnect();
+      this.clearAuth();
+    }
+  }
+
+  async saveDeviceToken(req: DeviceTokenRequest): Promise<void> {
+    return this.api.saveDeviceToken(req);
+  }
+
+  async searchMessages(params: SearchMessagesParams): Promise<Message[]> {
+    return this.api.searchMessages(params);
+  }
+
+  async searchRoomMessages(
+    roomId: string,
+    params: Omit<SearchMessagesParams, "room_id">,
+  ): Promise<Message[]> {
+    return this.api.searchRoomMessages(roomId, params);
+  }
+
+  async recallMessage(req: RecallMessageRequest): Promise<Message> {
+    return this.api.recallMessage(req);
+  }
+
+  async addReaction(messageId: string, req: ReactionRequest): Promise<void> {
+    return this.api.addReaction(messageId, req);
+  }
+
+  async removeReaction(messageId: string, req: ReactionRequest): Promise<void> {
+    return this.api.removeReaction(messageId, req);
+  }
+
+  async getReactions(messageId: string, roomId: string): Promise<ReactionGroup[]> {
+    return this.api.getReactions(messageId, roomId);
+  }
+
+  async getReadUsers(messageId: string, roomId: string): Promise<ReadUsersResponse> {
+    return this.api.getReadUsers(messageId, roomId);
+  }
+
+  async getRoom(roomId: string): Promise<RoomDetail> {
+    return this.api.getRoom(roomId);
+  }
+
+  async updateRoom(roomId: string, req: UpdateRoomRequest): Promise<RoomDetail> {
+    return this.api.updateRoom(roomId, req);
+  }
+
+  async deleteRoom(roomId: string): Promise<void> {
+    return this.api.deleteRoom(roomId);
+  }
+
+  async listMembers(roomId: string): Promise<MemberInfo[]> {
+    return this.api.listMembers(roomId);
+  }
+
+  async addMembers(roomId: string, req: AddMembersRequest): Promise<void> {
+    return this.api.addMembers(roomId, req);
+  }
+
+  async updateMemberRole(
+    roomId: string,
+    userId: string,
+    req: UpdateMemberRoleRequest,
+  ): Promise<void> {
+    return this.api.updateMemberRole(roomId, userId, req);
+  }
+
+  async removeMember(roomId: string, userId: string): Promise<void> {
+    return this.api.removeMember(roomId, userId);
+  }
+
+  async leaveRoom(roomId: string): Promise<void> {
+    return this.api.leaveRoom(roomId);
+  }
+
+  async transferOwner(roomId: string, req: TransferOwnerRequest): Promise<void> {
+    return this.api.transferOwner(roomId, req);
+  }
+
+  async pinMessage(roomId: string, req: PinMessageRequest): Promise<void> {
+    return this.api.pinMessage(roomId, req);
+  }
+
+  async unpinMessage(roomId: string, messageId: string): Promise<void> {
+    return this.api.unpinMessage(roomId, messageId);
+  }
+
+  async getPinnedMessages(roomId: string): Promise<Message[]> {
+    return this.api.getPinnedMessages(roomId);
+  }
+
+  async listFriends(): Promise<FriendItem[]> {
+    return this.api.listFriends();
+  }
+
+  async applyFriend(req: ApplyFriendRequest): Promise<void> {
+    return this.api.applyFriend(req);
+  }
+
+  async auditFriend(req: AuditFriendRequest): Promise<void> {
+    return this.api.auditFriend(req);
+  }
+
+  async listFriendApplications(): Promise<FriendApplication[]> {
+    return this.api.listFriendApplications();
+  }
+
+  async deleteFriend(userId: string): Promise<void> {
+    return this.api.deleteFriend(userId);
+  }
+
+  async updateFriendRemark(userId: string, req: UpdateRemarkRequest): Promise<void> {
+    return this.api.updateFriendRemark(userId, req);
+  }
+
+  async listBlacklist(): Promise<UserProfile[]> {
+    return this.api.listBlacklist();
+  }
+
+  async addBlacklist(req: BlacklistRequest): Promise<void> {
+    return this.api.addBlacklist(req);
+  }
+
+  async removeBlacklist(userId: string): Promise<void> {
+    return this.api.removeBlacklist(userId);
+  }
+
+  async listConversations(): Promise<ListConversationsResponse> {
+    return this.api.listConversations();
+  }
+
+  async markRead(roomId: string, req: MarkReadRequest): Promise<void> {
+    return this.api.markRead(roomId, req);
+  }
+
+  async clearUnread(roomId: string): Promise<void> {
+    return this.api.clearUnread(roomId);
+  }
+
+  async pinConversation(roomId: string, req: PinConversationRequest): Promise<void> {
+    return this.api.pinConversation(roomId, req);
+  }
+
+  async muteConversation(roomId: string, req: MuteConversationRequest): Promise<void> {
+    return this.api.muteConversation(roomId, req);
+  }
+
+  async presignUpload(req: PresignUploadRequest): Promise<PresignUploadResponse> {
+    return this.api.presignUpload(req);
   }
 
   // ==================== 辅助工具 ====================

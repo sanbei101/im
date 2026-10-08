@@ -11,6 +11,7 @@ export enum MessageType {
   Video = "video",
   File = "file",
   System = "system",
+  Recall = "recall",
 }
 
 // 消息数据结构
@@ -249,7 +250,7 @@ export interface HistoryQueryParams {
 // 历史消息响应
 export interface HistoryMessagesResponse {
   messages: Message[];
-  hasMore: boolean;
+  has_more: boolean;
 }
 
 // 创建房间请求
@@ -276,9 +277,186 @@ export interface RoomInfo {
   chat_type: string;
   name: string;
   avatar_url: string;
+  notice: string;
 }
 
 // 列出用户房间响应
 export interface ListRoomsResponse {
   rooms: RoomInfo[];
+}
+
+// 用户资料与账号管理
+export interface UserProfile {
+  user_id: string;
+  username: string;
+  nickname: string;
+  avatar_url: string;
+}
+
+export interface UpdateProfileRequest {
+  /** 省略或空字符串保持原值;昵称会先去除首尾空白 */
+  nickname?: string;
+  avatar_url?: string;
+}
+
+export interface UpdatePasswordRequest {
+  old_password: string;
+  new_password: string;
+}
+
+export interface PresenceRequest {
+  /** 最多100个用户 */
+  user_ids: string[];
+}
+
+export interface PresenceResponse {
+  presence: Record<string, boolean>;
+}
+
+export interface DeviceTokenRequest {
+  token: string;
+  platform: string;
+}
+
+// 群聊管理
+export type MemberRole = "owner" | "admin" | "member";
+
+export interface RoomDetail extends RoomInfo {
+  my_role: MemberRole;
+}
+
+export interface UpdateRoomRequest {
+  /** 仅非空字段会更新,空字符串或省略均保持原值 */
+  name?: string;
+  avatar_url?: string;
+  notice?: string;
+}
+
+export interface MemberInfo extends UserProfile {
+  role: MemberRole;
+  is_pinned: boolean;
+  is_muted: boolean;
+}
+
+export interface AddMembersRequest {
+  member_ids: string[];
+}
+
+export interface UpdateMemberRoleRequest {
+  role: "admin" | "member";
+}
+
+export interface TransferOwnerRequest {
+  new_owner_id: string;
+}
+
+export interface PinMessageRequest {
+  msg_id: string;
+}
+
+// 消息搜索、撤回、表态与已读
+export interface SearchMessagesParams extends HistoryQueryParams {
+  keyword: string;
+}
+
+export interface RecallMessageRequest {
+  room_id: string;
+  msg_id: string;
+}
+
+export interface ReactionRequest {
+  room_id: string;
+  emoji: string;
+}
+
+export interface ReactionGroup {
+  emoji: string;
+  count: number;
+  user_ids: string[];
+}
+
+export interface ReadUsersResponse {
+  read_user_ids: string[];
+  count: number;
+}
+
+// 好友与黑名单
+export interface FriendItem extends UserProfile {
+  remark: string;
+  /** RFC3339时间字符串 */
+  created_at: string;
+}
+
+export interface ApplyFriendRequest {
+  target_id: string;
+  greeting?: string;
+}
+
+export interface AuditFriendRequest {
+  from_user_id: string;
+  action: "accept" | "reject";
+}
+
+export interface UpdateRemarkRequest {
+  remark: string;
+}
+
+export interface BlacklistRequest {
+  target_id: string;
+}
+
+export interface FriendApplication {
+  from_user_id: string;
+  to_user_id: string;
+  greeting: string;
+  status: "pending" | "accepted" | "rejected";
+  created_at: string;
+}
+
+// 会话列表返回嵌套的房间、成员和最新消息
+export interface ConversationInfo {
+  room: RoomInfo & {
+    last_seq: number;
+    created_at: string;
+    updated_at: string;
+  };
+  member: {
+    room_id: string;
+    user_id: string;
+    role: MemberRole;
+    is_hidden: boolean;
+    is_muted: boolean;
+    is_pinned: boolean;
+  };
+  unread_count: number;
+  last_message?: Message;
+}
+
+export interface ListConversationsResponse {
+  conversations: ConversationInfo[];
+}
+
+export interface MarkReadRequest {
+  /** 已读的房间序号,必须大于0 */
+  read_seq: number;
+}
+
+export interface PinConversationRequest {
+  is_pinned: boolean;
+}
+
+export interface MuteConversationRequest {
+  is_muted: boolean;
+}
+
+// 预签名上传:客户端向 upload_url 执行 PUT 上传二进制文件
+export interface PresignUploadRequest {
+  file_name: string;
+  content_type?: string;
+}
+
+export interface PresignUploadResponse {
+  upload_url: string;
+  download_url: string;
+  file_key: string;
 }
