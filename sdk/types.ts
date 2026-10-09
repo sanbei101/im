@@ -77,12 +77,24 @@ export interface TypingFrame {
   user_id?: string;
 }
 
+export interface NotificationFrame {
+  type: "notification";
+  event: string;
+  data?: unknown;
+}
+
 export interface ErrorFrame {
   type: "error";
   error: string;
 }
 
-export type GatewayFrame = MessagePushFrame | AckFrame | PongFrame | ErrorFrame | TypingFrame;
+export type GatewayFrame =
+  | MessagePushFrame
+  | AckFrame
+  | PongFrame
+  | ErrorFrame
+  | TypingFrame
+  | NotificationFrame;
 
 // 发送消息的请求结构
 export interface SendMessageRequest {
@@ -186,6 +198,12 @@ export enum ChatEventType {
   Connect = "connect",
   Disconnect = "disconnect",
   Typing = "typing",
+  Notification = "notification",
+  ReactionUpdated = "reaction:updated",
+  FriendApplicationReceived = "friend:application:received",
+  FriendAccepted = "friend:accepted",
+  RoomUpdated = "room:updated",
+  RoomMembersChanged = "room:members:changed",
 }
 
 // 消息接收事件数据
@@ -198,6 +216,49 @@ export interface TypingReceivedData {
   room_id: string;
   user_id: string;
   timestamp: number;
+}
+
+// 表态更新事件数据
+export interface ReactionNotificationData {
+  room_id: string;
+  msg_id: string;
+  reactions: ReactionGroup[];
+}
+
+// 好友申请事件数据
+export interface FriendApplicationNotificationData {
+  from_user_id: string;
+  greeting?: string;
+  from_username?: string;
+  from_nickname?: string;
+  from_avatar_url?: string;
+}
+
+// 好友通过事件数据
+export interface FriendAcceptedNotificationData {
+  user_id: string;
+  username?: string;
+  nickname?: string;
+  avatar_url?: string;
+}
+
+// 房间更新事件数据
+export interface RoomUpdateNotificationData {
+  room_id: string;
+  chat_type?: string;
+  name?: string;
+  avatar_url?: string;
+  notice?: string;
+  inviter_id?: string;
+  action?: string;
+}
+
+// 房间成员变动事件数据
+export interface RoomMembersChangedNotificationData {
+  room_id: string;
+  action: string;
+  member_ids?: string[];
+  user_id?: string;
 }
 
 // 消息发送成功事件数据 (ACK)
@@ -242,6 +303,12 @@ export interface ChatEventDataMap {
   [ChatEventType.Connect]: ConnectData;
   [ChatEventType.Disconnect]: DisconnectData;
   [ChatEventType.Typing]: TypingReceivedData;
+  [ChatEventType.Notification]: NotificationFrame;
+  [ChatEventType.ReactionUpdated]: ReactionNotificationData;
+  [ChatEventType.FriendApplicationReceived]: FriendApplicationNotificationData;
+  [ChatEventType.FriendAccepted]: FriendAcceptedNotificationData;
+  [ChatEventType.RoomUpdated]: RoomUpdateNotificationData;
+  [ChatEventType.RoomMembersChanged]: RoomMembersChangedNotificationData;
 }
 
 // 聊天事件

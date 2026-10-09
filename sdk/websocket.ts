@@ -6,6 +6,8 @@ import type {
   AckFrame,
   MessagePushFrame,
   TypingFrame,
+  NotificationFrame,
+  ReactionGroup,
 } from "./types";
 import { ChatEventType, ConnectionState as State } from "./types";
 import type { EventEmitter } from "./utils";
@@ -62,6 +64,12 @@ function isAckFrame(obj: object): obj is AckFrame {
 function isTypingFrame(obj: object): obj is TypingFrame {
   return (
     "type" in obj && obj.type === "typing" && "room_id" in obj && typeof obj.room_id === "string"
+  );
+}
+
+function isNotificationFrame(obj: object): obj is NotificationFrame {
+  return (
+    "type" in obj && obj.type === "notification" && "event" in obj && typeof obj.event === "string"
   );
 }
 
@@ -386,6 +394,12 @@ export class WebSocketManager {
         }
         break;
 
+      case "notification":
+        if (isNotificationFrame(parsed)) {
+          this.handleNotification(parsed);
+        }
+        break;
+
       case "error": {
         const errMessage =
           "error" in parsed && typeof parsed.error === "string"
@@ -419,6 +433,78 @@ export class WebSocketManager {
     };
 
     this.emitter.emit(ChatEventType.MessageReceived, { message });
+  }
+
+  private handleNotification(frame: NotificationFrame): void {
+    this.emitter.emit(ChatEventType.Notification, frame);
+
+    const data = frame.data as Record<string, unknown> | undefined;
+    if (!data || typeof data !== "object") {
+      return;
+    }
+
+    switch (frame.event) {
+      case "reaction":
+        if (typeof data.room_id === "string" && typeof data.msg_id === "string") {
+          this.emitter.emit(ChatEventType.ReactionUpdated, {
+            room_id: data.room_id,
+            msg_id: data.msg_id,
+            reactions: Array.isArray(data.reactions)
+              ? (data.reactions as unknown as ReactionGroup[])
+              : [],
+          });
+        }
+        break;
+
+      case "friend_application":
+        if (typeof data.from_user_id === "string") {
+          this.emitter.emit(ChatEventType.FriendApplicationReceived, {
+            from_user_id: data.from_user_id,
+            greeting: typeof data.greeting === "string" ? data.greeting : undefined,
+            from_username: typeof data.from_username === "string" ? data.from_username : undefined,
+            from_nickname: typeof data.from_nickname === "string" ? data.from_nickname : undefined,
+            from_avatar_url:
+              typeof data.from_avatar_url === "string" ? data.from_avatar_url : undefined,
+          });
+        }
+        break;
+
+      case "friend_accepted":
+        if (typeof data.user_id === "string") {
+          this.emitter.emit(ChatEventType.FriendAccepted, {
+            user_id: data.user_id,
+            username: typeof data.username === "string" ? data.username : undefined,
+            nickname: typeof data.nickname === "string" ? data.nickname : undefined,
+            avatar_url: typeof data.avatar_url === "string" ? data.avatar_url : undefined,
+          });
+        }
+        break;
+
+      case "room_update":
+        if (typeof data.room_id === "string") {
+          this.emitter.emit(ChatEventType.RoomUpdated, {
+            room_id: data.room_id,
+            chat_type: typeof data.chat_type === "string" ? data.chat_type : undefined,
+            name: typeof data.name === "string" ? data.name : undefined,
+            avatar_url: typeof data.avatar_url === "string" ? data.avatar_url : undefined,
+            notice: typeof data.notice === "string" ? data.notice : undefined,
+            inviter_id: typeof data.inviter_id === "string" ? data.inviter_id : undefined,
+            action: typeof data.action === "string" ? data.action : undefined,
+          });
+        }
+        break;
+
+      case "room_members_changed":
+        if (typeof data.room_id === "string") {
+          this.emitter.emit(ChatEventType.RoomMembersChanged, {
+            room_id: data.room_id,
+            action: typeof data.action === "string" ? data.action : "",
+            member_ids: Array.isArray(data.member_ids) ? data.member_ids : undefined,
+            user_id: typeof data.user_id === "string" ? data.user_id : undefined,
+          });
+        }
+        break;
+    }
   }
 
   private handleAck(ack: AckFrame): void {

@@ -29,6 +29,7 @@ import {
   updateMessageAck,
   isErrorWithMessage,
   sortConversations,
+  applyReactions,
 } from "@/types/chat";
 
 import { type ChatContextValue } from "./chat-context-value";
@@ -818,6 +819,41 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       void conversationsDomainRef.current.refreshConversations();
     });
 
+    const unsubReaction = sdk.on(ChatEventType.ReactionUpdated, (event) => {
+      const { room_id, msg_id, reactions } = event.data;
+      setMessagesByRoom((prev) => {
+        const list = prev[room_id];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [room_id]: applyReactions(list, msg_id, reactions),
+        };
+      });
+    });
+
+    const unsubFriendApp = sdk.on(ChatEventType.FriendApplicationReceived, () => {
+      void contactsDomainRef.current.refreshFriends();
+    });
+
+    const unsubFriendAcc = sdk.on(ChatEventType.FriendAccepted, () => {
+      void contactsDomainRef.current.refreshFriends();
+      void conversationsDomainRef.current.refreshConversations();
+    });
+
+    const unsubRoomUpd = sdk.on(ChatEventType.RoomUpdated, (event) => {
+      void refreshRoomsRef.current();
+      void conversationsDomainRef.current.refreshConversations();
+      if (activeRoomIdRef.current === event.data.room_id) {
+        void roomsDomainRef.current.refreshRoomDetail();
+      }
+    });
+
+    const unsubRoomMembers = sdk.on(ChatEventType.RoomMembersChanged, (event) => {
+      if (activeRoomIdRef.current === event.data.room_id) {
+        void roomsDomainRef.current.refreshRoomDetail();
+      }
+    });
+
     const unsubErr = sdk.on(ChatEventType.Error, (event) => {
       console.warn("[ChatSDK Event Error]", event.data.code, event.data.message);
     });
@@ -827,6 +863,11 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       unsubMsg();
       unsubTyping();
       unsubAck();
+      unsubReaction();
+      unsubFriendApp();
+      unsubFriendAcc();
+      unsubRoomUpd();
+      unsubRoomMembers();
       unsubErr();
     };
   }, [sdk]);
