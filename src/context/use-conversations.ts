@@ -48,7 +48,7 @@ export function useConversations(options: UseConversationsOptions) {
 
   // The conversation list is the source of truth for unread counts, mute and
   // pin state, so every action below refreshes it.
-  const refreshConversations = useCallback(async () => {
+  const refreshConversations = useCallback(async (): Promise<void> => {
     if (!optionsRef.current.isAuthenticated()) {
       return;
     }

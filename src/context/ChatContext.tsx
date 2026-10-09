@@ -423,6 +423,9 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   const activeRoomIdRef = useRef<string | null>(activeRoomId);
   activeRoomIdRef.current = activeRoomId;
 
+  const messagesByRoomRef = useRef(messagesByRoom);
+  messagesByRoomRef.current = messagesByRoom;
+
   const refreshRooms = useCallback(async () => {
     if (!sdk.isAuthenticated()) {
       return;
@@ -659,10 +662,87 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     [sdk],
   );
 
+  // Catch-up missed messages when reconnecting or regaining focus
+  const catchUpMissedMessages = useCallback(async () => {
+    if (!sdk.isAuthenticated()) return;
+    try {
+      const resp = await sdk.listConversations();
+      const convs = resp.conversations ?? [];
+      setConversations(convs);
+      void contactsDomainRef.current.refreshFriends();
+
+      if (convs.length === 0) return;
+
+      const loadedRooms = messagesByRoomRef.current;
+      const tasks = convs.map(async (conv) => {
+        const roomId = conv.room.room_id;
+        const serverLastSeq = conv.room.last_seq;
+        const currentMsgs = loadedRooms[roomId];
+
+        if (currentMsgs && currentMsgs.length > 0) {
+          const localMaxSeq = currentMsgs.reduce<number>(
+            (max, m) => (m.roomSeq > max ? m.roomSeq : max),
+            0,
+          );
+          if (serverLastSeq > localMaxSeq) {
+            const historyResp = await sdk.getHistoryMessages({
+              room_id: roomId,
+              after_seq: localMaxSeq,
+              page_size: 100,
+            });
+            if (historyResp.messages && historyResp.messages.length > 0) {
+              const missedMsgs = historyResp.messages.map((m) =>
+                mapSdkMessageToUIMessage(m, "sent"),
+              );
+              setMessagesByRoom((prev) => {
+                const existing = prev[roomId] ?? [];
+                const existingIds = new Set(existing.map((m) => m.id));
+                const existingClientIds = new Set(existing.map((m) => m.clientMsgId));
+                const uniqueMissed = missedMsgs.filter(
+                  (m) => !existingIds.has(m.id) && !existingClientIds.has(m.clientMsgId),
+                );
+                if (uniqueMissed.length === 0) return prev;
+                const merged = [...existing, ...uniqueMissed].sort((a, b) => {
+                  if (a.roomSeq !== b.roomSeq) return a.roomSeq - b.roomSeq;
+                  return a.serverTime - b.serverTime;
+                });
+                return { ...prev, [roomId]: merged };
+              });
+            }
+          }
+        } else if (roomId === activeRoomIdRef.current && serverLastSeq > 0) {
+          const historyResp = await sdk.getHistoryMessages({
+            room_id: roomId,
+            page_size: 50,
+          });
+          const historyMsgs = historyResp.messages.map((m) => mapSdkMessageToUIMessage(m, "sent"));
+          const sorted = [...historyMsgs].sort((a, b) => {
+            if (a.roomSeq !== b.roomSeq) return a.roomSeq - b.roomSeq;
+            return a.serverTime - b.serverTime;
+          });
+          setMessagesByRoom((prev) => ({ ...prev, [roomId]: sorted }));
+        }
+      });
+
+      await Promise.allSettled(tasks);
+    } catch (err) {
+      console.warn("[Catch-up failed]", err);
+    }
+  }, [sdk]);
+
+  const catchUpMissedMessagesRef = useRef(catchUpMissedMessages);
+  catchUpMissedMessagesRef.current = catchUpMissedMessages;
+
   // Attach SDK listeners
   useEffect(() => {
     const unsubState = sdk.on(ChatEventType.ConnectionStateChange, (event) => {
       setConnectionState(event.data.state);
+      if (
+        event.data.state === ConnectionState.Connected &&
+        event.data.previousState !== ConnectionState.Connected
+      ) {
+        void catchUpMissedMessagesRef.current();
+      }
     });
 
     const unsubMsg = sdk.on(ChatEventType.MessageReceived, (event) => {
@@ -918,13 +998,19 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       void contactsDomainRef.current.refreshFriends();
     }, 15000);
     const handleFocus = () => {
-      void contactsDomainRef.current.refreshFriends();
-      void conversationsDomainRef.current.refreshConversations();
+      void catchUpMissedMessagesRef.current();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void catchUpMissedMessagesRef.current();
+      }
     };
     window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       clearInterval(interval);
       window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [currentUser]);
 

@@ -325,8 +325,10 @@ export type EventListener<T extends ChatEventType = ChatEventType> = (event: Cha
 export interface HistoryQueryParams {
   /** 房间ID */
   room_id: string;
-  /** 只返回 room_seq 小于该值的消息（排他上界），用于按本地最新序号向前补拉 */
+  /** 只返回 room_seq 小于该值的消息（排他上界），用于向前分页 */
   before_seq?: number;
+  /** 只返回 room_seq 大于该值的消息（排他下界），用于断线后向后补拉 (Catch-up) */
+  after_seq?: number;
   /** 每页数量(默认20) */
   page_size?: number;
 }
