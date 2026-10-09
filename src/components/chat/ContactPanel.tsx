@@ -24,6 +24,8 @@ import { useChat } from "@/context/ChatContext";
 import { cn } from "@/lib/utils";
 import { getInitials } from "@/types/chat";
 
+import { AddFriendDialog } from "./AddFriendDialog";
+
 interface ContactPanelProps {
   readonly onClose: () => void;
   readonly embedded?: boolean;
@@ -39,7 +41,6 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
     blacklist,
     isLoadingFriends,
     refreshFriends,
-    applyFriend,
     auditFriend,
     deleteFriend,
     updateFriendRemark,
@@ -60,6 +61,8 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [remarkDraft, setRemarkDraft] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [candidateForAdd, setCandidateForAdd] = useState<UserProfile | null>(null);
+  const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
 
   const copyToClipboard = useCallback(async (text: string, id: string) => {
     try {
@@ -141,11 +144,23 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <span className="flex items-center gap-2 text-sm font-semibold">
           <Users className="size-4" />
-          Contacts
+          通讯录
         </span>
-        <Button variant="ghost" size="icon-sm" aria-label="Close contacts" onClick={onClose}>
-          <X className="size-4" />
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="添加好友"
+            title="添加好友"
+            onClick={() => setIsAddFriendOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <UserPlus className="size-4" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Close contacts" onClick={onClose}>
+            <X className="size-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Current User Info & ID Card */}
@@ -202,10 +217,10 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
         <div className="px-3 pt-3">
           <TabsList className="w-full">
             <TabsTrigger value="friends" className="flex-1">
-              Friends
+              好友
             </TabsTrigger>
             <TabsTrigger value="requests" className="flex-1">
-              Requests
+              申请
               {pendingRequests.length > 0 && (
                 <Badge variant="destructive" className="ml-1">
                   {pendingRequests.length}
@@ -213,10 +228,10 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
               )}
             </TabsTrigger>
             <TabsTrigger value="blacklist" className="flex-1">
-              Blocked
+              黑名单
             </TabsTrigger>
             <TabsTrigger value="discover" className="flex-1">
-              Find
+              找人
             </TabsTrigger>
           </TabsList>
         </div>
@@ -229,8 +244,14 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
               ) : friends.length === 0 ? (
                 <EmptyState
                   icon={<UserRound className="size-5" />}
-                  title="No friends yet"
-                  hint="Use “Find” to add people."
+                  title="暂无好友"
+                  hint="搜索并添加好友，开始即时沟通。"
+                  action={
+                    <Button size="sm" onClick={() => setIsAddFriendOpen(true)} className="gap-1.5">
+                      <UserPlus className="size-3.5" />
+                      <span>添加好友</span>
+                    </Button>
+                  }
                 />
               ) : (
                 friends.map((friend) => (
@@ -356,8 +377,8 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
               ) : pendingRequests.length === 0 ? (
                 <EmptyState
                   icon={<Bell className="size-5" />}
-                  title="No pending requests"
-                  hint="Friend requests show up here."
+                  title="暂无待处理的好友申请"
+                  hint="收到的好友申请将显示在这里。"
                 />
               ) : (
                 pendingRequests.map((request) => (
@@ -390,7 +411,7 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                       </Button>
                     </div>
                     <p className="text-muted-foreground text-xs">
-                      {request.greeting || "Wants to add you"}
+                      {request.greeting || "请求添加你为好友"}
                     </p>
                     <div className="flex items-center gap-1">
                       <Button
@@ -403,7 +424,7 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                         }
                       >
                         <Check className="size-3" />
-                        Accept
+                        通过
                       </Button>
                       <Button
                         size="xs"
@@ -416,7 +437,7 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                         }
                       >
                         <X className="size-3" />
-                        Reject
+                        拒绝
                       </Button>
                     </div>
                   </div>
@@ -434,8 +455,8 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
               ) : blacklist.length === 0 ? (
                 <EmptyState
                   icon={<Ban className="size-5" />}
-                  title="No blocked users"
-                  hint="Block from a friend row."
+                  title="黑名单为空"
+                  hint="可在好友操作中屏蔽不良用户。"
                 />
               ) : (
                 blacklist.map((user) => (
@@ -483,7 +504,7 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                       disabled={busyUserId === user.user_id}
                       onClick={() => void run(user.user_id, () => removeBlacklist(user.user_id))}
                     >
-                      Unblock
+                      解除屏蔽
                     </Button>
                   </div>
                 ))
@@ -500,9 +521,9 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                 <Input
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="Search by username or user ID"
-                  aria-label="Search users"
-                  className="pl-8"
+                  placeholder="搜索用户名或用户 ID"
+                  aria-label="搜索用户"
+                  className="pl-8 text-xs"
                 />
               </div>
             </div>
@@ -514,70 +535,90 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                   (searchError ? (
                     <EmptyState
                       icon={<X className="size-5" />}
-                      title="Search failed"
-                      hint="Please try again."
+                      title="搜索失败"
+                      hint="请稍后重试。"
                     />
                   ) : (
                     <EmptyState
                       icon={<Search className="size-5" />}
-                      title="No users found"
-                      hint="Try a different username or ID."
+                      title="未找到匹配用户"
+                      hint="尝试搜索其他用户名或完整用户 ID。"
                     />
                   ))}
-                {results.map((user) => (
-                  <div
-                    key={user.user_id}
-                    className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
-                  >
-                    <Avatar className="size-8">
-                      <AvatarFallback className="text-xs">
-                        {(user.nickname || user.username).slice(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {user.nickname || user.username}
-                      </p>
-                      <div className="text-muted-foreground flex items-center gap-1 text-xs">
-                        <span className="truncate">@{user.username}</span>
-                        <span>·</span>
-                        <span
-                          className="max-w-[80px] truncate font-mono text-[10px]"
-                          title={user.user_id}
-                        >
-                          ID: {user.user_id.slice(0, 8)}...
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-muted-foreground hover:text-foreground size-4 shrink-0 p-0"
-                          onClick={() => void copyToClipboard(user.user_id, user.user_id)}
-                          title="复制用户ID"
-                          aria-label={`Copy user ID for ${user.username}`}
-                        >
-                          {copiedId === user.user_id ? (
-                            <Check className="size-2.5 text-emerald-500" />
-                          ) : (
-                            <Copy className="size-2.5" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      disabled={busyUserId === user.user_id}
-                      onClick={() => void run(user.user_id, () => applyFriend(user.user_id))}
+                {results.map((user) => {
+                  const isSelf = currentUser && user.user_id === currentUser.user_id;
+                  const isFriend = friends.some((f) => f.user_id === user.user_id);
+
+                  return (
+                    <div
+                      key={user.user_id}
+                      className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
                     >
-                      <UserPlus className="size-3" />
-                      Add
-                    </Button>
-                  </div>
-                ))}
+                      <Avatar className="size-8">
+                        <AvatarFallback className="text-xs">
+                          {(user.nickname || user.username).slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {user.nickname || user.username}
+                        </p>
+                        <div className="text-muted-foreground flex items-center gap-1 text-xs">
+                          <span className="truncate">@{user.username}</span>
+                          <span>·</span>
+                          <span
+                            className="max-w-[80px] truncate font-mono text-[10px]"
+                            title={user.user_id}
+                          >
+                            ID: {user.user_id.slice(0, 8)}...
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-muted-foreground hover:text-foreground size-4 shrink-0 p-0"
+                            onClick={() => void copyToClipboard(user.user_id, user.user_id)}
+                            title="复制用户ID"
+                            aria-label={`Copy user ID for ${user.username}`}
+                          >
+                            {copiedId === user.user_id ? (
+                              <Check className="size-2.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="size-2.5" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {isSelf ? (
+                        <span className="text-muted-foreground px-2 text-xs">自己</span>
+                      ) : isFriend ? (
+                        <span className="px-2 text-xs text-emerald-500">已是好友</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => setCandidateForAdd(user)}
+                          className="h-7 gap-1 text-xs"
+                        >
+                          <UserPlus className="size-3" />
+                          添加
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </ScrollArea>
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Add Friend Dialogs */}
+      <AddFriendDialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen} />
+      <AddFriendDialog
+        open={candidateForAdd !== null}
+        onOpenChange={(open) => !open && setCandidateForAdd(null)}
+        initialTargetUser={candidateForAdd}
+      />
     </aside>
   );
 }
@@ -586,14 +627,16 @@ interface EmptyStateProps {
   readonly icon: ReactNode;
   readonly title: string;
   readonly hint: string;
+  readonly action?: ReactNode;
 }
 
-function EmptyState({ icon, title, hint }: EmptyStateProps) {
+function EmptyState({ icon, title, hint, action }: EmptyStateProps) {
   return (
     <div className="text-muted-foreground flex flex-col items-center gap-2 px-4 py-10 text-center">
       <div className="bg-muted flex size-10 items-center justify-center rounded-full">{icon}</div>
       <p className="text-foreground text-sm font-medium">{title}</p>
       <p className="text-xs">{hint}</p>
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }

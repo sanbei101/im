@@ -12,6 +12,7 @@ import {
   BellOff,
   Pin,
   Settings,
+  UserPlus,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -25,6 +26,7 @@ import { useChat } from "@/context/ChatContext";
 import { cn } from "@/lib/utils";
 import { getInitials } from "@/types/chat";
 
+import { AddFriendDialog } from "./AddFriendDialog";
 import { ContactPanel } from "./ContactPanel";
 import { CreateRoomDialog } from "./CreateRoomDialog";
 import { SearchPanel } from "./SearchPanel";
@@ -300,22 +302,41 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
                   />
                 </div>
 
-                <CreateRoomDialog
-                  trigger={
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-muted-foreground hover:text-foreground hover:bg-muted size-8 shrink-0 rounded-lg"
-                        >
-                          <MessageSquarePlus className="size-4.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>发起新聊天 / 创建群聊</TooltipContent>
-                    </Tooltip>
-                  }
-                />
+                <div className="flex items-center gap-0.5">
+                  <AddFriendDialog
+                    trigger={
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-muted-foreground hover:text-foreground hover:bg-muted size-8 shrink-0 rounded-lg"
+                          >
+                            <UserPlus className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>添加好友</TooltipContent>
+                      </Tooltip>
+                    }
+                  />
+
+                  <CreateRoomDialog
+                    trigger={
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-muted-foreground hover:text-foreground hover:bg-muted size-8 shrink-0 rounded-lg"
+                          >
+                            <MessageSquarePlus className="size-4.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>发起新聊天 / 创建群聊</TooltipContent>
+                      </Tooltip>
+                    }
+                  />
+                </div>
               </div>
 
               {/* Conversation List */}
