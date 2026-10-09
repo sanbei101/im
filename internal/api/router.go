@@ -48,7 +48,7 @@ func NewRouter(
 	userAPI := &UserAPI{store: s, streamHandler: streamHandler}
 	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler}
 	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
-	friendAPI := &FriendAPI{store: s}
+	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler}
 	conversationAPI := &ConversationAPI{store: s}
 	fileAPI := NewFileAPI(objects, publicURLPrefix)
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -153,6 +154,25 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if a.streamHandler != nil {
+		if reactions, err := a.store.Reactions(r.Context(), roomID, msgID); err == nil {
+			if payload, err := json.Marshal(map[string]any{
+				"room_id":   roomID.String(),
+				"msg_id":    msgID.String(),
+				"reactions": reactions,
+			}); err == nil {
+				if pushErr := a.streamHandler.BroadcastRoomNotification(
+					r.Context(),
+					roomID,
+					uuid.Nil(),
+					"reaction",
+					payload,
+				); pushErr != nil {
+					log.Error().Err(pushErr).Msg("broadcast reaction failed")
+				}
+			}
+		}
+	}
 	render.SuccessNoData(w, http.StatusOK, "添加表情表态成功")
 }
 
@@ -191,6 +211,25 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.RemoveReaction(r.Context(), roomID, msgID, userID, emoji); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if a.streamHandler != nil {
+		if reactions, err := a.store.Reactions(r.Context(), roomID, msgID); err == nil {
+			if payload, err := json.Marshal(map[string]any{
+				"room_id":   roomID.String(),
+				"msg_id":    msgID.String(),
+				"reactions": reactions,
+			}); err == nil {
+				if pushErr := a.streamHandler.BroadcastRoomNotification(
+					r.Context(),
+					roomID,
+					uuid.Nil(),
+					"reaction",
+					payload,
+				); pushErr != nil {
+					log.Error().Err(pushErr).Msg("broadcast reaction failed")
+				}
+			}
+		}
 	}
 	render.SuccessNoData(w, http.StatusOK, "取消表情表态成功")
 }

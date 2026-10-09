@@ -156,6 +156,13 @@ type TypingFrame struct {
 	UserID string `json:"user_id,omitempty"`
 }
 
+// NotificationFrame 下行业务通知帧
+type NotificationFrame struct {
+	Type  string         `json:"type"`
+	Event string         `json:"event"`
+	Data  jsontext.Value `json:"data,omitempty"`
+}
+
 // FrameWriter 持有可复用的 jsontext.Encoder,把下行帧流式编码进内部 buffer
 type FrameWriter struct {
 	mu  sync.Mutex

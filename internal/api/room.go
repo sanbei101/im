@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/sha256"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -9,6 +10,7 @@ import (
 	"uuid"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/jwt"
@@ -187,6 +189,33 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.streamHandler != nil {
+		memberIDs := make([]uuid.UUID, 0, len(members)-1)
+		for _, m := range members {
+			if m.UserID != creatorID {
+				memberIDs = append(memberIDs, m.UserID)
+			}
+		}
+		data := map[string]any{
+			"room_id":    roomID.String(),
+			"chat_type":  store.ChatTypeGroup,
+			"name":       name,
+			"avatar_url": avatar,
+			"inviter_id": creatorID.String(),
+			"action":     "created",
+		}
+		if payload, err := json.Marshal(data); err == nil {
+			if pushErr := a.streamHandler.BroadcastNotification(
+				r.Context(),
+				memberIDs,
+				"room_update",
+				payload,
+			); pushErr != nil {
+				log.Error().Err(pushErr).Msg("broadcast room created notification failed")
+			}
+		}
+	}
+
 	render.Success(w, "创建群聊房间成功", RoomResp{RoomID: roomID.String()})
 }
 
@@ -314,6 +343,26 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.streamHandler != nil {
+		if payload, err := json.Marshal(map[string]any{
+			"room_id":    updated.RoomID.String(),
+			"name":       updated.Name,
+			"avatar_url": updated.AvatarURL,
+			"notice":     updated.Notice,
+			"action":     "info_updated",
+		}); err == nil {
+			if pushErr := a.streamHandler.BroadcastRoomNotification(
+				r.Context(),
+				roomID,
+				uuid.Nil(),
+				"room_update",
+				payload,
+			); pushErr != nil {
+				log.Error().Err(pushErr).Msg("broadcast room update notification failed")
+			}
+		}
+	}
+
 	render.Success(w, "更新房间信息成功", RoomDetailResp{
 		RoomID:    updated.RoomID.String(),
 		ChatType:  updated.ChatType,
@@ -430,6 +479,44 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.streamHandler != nil {
 			a.streamHandler.InvalidateRoomMembers(roomID)
+			newMemberIDs := make([]uuid.UUID, len(toAdd))
+			for i, m := range toAdd {
+				newMemberIDs[i] = m.UserID
+			}
+			newMemberData := map[string]any{
+				"room_id":    roomID.String(),
+				"inviter_id": myID.String(),
+				"action":     "invited",
+			}
+			if rInfo, err := a.store.Room(r.Context(), roomID); err == nil {
+				newMemberData["name"] = rInfo.Name
+				newMemberData["avatar_url"] = rInfo.AvatarURL
+				newMemberData["chat_type"] = rInfo.ChatType
+			}
+			if payload, err := json.Marshal(newMemberData); err == nil {
+				if pushErr := a.streamHandler.BroadcastNotification(
+					r.Context(),
+					newMemberIDs,
+					"room_update",
+					payload,
+				); pushErr != nil {
+					log.Error().Err(pushErr).Msg("broadcast room invited notification failed")
+				}
+			}
+			if payload, err := json.Marshal(map[string]any{
+				"room_id": roomID.String(),
+				"action":  "members_added",
+			}); err == nil {
+				if pushErr := a.streamHandler.BroadcastRoomNotification(
+					r.Context(),
+					roomID,
+					uuid.Nil(),
+					"room_members_changed",
+					payload,
+				); pushErr != nil {
+					log.Error().Err(pushErr).Msg("broadcast room members changed notification failed")
+				}
+			}
 		}
 	}
 
@@ -655,6 +742,20 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.streamHandler != nil {
+		if payload, err := json.Marshal(map[string]any{
+			"room_id": roomID.String(),
+			"action":  "dissolved",
+		}); err == nil {
+			if pushErr := a.streamHandler.BroadcastRoomNotification(
+				r.Context(),
+				roomID,
+				myID,
+				"room_update",
+				payload,
+			); pushErr != nil {
+				log.Error().Err(pushErr).Msg("broadcast room dissolved notification failed")
+			}
+		}
 		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
 

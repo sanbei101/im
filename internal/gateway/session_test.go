@@ -9,6 +9,7 @@ import (
 
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/render"
+	"github.com/sanbei101/im/proto/pb"
 )
 
 func newTestGateway(t *testing.T) *Gateway {
@@ -159,6 +160,38 @@ func TestGateway(t *testing.T) {
 			if again := g.streamForRoom(roomID); again != stream {
 				t.Fatalf("routing not deterministic for room %s", roomID)
 			}
+		}
+	})
+
+	t.Run("notification dispatch to user sessions", func(t *testing.T) {
+		g := newTestGateway(t)
+		targetUser := uuid.NewV7()
+		client := newTestClient(targetUser, 2)
+		session := g.UserSessionManager.LoadOrCreate(targetUser, NewUserSession)
+		session.Add(client)
+
+		stream := newAPIStream(g, "test-stream", "127.0.0.1:8801")
+		stream.handleNotification(&pb.NotificationBatch{
+			Notifications: []*pb.Notification{
+				{
+					UserId: targetUser.String(),
+					Event:  "reaction",
+					Data:   []byte(`{"room_id":"r1","msg_id":"m1"}`),
+				},
+			},
+		})
+
+		select {
+		case frameBytes := <-client.Send:
+			var notif render.NotificationFrame
+			if err := render.NewFrameReader(bytes.NewReader(frameBytes)).ReadFrame(&notif); err != nil {
+				t.Fatalf("notification frame decode: %v", err)
+			}
+			if notif.Type != "notification" || notif.Event != "reaction" {
+				t.Fatalf("unexpected notification frame: %+v", notif)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("target client did not receive notification frame")
 		}
 	})
 }

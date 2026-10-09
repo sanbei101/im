@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"uuid"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/jwt"
@@ -15,7 +17,8 @@ import (
 )
 
 type FriendAPI struct {
-	store *store.Store
+	store         *store.Store
+	streamHandler *StreamHandler
 }
 
 type ApplyFriendReq struct {
@@ -87,6 +90,28 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.streamHandler != nil {
+		data := map[string]any{
+			"from_user_id": myID.String(),
+			"greeting":     req.Greeting,
+		}
+		if myUser, err := a.store.UserByID(r.Context(), myID); err == nil {
+			data["from_username"] = myUser.Username
+			data["from_nickname"] = myUser.Nickname
+			data["from_avatar_url"] = myUser.AvatarURL
+		}
+		if payload, err := json.Marshal(data); err == nil {
+			if pushErr := a.streamHandler.PushNotification(
+				r.Context(),
+				targetID,
+				"friend_application",
+				payload,
+			); pushErr != nil {
+				log.Error().Err(pushErr).Msg("push friend_application notification failed")
+			}
+		}
+	}
+
 	render.SuccessNoData(w, http.StatusOK, "好友申请已发送")
 }
 
@@ -116,6 +141,27 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 		}
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if accept && a.streamHandler != nil {
+		data := map[string]any{
+			"user_id": myID.String(),
+		}
+		if myUser, err := a.store.UserByID(r.Context(), myID); err == nil {
+			data["username"] = myUser.Username
+			data["nickname"] = myUser.Nickname
+			data["avatar_url"] = myUser.AvatarURL
+		}
+		if payload, err := json.Marshal(data); err == nil {
+			if pushErr := a.streamHandler.PushNotification(
+				r.Context(),
+				fromID,
+				"friend_accepted",
+				payload,
+			); pushErr != nil {
+				log.Error().Err(pushErr).Msg("push friend_accepted notification failed")
+			}
+		}
 	}
 
 	msg := "已同意好友申请"

@@ -381,4 +381,100 @@ func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error 
 	return h.push(ctx, message)
 }
 
+func (h *StreamHandler) PushNotification(ctx context.Context, userID uuid.UUID, event string, data []byte) error {
+	userIDStr := userID.String()
+	shard := h.getSessionShard(userIDStr)
+	shard.mu.RLock()
+	connection := shard.sessions[userIDStr]
+	shard.mu.RUnlock()
+	if connection == nil {
+		return nil
+	}
+	return connection.send(ctx, &pb.APIFrame{
+		Body: &pb.APIFrame_NotificationBatch{
+			NotificationBatch: &pb.NotificationBatch{
+				Notifications: []*pb.Notification{
+					{
+						UserId: userIDStr,
+						Event:  event,
+						Data:   data,
+					},
+				},
+			},
+		},
+	})
+}
+
+func (h *StreamHandler) BroadcastNotification(
+	ctx context.Context,
+	userIDs []uuid.UUID,
+	event string,
+	data []byte,
+) error {
+	notifs := make(map[*apiConnection][]*pb.Notification)
+	for _, uid := range userIDs {
+		uidStr := uid.String()
+		shard := h.getSessionShard(uidStr)
+		shard.mu.RLock()
+		conn := shard.sessions[uidStr]
+		shard.mu.RUnlock()
+		if conn != nil {
+			notifs[conn] = append(notifs[conn], &pb.Notification{
+				UserId: uidStr,
+				Event:  event,
+				Data:   data,
+			})
+		}
+	}
+	for conn, items := range notifs {
+		if err := conn.send(ctx, &pb.APIFrame{
+			Body: &pb.APIFrame_NotificationBatch{
+				NotificationBatch: &pb.NotificationBatch{Notifications: items},
+			},
+		}); err != nil {
+			return fmt.Errorf("broadcast notification: %w", err)
+		}
+	}
+	return nil
+}
+
+func (h *StreamHandler) BroadcastRoomNotification(
+	ctx context.Context,
+	roomID, excludeUserID uuid.UUID,
+	event string,
+	data []byte,
+) error {
+	members, err := h.getRoomMembers(ctx, roomID)
+	if err != nil {
+		return fmt.Errorf("load room members: %w", err)
+	}
+	notifs := make(map[*apiConnection][]*pb.Notification)
+	for _, member := range members {
+		if excludeUserID != uuid.Nil() && member.userID == excludeUserID {
+			continue
+		}
+		shard := h.getSessionShard(member.userIDStr)
+		shard.mu.RLock()
+		conn := shard.sessions[member.userIDStr]
+		shard.mu.RUnlock()
+		if conn != nil {
+			notifs[conn] = append(notifs[conn], &pb.Notification{
+				UserId: member.userIDStr,
+				Event:  event,
+				Data:   data,
+			})
+		}
+	}
+	for conn, items := range notifs {
+		if err := conn.send(ctx, &pb.APIFrame{
+			Body: &pb.APIFrame_NotificationBatch{
+				NotificationBatch: &pb.NotificationBatch{Notifications: items},
+			},
+		}); err != nil {
+			return fmt.Errorf("broadcast room notification: %w", err)
+		}
+	}
+	return nil
+}
+
 var _ pb.GatewayService = (*StreamHandler)(nil)

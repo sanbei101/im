@@ -439,6 +439,8 @@ func (s *apiStream) loop(ctx context.Context) error {
 				s.handleResults(frame.GetSendResultBatch())
 			case frame.GetPushBatch() != nil:
 				s.handlePush(frame.GetPushBatch())
+			case frame.GetNotificationBatch() != nil:
+				s.handleNotification(frame.GetNotificationBatch())
 			}
 		}
 	}()
@@ -545,6 +547,44 @@ func (s *apiStream) handlePush(batch *pb.PushBatch) {
 		for _, client := range clients {
 			if err := client.sendFrame(frameBytes); err != nil {
 				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
+			}
+		}
+	}
+}
+
+func (s *apiStream) handleNotification(batch *pb.NotificationBatch) {
+	for _, notif := range batch.GetNotifications() {
+		if notif == nil {
+			continue
+		}
+		userID, err := uuid.Parse(notif.GetUserId())
+		if err != nil {
+			continue
+		}
+		session, ok := s.gateway.UserSessionManager.Load(userID)
+		if !ok {
+			continue
+		}
+		clients := session.Clients()
+		if len(clients) == 0 {
+			continue
+		}
+		frame := render.NotificationFrame{
+			Type:  "notification",
+			Event: notif.GetEvent(),
+			Data:  jsontext.Value(notif.GetData()),
+		}
+		frameBytes, err := s.frames.EncodeFrame(frame)
+		if err != nil {
+			log.Error().Err(err).Msg("encode notification frame failed")
+			continue
+		}
+		for _, client := range clients {
+			if err := client.sendFrame(frameBytes); err != nil {
+				log.Error().
+					Err(err).
+					Str("user_id", client.UserID.String()).
+					Msg("send notification frame to websocket failed")
 			}
 		}
 	}

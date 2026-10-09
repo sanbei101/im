@@ -120,6 +120,7 @@ type APIFrame struct {
 	//	*APIFrame_PushBatch
 	//	*APIFrame_RoutingError
 	//	*APIFrame_Heartbeat
+	//	*APIFrame_NotificationBatch
 	Body isAPIFrame_Body `protobuf_oneof:"body"`
 }
 
@@ -170,6 +171,13 @@ func (x *APIFrame) GetHeartbeat() *Heartbeat {
 	return nil
 }
 
+func (x *APIFrame) GetNotificationBatch() *NotificationBatch {
+	if p, ok := x.GetBody().(*APIFrame_NotificationBatch); ok {
+		return p.NotificationBatch
+	}
+	return nil
+}
+
 // XXX_OneofWrappers is for the internal use of the prutal package.
 func (*APIFrame) XXX_OneofWrappers() []interface{} {
 	return []interface{}{
@@ -178,6 +186,7 @@ func (*APIFrame) XXX_OneofWrappers() []interface{} {
 		(*APIFrame_PushBatch)(nil),
 		(*APIFrame_RoutingError)(nil),
 		(*APIFrame_Heartbeat)(nil),
+		(*APIFrame_NotificationBatch)(nil),
 	}
 }
 
@@ -214,6 +223,12 @@ type APIFrame_Heartbeat struct {
 }
 
 func (*APIFrame_Heartbeat) isAPIFrame_Body() {}
+
+type APIFrame_NotificationBatch struct {
+	NotificationBatch *NotificationBatch `protobuf:"bytes,6,opt,name=notification_batch" json:"notification_batch,omitempty"`
+}
+
+func (*APIFrame_NotificationBatch) isAPIFrame_Body() {}
 
 type Hello struct {
 	GatewayId       string `protobuf:"bytes,1,opt,name=gateway_id" json:"gateway_id,omitempty"`
@@ -723,6 +738,56 @@ func (x *Heartbeat) GetUnixMicro() int64 {
 		return x.UnixMicro
 	}
 	return 0
+}
+
+type NotificationBatch struct {
+	Notifications []*Notification `protobuf:"bytes,1,rep,name=notifications" json:"notifications,omitempty"`
+}
+
+func (x *NotificationBatch) Reset() { *x = NotificationBatch{} }
+
+func (x *NotificationBatch) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
+
+func (x *NotificationBatch) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
+
+func (x *NotificationBatch) GetNotifications() []*Notification {
+	if x != nil {
+		return x.Notifications
+	}
+	return nil
+}
+
+type Notification struct {
+	UserId string `protobuf:"bytes,1,opt,name=user_id" json:"user_id,omitempty"`
+	Event  string `protobuf:"bytes,2,opt,name=event" json:"event,omitempty"`
+	Data   []byte `protobuf:"bytes,3,opt,name=data" json:"data,omitempty"`
+}
+
+func (x *Notification) Reset() { *x = Notification{} }
+
+func (x *Notification) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
+
+func (x *Notification) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
+
+func (x *Notification) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *Notification) GetEvent() string {
+	if x != nil {
+		return x.Event
+	}
+	return ""
+}
+
+func (x *Notification) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
 }
 
 type GatewayService interface {

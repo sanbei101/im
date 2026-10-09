@@ -25,6 +25,7 @@ message APIFrame {
     PushBatch push_batch = 3;
     RoutingError routing_error = 4;
     Heartbeat heartbeat = 5;
+    NotificationBatch notification_batch = 6;
   }
 }
 
@@ -76,3 +77,10 @@ message Push {
 
 message RoutingError { string room_id = 1; string owner = 2; string topology_version = 3; }
 message Heartbeat { int64 unix_micro = 1; }
+
+message NotificationBatch { repeated Notification notifications = 1; }
+message Notification {
+  string user_id = 1;
+  string event = 2;
+  bytes data = 3;
+}
