@@ -28,6 +28,7 @@ import {
   mapSdkMessageToUIMessage,
   updateMessageAck,
   isErrorWithMessage,
+  sortConversations,
 } from "@/types/chat";
 
 import { type ChatContextValue } from "./chat-context-value";
@@ -182,6 +183,10 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   const [searchResults, setSearchResults] = useState<readonly Message[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
 
+  // Real-time typing indicators (roomId -> userId)
+  const [typingRooms, setTypingRooms] = useState<Readonly<Record<string, string>>>({});
+  const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   const sdkRef = useRef<ChatSDK | null>(null);
 
   if (sdkRef.current === null) {
@@ -212,6 +217,13 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
   const clearError = useCallback(() => {
     setError(null);
   }, []);
+
+  const sendTyping = useCallback(
+    (roomId: string) => {
+      sdk.sendTyping(roomId);
+    },
+    [sdk],
+  );
 
   const updateConfig = useCallback(
     (newConfig: ServerConfig) => {
@@ -587,7 +599,37 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     replyingToMessage,
     setReplyingToMessage,
     setMessagesByRoom,
-    onSent: () => {
+    onSent: (sentInfo) => {
+      if (sentInfo) {
+        setConversations((prev) => {
+          const idx = prev.findIndex((c) => c.room.room_id === sentInfo.roomId);
+          if (idx >= 0) {
+            const old = prev[idx];
+            const updated: ConversationInfo = {
+              ...old,
+              last_message: {
+                msg_id: sentInfo.msgId,
+                client_msg_id: sentInfo.clientMsgId,
+                sender_id: currentUser?.user_id || "",
+                room_id: sentInfo.roomId,
+                room_seq: sentInfo.roomSeq,
+                server_time: sentInfo.serverTime,
+                msg_type: sentInfo.msgType,
+                payload: sentInfo.payload,
+              },
+              room: {
+                ...old.room,
+                last_seq: sentInfo.roomSeq,
+                updated_at: new Date().toISOString(),
+              },
+            };
+            const next = [...prev];
+            next.splice(idx, 1);
+            return [updated, ...next].sort(sortConversations);
+          }
+          return prev;
+        });
+      }
       void conversationsDomain.refreshConversations();
     },
   });
@@ -625,6 +667,18 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     const unsubMsg = sdk.on(ChatEventType.MessageReceived, (event) => {
       const incoming = event.data.message;
       const targetRoomId = incoming.room_id;
+
+      // Clear typing indicator for this room
+      if (typingTimersRef.current[targetRoomId]) {
+        clearTimeout(typingTimersRef.current[targetRoomId]);
+        delete typingTimersRef.current[targetRoomId];
+      }
+      setTypingRooms((prev) => {
+        if (!prev[targetRoomId]) return prev;
+        const next = { ...prev };
+        delete next[targetRoomId];
+        return next;
+      });
 
       setRooms((currentRooms) => {
         if (!currentRooms.some((r) => r.room_id === targetRoomId)) {
@@ -670,8 +724,81 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         };
       });
 
+      // Optimistically update conversations in local state immediately
+      setConversations((prev) => {
+        const existingIndex = prev.findIndex((c) => c.room.room_id === targetRoomId);
+        const isCurrentActive = targetRoomId === activeRoomIdRef.current;
+        if (existingIndex >= 0) {
+          const old = prev[existingIndex];
+          const updated: ConversationInfo = {
+            ...old,
+            last_message: incoming,
+            unread_count: isCurrentActive ? 0 : (old.unread_count || 0) + 1,
+            room: {
+              ...old.room,
+              last_seq: incoming.room_seq,
+              updated_at: new Date(
+                incoming.server_time
+                  ? incoming.server_time > 10_000_000_000_000
+                    ? Math.floor(incoming.server_time / 1000)
+                    : incoming.server_time
+                  : Date.now(),
+              ).toISOString(),
+            },
+          };
+          const next = [...prev];
+          next.splice(existingIndex, 1);
+          return [updated, ...next].sort(sortConversations);
+        } else {
+          const roomObj = rooms.find((r) => r.room_id === targetRoomId);
+          const newConv: ConversationInfo = {
+            room: {
+              room_id: targetRoomId,
+              chat_type: roomObj?.chat_type || "single",
+              name: roomObj?.name ?? "",
+              avatar_url: roomObj?.avatar_url ?? "",
+              notice: roomObj?.notice ?? "",
+              last_seq: incoming.room_seq,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            member: {
+              room_id: targetRoomId,
+              user_id: currentUserId || "",
+              role: "member",
+              is_hidden: false,
+              is_muted: false,
+              is_pinned: false,
+            },
+            unread_count: isCurrentActive ? 0 : 1,
+            last_message: incoming,
+          };
+          return [newConv, ...prev].sort(sortConversations);
+        }
+      });
+
       // Unread counts and the sidebar preview come from the conversation list.
       void conversationsDomainRef.current.refreshConversations();
+    });
+
+    const unsubTyping = sdk.on(ChatEventType.Typing, (event) => {
+      const { room_id, user_id } = event.data;
+      if (!room_id || !user_id || user_id === currentUserId) {
+        return;
+      }
+      if (typingTimersRef.current[room_id]) {
+        clearTimeout(typingTimersRef.current[room_id]);
+      }
+      setTypingRooms((prev) => ({ ...prev, [room_id]: user_id }));
+      typingTimersRef.current[room_id] = setTimeout(() => {
+        setTypingRooms((prev) => {
+          if (prev[room_id] !== user_id) return prev;
+          const next = { ...prev };
+          delete next[room_id];
+          return next;
+        });
+        delete typingTimersRef.current[room_id];
+      }, 3500);
     });
 
     const unsubAck = sdk.on(ChatEventType.MessageSent, (event) => {
@@ -698,6 +825,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     return () => {
       unsubState();
       unsubMsg();
+      unsubTyping();
       unsubAck();
       unsubErr();
     };
@@ -740,6 +868,23 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
         document.title = "Go IM";
       }
     }
+  }, [currentUser]);
+
+  // Periodic refresh for friends & applications (every 15s) and window focus sync
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(() => {
+      void contactsDomainRef.current.refreshFriends();
+    }, 15000);
+    const handleFocus = () => {
+      void contactsDomainRef.current.refreshFriends();
+      void conversationsDomainRef.current.refreshConversations();
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [currentUser]);
 
   // Find active room object
@@ -827,6 +972,8 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     sendVideoMessage: senders.sendVideoMessage,
     sendFileMessage: senders.sendFileMessage,
     clearError,
+    typingRooms,
+    sendTyping,
   };
 
   return <ChatContext.Provider value={contextValue}>{children}</ChatContext.Provider>;

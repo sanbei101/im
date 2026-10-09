@@ -5,6 +5,7 @@ import type {
   SendMessageRequest,
   AckFrame,
   MessagePushFrame,
+  TypingFrame,
 } from "./types";
 import { ChatEventType, ConnectionState as State } from "./types";
 import type { EventEmitter } from "./utils";
@@ -55,6 +56,12 @@ function isAckFrame(obj: object): obj is AckFrame {
     typeof obj.server_time === "number" &&
     "code" in obj &&
     typeof obj.code === "number"
+  );
+}
+
+function isTypingFrame(obj: object): obj is TypingFrame {
+  return (
+    "type" in obj && obj.type === "typing" && "room_id" in obj && typeof obj.room_id === "string"
   );
 }
 
@@ -217,6 +224,18 @@ export class WebSocketManager {
     });
   }
 
+  /**
+   * 发送正在输入事件
+   */
+  sendTyping(roomId: string): void {
+    if (!roomId) {
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: "typing", room_id: roomId }));
+    }
+  }
+
   private dispatchMessage(
     req: SendMessageRequest,
     resolve: (ack: AckFrame) => void,
@@ -355,6 +374,16 @@ export class WebSocketManager {
 
       case "pong":
         // 心跳应答正常
+        break;
+
+      case "typing":
+        if (isTypingFrame(parsed)) {
+          this.emitter.emit(ChatEventType.Typing, {
+            room_id: parsed.room_id,
+            user_id: parsed.user_id || "",
+            timestamp: Date.now(),
+          });
+        }
         break;
 
       case "error": {

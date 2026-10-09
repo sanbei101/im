@@ -266,14 +266,32 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                             {(friend.remark || friend.nickname || friend.username).slice(0, 2)}
                           </AvatarFallback>
                         </Avatar>
-                        {presence[friend.user_id] && (
-                          <span className="border-background bg-success absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
-                        )}
+                        <span
+                          className={cn(
+                            "border-background absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
+                            presence[friend.user_id]
+                              ? "bg-emerald-500"
+                              : "bg-zinc-400 dark:bg-zinc-600",
+                          )}
+                          title={presence[friend.user_id] ? "在线" : "离线"}
+                        />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {friend.remark || friend.nickname || friend.username}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-sm font-medium">
+                            {friend.remark || friend.nickname || friend.username}
+                          </p>
+                          <span
+                            className={cn(
+                              "text-[10px]",
+                              presence[friend.user_id]
+                                ? "font-medium text-emerald-500"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            ({presence[friend.user_id] ? "在线" : "离线"})
+                          </span>
+                        </div>
                         <div className="text-muted-foreground flex items-center gap-1 text-xs">
                           <span className="truncate">@{friend.username}</span>
                           <span>·</span>

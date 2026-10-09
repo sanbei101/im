@@ -136,4 +136,8 @@ export interface ChatContextValue {
     replyToMsgId?: string,
   ) => Promise<void>;
   readonly clearError: () => void;
+
+  // Typing state
+  readonly typingRooms: Readonly<Record<string, string>>;
+  readonly sendTyping: (roomId: string) => void;
 }

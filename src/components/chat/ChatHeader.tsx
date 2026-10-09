@@ -32,8 +32,9 @@ export function ChatHeader({
   onToggleDetails,
   showDetails,
 }: ChatHeaderProps) {
-  const { activeRoom, activeRoomId, selectRoom, isLoadingHistory } = useChat();
+  const { activeRoom, activeRoomId, selectRoom, isLoadingHistory, typingRooms } = useChat();
   const [copied, setCopied] = useState(false);
+  const isTyping = activeRoomId ? typingRooms[activeRoomId] !== undefined : false;
 
   if (!activeRoom || !activeRoomId) {
     return (
@@ -131,29 +132,38 @@ export function ChatHeader({
             </Badge>
           </div>
 
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <span className="text-muted-foreground max-w-[180px] truncate font-mono text-[11px]">
-              {activeRoomId}
-            </span>
-            <Tooltip>
-              <TooltipTrigger>
-                <button
-                  type="button"
-                  onClick={handleCopyRoomId}
-                  className="text-muted-foreground hover:text-foreground rounded-sm p-0.5 transition-colors"
-                >
-                  {copied ? (
-                    <Check className="size-3 text-emerald-500" />
-                  ) : (
-                    <Copy className="size-3" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <span>{copied ? "Copied!" : "Copy Room ID"}</span>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          {isTyping ? (
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span className="flex animate-pulse items-center gap-1 text-[11px] font-medium text-[#0099ff]">
+                <span className="size-1.5 rounded-full bg-[#0099ff]" />
+                对方正在输入...
+              </span>
+            </div>
+          ) : (
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span className="text-muted-foreground max-w-[180px] truncate font-mono text-[11px]">
+                {activeRoomId}
+              </span>
+              <Tooltip>
+                <TooltipTrigger>
+                  <button
+                    type="button"
+                    onClick={handleCopyRoomId}
+                    className="text-muted-foreground hover:text-foreground rounded-sm p-0.5 transition-colors"
+                  >
+                    {copied ? (
+                      <Check className="size-3 text-emerald-500" />
+                    ) : (
+                      <Copy className="size-3" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span>{copied ? "Copied!" : "Copy Room ID"}</span>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
         </div>
       </div>
 

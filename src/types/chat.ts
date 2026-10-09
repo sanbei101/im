@@ -1,5 +1,6 @@
 import { MessageType } from "go-chat-sdk";
 import type {
+  ConversationInfo,
   Message,
   TextPayload,
   ImagePayload,
@@ -94,18 +95,31 @@ export function mapSdkMessageToUIMessage(msg: Message, status: MessageStatus = "
   };
 }
 
-export function getMessagePreviewText(message: UIMessage): string {
-  if (message.msgType === "image") {
-    return "[Image]";
+export function getMessagePreviewText(message?: UIMessage | Message | null): string {
+  if (!message) {
+    return "";
   }
-  if (message.msgType === "file") {
+  const msgType = "msgType" in message ? message.msgType : message.msg_type;
+  const isRecalled =
+    ("recalled" in message && message.recalled) ||
+    msgType === MessageType.Recall ||
+    msgType === "recall";
+
+  if (isRecalled) {
+    return "[撤回了一条消息]";
+  }
+
+  if (msgType === "image" || msgType === MessageType.Image) {
+    return "[图片]";
+  }
+  if (msgType === "file" || msgType === MessageType.File) {
     if (isFilePayload(message.payload)) {
-      return `[File] ${message.payload.name}`;
+      return `[文件] ${message.payload.name}`;
     }
-    return "[File]";
+    return "[文件]";
   }
-  if (message.msgType === "video") {
-    return "[Video]";
+  if (msgType === "video" || msgType === MessageType.Video) {
+    return "[视频]";
   }
   if (isTextPayload(message.payload)) {
     return message.payload.text;
@@ -113,7 +127,7 @@ export function getMessagePreviewText(message: UIMessage): string {
   if (typeof message.payload === "string") {
     return message.payload;
   }
-  return "[Message]";
+  return "[消息]";
 }
 
 export function formatTime(timestamp: number): string {
@@ -126,6 +140,74 @@ export function formatTime(timestamp: number): string {
   const hours = date.getHours().toString().padStart(2, "0");
   const minutes = date.getMinutes().toString().padStart(2, "0");
   return `${hours}:${minutes}`;
+}
+
+export function formatRelativeTime(time?: number | string | null): string {
+  if (!time) {
+    return "";
+  }
+  let ms: number;
+  if (typeof time === "string") {
+    ms = new Date(time).getTime();
+  } else {
+    ms = time > 10_000_000_000_000 ? Math.floor(time / 1000) : time;
+  }
+  if (Number.isNaN(ms) || ms <= 0) {
+    return "";
+  }
+  const date = new Date(ms);
+  const now = new Date();
+  const diffMs = now.getTime() - ms;
+
+  if (diffMs >= 0 && diffMs < 60_000) {
+    return "刚刚";
+  }
+
+  const isSameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  if (isSameDay) {
+    const hours = date.getHours().toString().padStart(2, "0");
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate();
+
+  if (isYesterday) {
+    return "昨天";
+  }
+
+  if (date.getFullYear() === now.getFullYear()) {
+    const month = (date.getMonth() + 1).toString().padStart(2, "0");
+    const day = date.getDate().toString().padStart(2, "0");
+    return `${month}-${day}`;
+  }
+
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function sortConversations(a: ConversationInfo, b: ConversationInfo): number {
+  if (a.member.is_pinned !== b.member.is_pinned) {
+    return a.member.is_pinned ? -1 : 1;
+  }
+  const timeA =
+    a.last_message?.server_time ??
+    new Date(a.room.updated_at || a.room.created_at || 0).getTime() * 1000;
+  const timeB =
+    b.last_message?.server_time ??
+    new Date(b.room.updated_at || b.room.created_at || 0).getTime() * 1000;
+  return timeB - timeA;
 }
 
 export function formatFileSize(bytes?: number): string {

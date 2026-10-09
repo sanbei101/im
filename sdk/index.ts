@@ -200,6 +200,13 @@ export class ChatSDK {
     return this.wsManager.isConnected();
   }
 
+  /**
+   * 发送正在输入状态
+   */
+  sendTyping(roomId: string): void {
+    this.wsManager.sendTyping(roomId);
+  }
+
   // ==================== 消息发送 ====================
 
   /**

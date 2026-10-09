@@ -58,7 +58,15 @@ export interface UseSendersOptions extends ChatDomainDeps {
     ) => Record<string, readonly UIMessage[]>,
   ) => void;
   /** Called after a successful send so unread/preview stay current. */
-  readonly onSent: () => void;
+  readonly onSent?: (info?: {
+    roomId: string;
+    clientMsgId: string;
+    msgId: string;
+    roomSeq: number;
+    serverTime: number;
+    msgType: SdkMessageType | string;
+    payload: unknown;
+  }) => void;
 }
 
 /** Result of one send: the shared pipeline plus the typed wrappers. */
@@ -151,7 +159,15 @@ export function useSenders(options: UseSendersOptions): UseSendersResult {
               : m,
           ),
         }));
-        onSent();
+        onSent?.({
+          roomId: activeRoomId,
+          clientMsgId,
+          msgId: ack.msg_id,
+          roomSeq: ack.room_seq,
+          serverTime: ack.server_time,
+          msgType,
+          payload,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : fallbackError;
         setMessagesByRoom((prev) => ({

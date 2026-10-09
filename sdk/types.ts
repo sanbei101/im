@@ -71,12 +71,18 @@ export interface PongFrame {
   type: "pong";
 }
 
+export interface TypingFrame {
+  type: "typing";
+  room_id: string;
+  user_id?: string;
+}
+
 export interface ErrorFrame {
   type: "error";
   error: string;
 }
 
-export type GatewayFrame = MessagePushFrame | AckFrame | PongFrame | ErrorFrame;
+export type GatewayFrame = MessagePushFrame | AckFrame | PongFrame | ErrorFrame | TypingFrame;
 
 // 发送消息的请求结构
 export interface SendMessageRequest {
@@ -179,11 +185,19 @@ export enum ChatEventType {
   Error = "error",
   Connect = "connect",
   Disconnect = "disconnect",
+  Typing = "typing",
 }
 
 // 消息接收事件数据
 export interface MessageReceivedData {
   message: Message;
+}
+
+// 正在输入事件数据
+export interface TypingReceivedData {
+  room_id: string;
+  user_id: string;
+  timestamp: number;
 }
 
 // 消息发送成功事件数据 (ACK)
@@ -227,6 +241,7 @@ export interface ChatEventDataMap {
   [ChatEventType.Error]: ErrorData;
   [ChatEventType.Connect]: ConnectData;
   [ChatEventType.Disconnect]: DisconnectData;
+  [ChatEventType.Typing]: TypingReceivedData;
 }
 
 // 聊天事件

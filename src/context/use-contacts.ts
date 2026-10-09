@@ -41,12 +41,14 @@ export function useContacts(options: UseContactsOptions) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const inFlightRef = useRef(false);
+  const queuedRefreshRef = useRef(false);
 
   const refreshFriends = useCallback(async () => {
     if (!optionsRef.current.isAuthenticated()) {
       return;
     }
     if (inFlightRef.current) {
+      queuedRefreshRef.current = true;
       return;
     }
     inFlightRef.current = true;
@@ -61,11 +63,24 @@ export function useContacts(options: UseContactsOptions) {
       optionsRef.current.state.setFriends(friendList);
       optionsRef.current.state.setFriendApplications(applications);
       optionsRef.current.state.setBlacklist(blocked);
+
+      if (friendList.length > 0) {
+        try {
+          const presResp = await sdk.getPresence({ user_ids: friendList.map((f) => f.user_id) });
+          optionsRef.current.state.setPresence(presResp.presence ?? {});
+        } catch {
+          // presence query is best-effort
+        }
+      }
     } catch (err) {
       setError(isErrorWithMessage(err) ? err.message : "Failed to load friends");
     } finally {
       optionsRef.current.state.setIsLoadingFriends(false);
       inFlightRef.current = false;
+      if (queuedRefreshRef.current) {
+        queuedRefreshRef.current = false;
+        void refreshFriends();
+      }
     }
   }, [sdk, setError]);
 

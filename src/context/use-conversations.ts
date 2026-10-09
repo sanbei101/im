@@ -44,6 +44,7 @@ export function useConversations(options: UseConversationsOptions) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const inFlightRef = useRef(false);
+  const queuedRefreshRef = useRef(false);
 
   // The conversation list is the source of truth for unread counts, mute and
   // pin state, so every action below refreshes it.
@@ -52,6 +53,7 @@ export function useConversations(options: UseConversationsOptions) {
       return;
     }
     if (inFlightRef.current) {
+      queuedRefreshRef.current = true;
       return;
     }
     inFlightRef.current = true;
@@ -64,6 +66,10 @@ export function useConversations(options: UseConversationsOptions) {
     } finally {
       optionsRef.current.state.setIsLoadingConversations(false);
       inFlightRef.current = false;
+      if (queuedRefreshRef.current) {
+        queuedRefreshRef.current = false;
+        void refreshConversations();
+      }
     }
   }, [sdk, setError]);
 

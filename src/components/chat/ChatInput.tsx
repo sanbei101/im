@@ -153,11 +153,23 @@ export function ChatInput() {
     replyingToMessage,
     setReplyingToMessage,
     currentUser,
+    activeRoomId,
+    sendTyping,
   } = useChat();
 
   const [text, setText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const lastTypingSentRef = useRef<number>(0);
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value);
+    const now = Date.now();
+    if (activeRoomId && now - lastTypingSentRef.current > 2500) {
+      lastTypingSentRef.current = now;
+      sendTyping(activeRoomId);
+    }
+  };
 
   // Popovers
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -456,7 +468,7 @@ export function ChatInput() {
           <Textarea
             ref={textareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={

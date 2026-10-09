@@ -1,9 +1,8 @@
-import { ConnectionState } from "go-chat-sdk";
+import { ConnectionState, type ConversationInfo } from "go-chat-sdk";
 import {
   MessageSquare,
   Search,
   Users,
-  User,
   LogOut,
   RefreshCw,
   PanelLeftClose,
@@ -14,17 +13,21 @@ import {
   Settings,
   UserPlus,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChat } from "@/context/ChatContext";
 import { cn } from "@/lib/utils";
-import { getInitials } from "@/types/chat";
+import {
+  formatRelativeTime,
+  getInitials,
+  getMessagePreviewText,
+  sortConversations,
+} from "@/types/chat";
 
 import { AddFriendDialog } from "./AddFriendDialog";
 import { ContactPanel } from "./ContactPanel";
@@ -54,31 +57,67 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
     friendApplications,
     connectionState,
     connect,
+    typingRooms,
   } = useChat();
 
   const [navTab, setNavTab] = useState<NavTab>("chats");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Calculate unread counts
-  const unreadCountByRoom: Record<string, number> = {};
-  let totalUnread = 0;
-  for (const conversation of conversations) {
-    const unread = conversation.unread_count || 0;
-    unreadCountByRoom[conversation.room.room_id] = unread;
-    totalUnread += unread;
-  }
+  // Merge full conversations with any rooms not yet in conversations, sorted by activity
+  const allConversations: readonly ConversationInfo[] = useMemo(() => {
+    const list = [...conversations];
+    const knownRoomIds = new Set(list.map((c) => c.room.room_id));
+    for (const r of rooms) {
+      if (!knownRoomIds.has(r.room_id)) {
+        list.push({
+          room: {
+            room_id: r.room_id,
+            chat_type: r.chat_type,
+            name: r.name ?? "",
+            avatar_url: r.avatar_url ?? "",
+            notice: r.notice ?? "",
+            last_seq: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          member: {
+            room_id: r.room_id,
+            user_id: currentUser?.user_id ?? "",
+            role: "member",
+            is_hidden: false,
+            is_muted: false,
+            is_pinned: false,
+          },
+          unread_count: 0,
+        });
+      }
+    }
+    return list.sort(sortConversations);
+  }, [conversations, rooms, currentUser]);
+
+  // Total unread count for the navigation icon badge
+  const totalUnread = useMemo(
+    () => allConversations.reduce((sum, c) => sum + (c.unread_count || 0), 0),
+    [allConversations],
+  );
 
   const pendingRequests = friendApplications.filter((a) => a.status === "pending").length;
 
-  const filteredRooms = rooms.filter((room) => {
+  const filteredConversations = useMemo(() => {
     if (!searchQuery.trim()) {
-      return true;
+      return allConversations;
     }
     const q = searchQuery.toLowerCase();
-    const nameMatch = room.name ? room.name.toLowerCase().includes(q) : false;
-    const idMatch = room.room_id.toLowerCase().includes(q);
-    return nameMatch || idMatch;
-  });
+    return allConversations.filter((c) => {
+      const name = c.room.name || (c.room.chat_type === "group" ? "群聊" : "私聊");
+      const preview = c.last_message ? getMessagePreviewText(c.last_message) : "";
+      return (
+        name.toLowerCase().includes(q) ||
+        c.room.room_id.toLowerCase().includes(q) ||
+        preview.toLowerCase().includes(q)
+      );
+    });
+  }, [allConversations, searchQuery]);
 
   const isConnected = connectionState === ConnectionState.Connected;
 
@@ -342,20 +381,27 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
               {/* Conversation List */}
               <ScrollArea className="h-[calc(100%-3.5rem)]">
                 <div className="flex flex-col gap-0.5 p-2">
-                  {filteredRooms.length === 0 ? (
+                  {filteredConversations.length === 0 ? (
                     <div className="text-muted-foreground p-8 text-center text-xs">
                       {searchQuery ? "未找到匹配会话" : "暂无会话，点击右上角发起聊天"}
                     </div>
                   ) : (
-                    filteredRooms.map((room) => {
+                    filteredConversations.map((conv) => {
+                      const room = conv.room;
                       const isActive = room.room_id === activeRoomId;
                       const isGroup = room.chat_type === "group";
                       const displayName = room.name || (isGroup ? "群聊" : "私聊");
                       const initials = getInitials(displayName);
-                      const unread = unreadCountByRoom[room.room_id] ?? 0;
-                      const conv = conversations.find((c) => c.room.room_id === room.room_id);
-                      const convMuted = conv?.member.is_muted ?? false;
-                      const convPinned = conv?.member.is_pinned ?? false;
+                      const unread = conv.unread_count || 0;
+                      const convMuted = conv.member.is_muted;
+                      const convPinned = conv.member.is_pinned;
+                      const isTyping = typingRooms[room.room_id] !== undefined;
+                      const lastTime = formatRelativeTime(
+                        conv.last_message?.server_time ?? conv.room.updated_at,
+                      );
+                      const previewText = conv.last_message
+                        ? getMessagePreviewText(conv.last_message)
+                        : "暂无消息";
 
                       return (
                         <button
@@ -368,7 +414,9 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
                             "group/item relative flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors cursor-pointer",
                             isActive
                               ? "bg-[#0099ff]/10 text-primary font-medium"
-                              : "hover:bg-muted/60 text-foreground",
+                              : convPinned
+                                ? "bg-muted/40 hover:bg-muted/70 text-foreground"
+                                : "hover:bg-muted/60 text-foreground",
                           )}
                         >
                           {/* Room Avatar */}
@@ -385,6 +433,11 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
                                 {initials}
                               </AvatarFallback>
                             </Avatar>
+                            {convPinned && (
+                              <div className="absolute -top-1 -left-1 flex size-3.5 items-center justify-center rounded-full bg-[#0099ff] text-white shadow-2xs">
+                                <Pin className="size-2 fill-white" />
+                              </div>
+                            )}
                           </div>
 
                           {/* Room Details */}
@@ -395,30 +448,29 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
                               </span>
 
                               <div className="flex shrink-0 items-center gap-1">
+                                {lastTime && (
+                                  <span className="text-muted-foreground text-[10px] leading-none">
+                                    {lastTime}
+                                  </span>
+                                )}
                                 {convMuted && <BellOff className="text-muted-foreground size-3" />}
-                                {convPinned && <Pin className="size-3 text-[#0099ff]" />}
-                                <Badge
-                                  variant="secondary"
-                                  className="h-3.5 shrink-0 px-1 py-0 text-[9px] font-normal"
-                                >
-                                  {isGroup ? (
-                                    <Users className="mr-0.5 size-2.5" />
-                                  ) : (
-                                    <User className="mr-0.5 size-2.5" />
-                                  )}
-                                  {isGroup ? "群" : "私"}
-                                </Badge>
                               </div>
                             </div>
 
                             <div className="mt-1 flex items-center justify-between gap-1">
-                              <span className="text-muted-foreground max-w-[150px] truncate font-mono text-[11px] leading-tight">
-                                {room.room_id.slice(0, 10)}...
-                              </span>
+                              {isTyping ? (
+                                <span className="animate-pulse truncate text-[11px] leading-tight font-medium text-[#0099ff]">
+                                  对方正在输入...
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground truncate text-[11px] leading-tight">
+                                  {previewText}
+                                </span>
+                              )}
 
                               {unread > 0 && (
-                                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-2xs">
-                                  {unread}
+                                <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-2xs">
+                                  {unread > 99 ? "99+" : unread}
                                 </span>
                               )}
                             </div>
