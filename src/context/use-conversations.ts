@@ -1,5 +1,5 @@
 import type { ConversationInfo, MemberInfo, Message } from "go-chat-sdk";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import { isErrorWithMessage, type UIMessage } from "@/types/chat";
 
@@ -40,24 +40,32 @@ export interface UseConversationsOptions extends ChatDomainDeps {
 
 /** Conversation list plus the mute/pin/unread toggles and room dissolution. */
 export function useConversations(options: UseConversationsOptions) {
-  const { sdk, state, activeRoomId, setError } = options;
+  const { sdk, setError } = options;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const inFlightRef = useRef(false);
 
   // The conversation list is the source of truth for unread counts, mute and
   // pin state, so every action below refreshes it.
   const refreshConversations = useCallback(async () => {
-    if (!options.isAuthenticated()) {
+    if (!optionsRef.current.isAuthenticated()) {
       return;
     }
-    state.setIsLoadingConversations(true);
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
+    optionsRef.current.state.setIsLoadingConversations(true);
     try {
       const resp = await sdk.listConversations();
-      state.setConversations(resp.conversations ?? []);
+      optionsRef.current.state.setConversations(resp.conversations ?? []);
     } catch (err) {
       setError(isErrorWithMessage(err) ? err.message : "Failed to load conversations");
     } finally {
-      state.setIsLoadingConversations(false);
+      optionsRef.current.state.setIsLoadingConversations(false);
+      inFlightRef.current = false;
     }
-  }, [sdk, state, setError, options.isAuthenticated]);
+  }, [sdk, setError]);
 
   const muteConversation = useCallback(
     async (roomId: string, muted: boolean) => {
@@ -103,36 +111,25 @@ export function useConversations(options: UseConversationsOptions) {
     async (roomId: string) => {
       try {
         await sdk.deleteRoom(roomId);
-        options.setMessagesByRoom((prev) => {
+        optionsRef.current.setMessagesByRoom((prev) => {
           const next = { ...prev };
           delete next[roomId];
           return next;
         });
-        if (roomId === activeRoomId) {
-          options.setActiveRoomId(null);
-          options.setActiveRoomDetail(null);
-          options.setMembers([]);
-          options.setPinnedMessages([]);
+        if (roomId === optionsRef.current.activeRoomId) {
+          optionsRef.current.setActiveRoomId(null);
+          optionsRef.current.setActiveRoomDetail(null);
+          optionsRef.current.setMembers([]);
+          optionsRef.current.setPinnedMessages([]);
         }
-        await options.rooms.refreshRooms();
+        await optionsRef.current.rooms.refreshRooms();
         await refreshConversations();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to dissolve room");
         throw err;
       }
     },
-    [
-      sdk,
-      activeRoomId,
-      refreshConversations,
-      setError,
-      options.setMessagesByRoom,
-      options.setActiveRoomId,
-      options.setActiveRoomDetail,
-      options.setMembers,
-      options.setPinnedMessages,
-      options.rooms,
-    ],
+    [sdk, refreshConversations, setError],
   );
 
   return {

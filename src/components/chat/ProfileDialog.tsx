@@ -1,4 +1,4 @@
-import { KeyRound, Loader2, LogOut, Smartphone, UserCog } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, LogOut, Smartphone, UserCog } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const [nickname, setNickname] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [copiedUserId, setCopiedUserId] = useState(false);
 
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -130,6 +131,39 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
           </TabsList>
 
           <TabsContent value="profile" className="flex flex-col gap-3 pt-2">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-muted-foreground text-xs font-medium" htmlFor="profile-userid">
+                User ID
+              </label>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  id="profile-userid"
+                  value={currentUser?.user_id ?? ""}
+                  disabled
+                  className="font-mono text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={() => {
+                    if (currentUser?.user_id) {
+                      void navigator.clipboard.writeText(currentUser.user_id);
+                      setCopiedUserId(true);
+                      setTimeout(() => setCopiedUserId(false), 2000);
+                    }
+                  }}
+                  title="复制用户ID"
+                  aria-label="Copy user ID"
+                >
+                  {copiedUserId ? (
+                    <Check className="size-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                </Button>
+              </div>
+            </div>
             <div className="flex flex-col gap-1.5">
               <label
                 className="text-muted-foreground text-xs font-medium"

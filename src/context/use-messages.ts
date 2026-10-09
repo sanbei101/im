@@ -1,5 +1,5 @@
 import type { Message, ReactionGroup } from "go-chat-sdk";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import { applyReactions, isErrorWithMessage, markRecalled, type UIMessage } from "@/types/chat";
 
@@ -41,20 +41,23 @@ export interface UseMessagesOptions extends ChatDomainDeps {
 
 /** Message-level mutations: recall, reactions, pins, receipts, search. */
 export function useMessages(options: UseMessagesOptions) {
-  const { sdk, state, activeRoomId, setError, currentUserId } = options;
+  const { sdk, setError, currentUserId } = options;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const recallMessage = useCallback(
     async (messageId: string) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        await sdk.recallMessage({ room_id: activeRoomId, msg_id: messageId });
-        state.setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
+        await sdk.recallMessage({ room_id: roomId, msg_id: messageId });
+        optionsRef.current.state.setMessagesByRoom((prev) => {
+          const list = prev[roomId] ?? [];
           return {
             ...prev,
-            [activeRoomId]: list.map((m) =>
+            [roomId]: list.map((m) =>
               m.id === messageId || m.clientMsgId === messageId ? markRecalled(m) : m,
             ),
           };
@@ -64,7 +67,7 @@ export function useMessages(options: UseMessagesOptions) {
         throw err;
       }
     },
-    [sdk, state, activeRoomId, setError],
+    [sdk, setError],
   );
 
   const getReadUsers = useCallback(
@@ -82,11 +85,12 @@ export function useMessages(options: UseMessagesOptions) {
 
   const toggleReaction = useCallback(
     async (messageId: string, emoji: string) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        const target = (state.messagesByRoom[activeRoomId] ?? []).find(
+        const target = (optionsRef.current.state.messagesByRoom[roomId] ?? []).find(
           (m) => m.id === messageId || m.clientMsgId === messageId,
         );
         // The same emoji from this user again removes the reaction.
@@ -94,88 +98,91 @@ export function useMessages(options: UseMessagesOptions) {
           currentUserId ? r.user_ids.includes(currentUserId) : false,
         );
         if (mine?.emoji === emoji) {
-          await sdk.removeReaction(messageId, { room_id: activeRoomId, emoji });
+          await sdk.removeReaction(messageId, { room_id: roomId, emoji });
         } else {
-          await sdk.addReaction(messageId, { room_id: activeRoomId, emoji });
+          await sdk.addReaction(messageId, { room_id: roomId, emoji });
         }
-        const groups = await sdk.getReactions(messageId, activeRoomId);
-        state.setMessagesByRoom((prev) => {
-          const list = prev[activeRoomId] ?? [];
-          const next = { ...prev, [activeRoomId]: applyReactions(list, messageId, groups) };
+        const groups = await sdk.getReactions(messageId, roomId);
+        optionsRef.current.state.setMessagesByRoom((prev) => {
+          const list = prev[roomId] ?? [];
+          const next = { ...prev, [roomId]: applyReactions(list, messageId, groups) };
           return next;
         });
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to react to message");
       }
     },
-    [sdk, state, activeRoomId, currentUserId, setError],
+    [sdk, currentUserId, setError],
   );
 
   const pinMessage = useCallback(
     async (messageId: string) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        await sdk.pinMessage(activeRoomId, { msg_id: messageId });
-        await options.refreshRoomDetail();
+        await sdk.pinMessage(roomId, { msg_id: messageId });
+        await optionsRef.current.refreshRoomDetail();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to pin message");
         throw err;
       }
     },
-    [sdk, activeRoomId, options.refreshRoomDetail, setError],
+    [sdk, setError],
   );
 
   const unpinMessage = useCallback(
     async (messageId: string) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        await sdk.unpinMessage(activeRoomId, messageId);
-        await options.refreshRoomDetail();
+        await sdk.unpinMessage(roomId, messageId);
+        await optionsRef.current.refreshRoomDetail();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to unpin message");
         throw err;
       }
     },
-    [sdk, activeRoomId, options.refreshRoomDetail, setError],
+    [sdk, setError],
   );
 
   // The backend requires a room_id, so search is always room-scoped.
   const searchMessages = useCallback(
     async (keyword: string) => {
       const trimmed = keyword.trim();
-      if (!activeRoomId) {
-        state.setSearchResults([]);
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
+        optionsRef.current.state.setSearchResults([]);
         setError("Select a room before searching.");
         return;
       }
       if (trimmed === "") {
-        state.setSearchResults([]);
+        optionsRef.current.state.setSearchResults([]);
         return;
       }
-      state.setIsSearching(true);
+      optionsRef.current.state.setIsSearching(true);
       try {
-        const results = await sdk.searchRoomMessages(activeRoomId, {
+        const results = await sdk.searchRoomMessages(roomId, {
           keyword: trimmed,
           page_size: 50,
         });
-        state.setSearchResults(results);
+        optionsRef.current.state.setSearchResults(results);
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to search messages");
-        state.setSearchResults([]);
+        optionsRef.current.state.setSearchResults([]);
       } finally {
-        state.setIsSearching(false);
+        optionsRef.current.state.setIsSearching(false);
       }
     },
-    [sdk, state, activeRoomId, setError],
+    [sdk, setError],
   );
 
   const clearSearchResults = useCallback(() => {
-    state.setSearchResults([]);
-  }, [state]);
+    optionsRef.current.state.setSearchResults([]);
+  }, []);
 
   return {
     recallMessage,

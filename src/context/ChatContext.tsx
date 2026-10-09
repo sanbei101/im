@@ -407,6 +407,9 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     [sdk],
   );
 
+  const activeRoomIdRef = useRef<string | null>(activeRoomId);
+  activeRoomIdRef.current = activeRoomId;
+
   const refreshRooms = useCallback(async () => {
     if (!sdk.isAuthenticated()) {
       return;
@@ -419,7 +422,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
       // Only auto-select when nothing is selected yet: re-selecting the active
       // room would refetch its history and drop locally merged state such as
       // reactions.
-      if (loadedRooms.length > 0 && !activeRoomId) {
+      if (loadedRooms.length > 0 && !activeRoomIdRef.current) {
         const first = loadedRooms[0]?.room_id;
         if (first) {
           void selectRoom(first);
@@ -431,7 +434,7 @@ export function ChatProvider({ children }: { readonly children: ReactNode }) {
     } finally {
       setIsLoadingRooms(false);
     }
-  }, [sdk, activeRoomId]);
+  }, [sdk, selectRoom]);
 
   refreshRoomsRef.current = refreshRooms;
 

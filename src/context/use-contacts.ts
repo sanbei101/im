@@ -1,5 +1,5 @@
 import type { FriendApplication, FriendItem, PresenceResponse, UserProfile } from "go-chat-sdk";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import { isErrorWithMessage } from "@/types/chat";
 
@@ -37,13 +37,20 @@ export interface UseContactsOptions extends ChatDomainDeps {
 
 /** Friends, pending applications, blacklist, user search and presence. */
 export function useContacts(options: UseContactsOptions) {
-  const { sdk, state, setError } = options;
+  const { sdk, setError } = options;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const inFlightRef = useRef(false);
 
   const refreshFriends = useCallback(async () => {
-    if (!options.isAuthenticated()) {
+    if (!optionsRef.current.isAuthenticated()) {
       return;
     }
-    state.setIsLoadingFriends(true);
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
+    optionsRef.current.state.setIsLoadingFriends(true);
     try {
       // The three lists are independent, so one round trip covers them all.
       const [friendList, applications, blocked] = await Promise.all([
@@ -51,15 +58,16 @@ export function useContacts(options: UseContactsOptions) {
         sdk.listFriendApplications(),
         sdk.listBlacklist(),
       ]);
-      state.setFriends(friendList);
-      state.setFriendApplications(applications);
-      state.setBlacklist(blocked);
+      optionsRef.current.state.setFriends(friendList);
+      optionsRef.current.state.setFriendApplications(applications);
+      optionsRef.current.state.setBlacklist(blocked);
     } catch (err) {
       setError(isErrorWithMessage(err) ? err.message : "Failed to load friends");
     } finally {
-      state.setIsLoadingFriends(false);
+      optionsRef.current.state.setIsLoadingFriends(false);
+      inFlightRef.current = false;
     }
-  }, [sdk, state, setError, options.isAuthenticated]);
+  }, [sdk, setError]);
 
   const applyFriend = useCallback(
     async (targetId: string, greeting?: string) => {
@@ -153,17 +161,17 @@ export function useContacts(options: UseContactsOptions) {
   const queryPresence = useCallback(
     async (userIds: readonly string[]) => {
       if (userIds.length === 0) {
-        state.setPresence({});
+        optionsRef.current.state.setPresence({});
         return;
       }
       try {
         const resp = await sdk.getPresence({ user_ids: [...userIds] });
-        state.setPresence(resp.presence ?? {});
+        optionsRef.current.state.setPresence(resp.presence ?? {});
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to query presence");
       }
     },
-    [sdk, state, setError],
+    [sdk, setError],
   );
 
   return {

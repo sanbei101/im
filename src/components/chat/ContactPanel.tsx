@@ -3,6 +3,7 @@ import {
   Ban,
   Bell,
   Check,
+  Copy,
   MessageSquare,
   Search,
   Trash2,
@@ -21,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useChat } from "@/context/ChatContext";
 import { cn } from "@/lib/utils";
+import { getInitials } from "@/types/chat";
 
 interface ContactPanelProps {
   readonly onClose: () => void;
@@ -46,6 +48,8 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
     createSingleRoom,
     searchUsers,
     presence,
+    currentUser,
+    profile,
   } = useChat();
 
   const [tab, setTab] = useState<ContactTab>("friends");
@@ -55,6 +59,19 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [remarkDraft, setRemarkDraft] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyToClipboard = useCallback(async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => {
+        setCopiedId((curr) => (curr === id ? null : curr));
+      }, 2000);
+    } catch {
+      // Ignore clipboard write failure
+    }
+  }, []);
 
   useEffect(() => {
     void refreshFriends();
@@ -131,6 +148,52 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
         </Button>
       </div>
 
+      {/* Current User Info & ID Card */}
+      {currentUser && (
+        <div className="bg-muted/30 border-b px-3.5 py-2.5">
+          <div className="flex items-center gap-2.5">
+            <Avatar className="ring-border/50 size-9 shrink-0 ring-1">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                {getInitials(profile?.nickname || currentUser.username)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-xs font-semibold">
+                  {profile?.nickname || currentUser.username}
+                </span>
+                <span className="text-muted-foreground truncate text-[11px]">
+                  @{currentUser.username}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center gap-1">
+                <span className="text-muted-foreground shrink-0 text-[10px] font-medium">ID:</span>
+                <code
+                  className="text-muted-foreground truncate font-mono text-[10px] select-all"
+                  title={currentUser.user_id}
+                >
+                  {currentUser.user_id}
+                </code>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground size-5 shrink-0"
+                  onClick={() => void copyToClipboard(currentUser.user_id, "my-user-id")}
+                  title="复制我的用户ID"
+                  aria-label="Copy my user ID"
+                >
+                  {copiedId === "my-user-id" ? (
+                    <Check className="size-3 text-emerald-500" />
+                  ) : (
+                    <Copy className="size-3" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Tabs
         value={tab}
         onValueChange={(next) => setTab(next as ContactTab)}
@@ -161,92 +224,126 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
         <TabsContent value="friends" className="min-h-0 flex-1">
           <ScrollArea className="h-full">
             <div className="flex flex-col gap-1 p-2">
-              {friends.length === 0 && (
+              {isLoadingFriends && friends.length === 0 ? (
+                <LoadingRows />
+              ) : friends.length === 0 ? (
                 <EmptyState
                   icon={<UserRound className="size-5" />}
                   title="No friends yet"
                   hint="Use “Find” to add people."
                 />
-              )}
-              {friends.map((friend) => (
-                <div
-                  key={friend.user_id}
-                  className="group/friend hover:bg-muted/60 flex flex-col gap-1 rounded-md p-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="relative">
-                      <Avatar className="size-8">
-                        <AvatarFallback className="text-xs">
-                          {(friend.remark || friend.nickname || friend.username).slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      {presence[friend.user_id] && (
-                        <span className="border-background bg-success absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {friend.remark || friend.nickname || friend.username}
-                      </p>
-                      <p className="text-muted-foreground truncate text-xs">@{friend.username}</p>
-                    </div>
-                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/friend:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Message ${friend.username}`}
-                        onClick={() =>
-                          void run(friend.user_id, async () => {
-                            await createSingleRoom(friend.user_id);
-                          })
-                        }
-                      >
-                        <MessageSquare className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Block ${friend.username}`}
-                        disabled={busyUserId === friend.user_id}
-                        onClick={() => void run(friend.user_id, () => addBlacklist(friend.user_id))}
-                      >
-                        <Ban className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${friend.username}`}
-                        disabled={busyUserId === friend.user_id}
-                        onClick={() => void run(friend.user_id, () => deleteFriend(friend.user_id))}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <form
-                    className="flex items-center gap-1"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void run(friend.user_id, () =>
-                        updateFriendRemark(friend.user_id, remarkDraft.trim()),
-                      );
-                      setRemarkDraft("");
-                    }}
+              ) : (
+                friends.map((friend) => (
+                  <div
+                    key={friend.user_id}
+                    className="group/friend hover:bg-muted/60 flex flex-col gap-1 rounded-md p-2"
                   >
-                    <Input
-                      value={remarkDraft}
-                      onChange={(e) => setRemarkDraft(e.target.value)}
-                      placeholder="Set remark"
-                      aria-label={`Remark for ${friend.username}`}
-                      className="h-7 text-xs"
-                    />
-                    <Button type="submit" size="icon-sm" variant="outline" aria-label="Save remark">
-                      <Check className="size-3.5" />
-                    </Button>
-                  </form>
-                </div>
-              ))}
-              {isLoadingFriends && friends.length === 0 && <LoadingRows />}
+                    <div className="flex items-center gap-2">
+                      <span className="relative">
+                        <Avatar className="size-8">
+                          <AvatarFallback className="text-xs">
+                            {(friend.remark || friend.nickname || friend.username).slice(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {presence[friend.user_id] && (
+                          <span className="border-background bg-success absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2" />
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {friend.remark || friend.nickname || friend.username}
+                        </p>
+                        <div className="text-muted-foreground flex items-center gap-1 text-xs">
+                          <span className="truncate">@{friend.username}</span>
+                          <span>·</span>
+                          <span
+                            className="max-w-[80px] truncate font-mono text-[10px]"
+                            title={friend.user_id}
+                          >
+                            ID: {friend.user_id.slice(0, 8)}...
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-muted-foreground hover:text-foreground size-4 shrink-0 p-0"
+                            onClick={() => void copyToClipboard(friend.user_id, friend.user_id)}
+                            title={`复制 ${friend.username} 的用户ID`}
+                            aria-label={`Copy user ID for ${friend.username}`}
+                          >
+                            {copiedId === friend.user_id ? (
+                              <Check className="size-2.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="size-2.5" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/friend:opacity-100">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Message ${friend.username}`}
+                          onClick={() =>
+                            void run(friend.user_id, async () => {
+                              await createSingleRoom(friend.user_id);
+                            })
+                          }
+                        >
+                          <MessageSquare className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Block ${friend.username}`}
+                          disabled={busyUserId === friend.user_id}
+                          onClick={() =>
+                            void run(friend.user_id, () => addBlacklist(friend.user_id))
+                          }
+                        >
+                          <Ban className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${friend.username}`}
+                          disabled={busyUserId === friend.user_id}
+                          onClick={() =>
+                            void run(friend.user_id, () => deleteFriend(friend.user_id))
+                          }
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <form
+                      className="flex items-center gap-1"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void run(friend.user_id, () =>
+                          updateFriendRemark(friend.user_id, remarkDraft.trim()),
+                        );
+                        setRemarkDraft("");
+                      }}
+                    >
+                      <Input
+                        value={remarkDraft}
+                        onChange={(e) => setRemarkDraft(e.target.value)}
+                        placeholder="Set remark"
+                        aria-label={`Remark for ${friend.username}`}
+                        className="h-7 text-xs"
+                      />
+                      <Button
+                        type="submit"
+                        size="icon-sm"
+                        variant="outline"
+                        aria-label="Save remark"
+                      >
+                        <Check className="size-3.5" />
+                      </Button>
+                    </form>
+                  </div>
+                ))
+              )}
             </div>
           </ScrollArea>
         </TabsContent>
@@ -254,53 +351,77 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
         <TabsContent value="requests" className="min-h-0 flex-1">
           <ScrollArea className="h-full">
             <div className="flex flex-col gap-1 p-2">
-              {pendingRequests.length === 0 && (
+              {isLoadingFriends && pendingRequests.length === 0 ? (
+                <LoadingRows />
+              ) : pendingRequests.length === 0 ? (
                 <EmptyState
                   icon={<Bell className="size-5" />}
                   title="No pending requests"
                   hint="Friend requests show up here."
                 />
-              )}
-              {pendingRequests.map((request) => (
-                <div
-                  key={request.from_user_id}
-                  className="hover:bg-muted/60 flex flex-col gap-1 rounded-md p-2"
-                >
-                  <p className="truncate text-sm font-medium">
-                    {request.from_user_id.slice(0, 12)}
-                  </p>
-                  <p className="text-muted-foreground text-xs">
-                    {request.greeting || "Wants to add you"}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="xs"
-                      disabled={busyUserId === request.from_user_id}
-                      onClick={() =>
-                        void run(request.from_user_id, () =>
-                          auditFriend(request.from_user_id, "accept"),
-                        )
-                      }
-                    >
-                      <Check className="size-3" />
-                      Accept
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={busyUserId === request.from_user_id}
-                      onClick={() =>
-                        void run(request.from_user_id, () =>
-                          auditFriend(request.from_user_id, "reject"),
-                        )
-                      }
-                    >
-                      <X className="size-3" />
-                      Reject
-                    </Button>
+              ) : (
+                pendingRequests.map((request) => (
+                  <div
+                    key={request.from_user_id}
+                    className="hover:bg-muted/60 flex flex-col gap-1.5 rounded-md p-2"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex min-w-0 items-center gap-1 font-mono text-xs">
+                        <span className="text-muted-foreground text-[10px]">ID:</span>
+                        <span className="truncate text-xs font-medium" title={request.from_user_id}>
+                          {request.from_user_id}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground hover:text-foreground size-5 shrink-0"
+                        onClick={() =>
+                          void copyToClipboard(request.from_user_id, request.from_user_id)
+                        }
+                        title="复制用户ID"
+                        aria-label="Copy applicant user ID"
+                      >
+                        {copiedId === request.from_user_id ? (
+                          <Check className="size-3 text-emerald-500" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      {request.greeting || "Wants to add you"}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="xs"
+                        disabled={busyUserId === request.from_user_id}
+                        onClick={() =>
+                          void run(request.from_user_id, () =>
+                            auditFriend(request.from_user_id, "accept"),
+                          )
+                        }
+                      >
+                        <Check className="size-3" />
+                        Accept
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={busyUserId === request.from_user_id}
+                        onClick={() =>
+                          void run(request.from_user_id, () =>
+                            auditFriend(request.from_user_id, "reject"),
+                          )
+                        }
+                      >
+                        <X className="size-3" />
+                        Reject
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </ScrollArea>
         </TabsContent>
@@ -308,37 +429,65 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
         <TabsContent value="blacklist" className="min-h-0 flex-1">
           <ScrollArea className="h-full">
             <div className="flex flex-col gap-1 p-2">
-              {blacklist.length === 0 && (
+              {isLoadingFriends && blacklist.length === 0 ? (
+                <LoadingRows />
+              ) : blacklist.length === 0 ? (
                 <EmptyState
                   icon={<Ban className="size-5" />}
                   title="No blocked users"
                   hint="Block from a friend row."
                 />
-              )}
-              {blacklist.map((user) => (
-                <div
-                  key={user.user_id}
-                  className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
-                >
-                  <Avatar className="size-8">
-                    <AvatarFallback className="text-xs">
-                      {(user.nickname || user.username).slice(0, 2)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{user.nickname || user.username}</p>
-                    <p className="text-muted-foreground truncate text-xs">@{user.username}</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busyUserId === user.user_id}
-                    onClick={() => void run(user.user_id, () => removeBlacklist(user.user_id))}
+              ) : (
+                blacklist.map((user) => (
+                  <div
+                    key={user.user_id}
+                    className="hover:bg-muted/60 flex items-center gap-2 rounded-md p-2"
                   >
-                    Unblock
-                  </Button>
-                </div>
-              ))}
+                    <Avatar className="size-8">
+                      <AvatarFallback className="text-xs">
+                        {(user.nickname || user.username).slice(0, 2)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {user.nickname || user.username}
+                      </p>
+                      <div className="text-muted-foreground flex items-center gap-1 text-xs">
+                        <span className="truncate">@{user.username}</span>
+                        <span>·</span>
+                        <span
+                          className="max-w-[80px] truncate font-mono text-[10px]"
+                          title={user.user_id}
+                        >
+                          ID: {user.user_id.slice(0, 8)}...
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-muted-foreground hover:text-foreground size-4 shrink-0 p-0"
+                          onClick={() => void copyToClipboard(user.user_id, user.user_id)}
+                          title="复制用户ID"
+                          aria-label={`Copy user ID for ${user.username}`}
+                        >
+                          {copiedId === user.user_id ? (
+                            <Check className="size-2.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="size-2.5" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busyUserId === user.user_id}
+                      onClick={() => void run(user.user_id, () => removeBlacklist(user.user_id))}
+                    >
+                      Unblock
+                    </Button>
+                  </div>
+                ))
+              )}
             </div>
           </ScrollArea>
         </TabsContent>
@@ -351,7 +500,7 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                 <Input
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="Search by username"
+                  placeholder="Search by username or user ID"
                   aria-label="Search users"
                   className="pl-8"
                 />
@@ -372,7 +521,7 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                     <EmptyState
                       icon={<Search className="size-5" />}
                       title="No users found"
-                      hint="Try a different username."
+                      hint="Try a different username or ID."
                     />
                   ))}
                 {results.map((user) => (
@@ -389,7 +538,30 @@ export function ContactPanel({ onClose, embedded = false }: ContactPanelProps) {
                       <p className="truncate text-sm font-medium">
                         {user.nickname || user.username}
                       </p>
-                      <p className="text-muted-foreground truncate text-xs">@{user.username}</p>
+                      <div className="text-muted-foreground flex items-center gap-1 text-xs">
+                        <span className="truncate">@{user.username}</span>
+                        <span>·</span>
+                        <span
+                          className="max-w-[80px] truncate font-mono text-[10px]"
+                          title={user.user_id}
+                        >
+                          ID: {user.user_id.slice(0, 8)}...
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-muted-foreground hover:text-foreground size-4 shrink-0 p-0"
+                          onClick={() => void copyToClipboard(user.user_id, user.user_id)}
+                          title="复制用户ID"
+                          aria-label={`Copy user ID for ${user.username}`}
+                        >
+                          {copiedId === user.user_id ? (
+                            <Check className="size-2.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="size-2.5" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                     <Button
                       size="sm"

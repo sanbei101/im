@@ -1,5 +1,5 @@
 import type { MemberInfo, Message, RoomDetail } from "go-chat-sdk";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import { isErrorWithMessage } from "@/types/chat";
 
@@ -38,127 +38,142 @@ export interface UseRoomsOptions extends ChatDomainDeps {
 
 /** Active-room detail, member management and the leave flow. */
 export function useRooms(options: UseRoomsOptions) {
-  const { sdk, state, activeRoomId, setError } = options;
+  const { sdk, setError } = options;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const inFlightRef = useRef(false);
 
   // One detail load covers the room record, its members and its pins.
   const refreshRoomDetail = useCallback(async () => {
-    if (!activeRoomId) {
-      state.setActiveRoomDetail(null);
-      state.setMembers([]);
-      state.setPinnedMessages([]);
+    const roomId = optionsRef.current.activeRoomId;
+    if (!roomId) {
+      optionsRef.current.state.setActiveRoomDetail(null);
+      optionsRef.current.state.setMembers([]);
+      optionsRef.current.state.setPinnedMessages([]);
       return;
     }
-    state.setIsLoadingMembers(true);
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
+    optionsRef.current.state.setIsLoadingMembers(true);
     try {
-      const detail = await sdk.getRoom(activeRoomId);
-      state.setActiveRoomDetail(detail);
-      const memberList = await sdk.listMembers(activeRoomId);
-      state.setMembers(memberList);
-      const pins = await sdk.getPinnedMessages(activeRoomId);
-      state.setPinnedMessages(pins);
+      const detail = await sdk.getRoom(roomId);
+      optionsRef.current.state.setActiveRoomDetail(detail);
+      const memberList = await sdk.listMembers(roomId);
+      optionsRef.current.state.setMembers(memberList);
+      const pins = await sdk.getPinnedMessages(roomId);
+      optionsRef.current.state.setPinnedMessages(pins);
     } catch (err) {
       setError(isErrorWithMessage(err) ? err.message : "Failed to load room details");
     } finally {
-      state.setIsLoadingMembers(false);
+      optionsRef.current.state.setIsLoadingMembers(false);
+      inFlightRef.current = false;
     }
-  }, [sdk, state, activeRoomId, setError]);
+  }, [sdk, setError]);
 
   const updateActiveRoom = useCallback(
     async (req: { name?: string; notice?: string }) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        const detail = await sdk.updateRoom(activeRoomId, req);
-        state.setActiveRoomDetail(detail);
-        await options.refreshRooms();
+        const detail = await sdk.updateRoom(roomId, req);
+        optionsRef.current.state.setActiveRoomDetail(detail);
+        await optionsRef.current.refreshRooms();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to update room");
         throw err;
       }
     },
-    [sdk, state, activeRoomId, setError, options.refreshRooms],
+    [sdk, setError],
   );
 
   const leaveActiveRoom = useCallback(async () => {
-    if (!activeRoomId) {
+    const roomId = optionsRef.current.activeRoomId;
+    if (!roomId) {
       return;
     }
     try {
-      await sdk.leaveRoom(activeRoomId);
-      options.setActiveRoomId(null);
-      state.setActiveRoomDetail(null);
-      state.setMembers([]);
-      state.setPinnedMessages([]);
-      await options.refreshRooms();
+      await sdk.leaveRoom(roomId);
+      optionsRef.current.setActiveRoomId(null);
+      optionsRef.current.state.setActiveRoomDetail(null);
+      optionsRef.current.state.setMembers([]);
+      optionsRef.current.state.setPinnedMessages([]);
+      await optionsRef.current.refreshRooms();
     } catch (err) {
       setError(isErrorWithMessage(err) ? err.message : "Failed to leave room");
       throw err;
     }
-  }, [sdk, state, activeRoomId, setError, options.setActiveRoomId, options.refreshRooms]);
+  }, [sdk, setError]);
 
   const addMembers = useCallback(
     async (memberIds: readonly string[]) => {
-      if (!activeRoomId || memberIds.length === 0) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId || memberIds.length === 0) {
         return;
       }
       try {
-        await sdk.addMembers(activeRoomId, { member_ids: [...memberIds] });
+        await sdk.addMembers(roomId, { member_ids: [...memberIds] });
         await refreshRoomDetail();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to add members");
         throw err;
       }
     },
-    [sdk, activeRoomId, refreshRoomDetail, setError],
+    [sdk, refreshRoomDetail, setError],
   );
 
   const updateMemberRole = useCallback(
     async (userId: string, role: "admin" | "member") => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        await sdk.updateMemberRole(activeRoomId, userId, { role });
+        await sdk.updateMemberRole(roomId, userId, { role });
         await refreshRoomDetail();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to update member role");
         throw err;
       }
     },
-    [sdk, activeRoomId, refreshRoomDetail, setError],
+    [sdk, refreshRoomDetail, setError],
   );
 
   const removeMember = useCallback(
     async (userId: string) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        await sdk.removeMember(activeRoomId, userId);
+        await sdk.removeMember(roomId, userId);
         await refreshRoomDetail();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to remove member");
         throw err;
       }
     },
-    [sdk, activeRoomId, refreshRoomDetail, setError],
+    [sdk, refreshRoomDetail, setError],
   );
 
   const transferOwnership = useCallback(
     async (newOwnerId: string) => {
-      if (!activeRoomId) {
+      const roomId = optionsRef.current.activeRoomId;
+      if (!roomId) {
         return;
       }
       try {
-        await sdk.transferOwner(activeRoomId, { new_owner_id: newOwnerId });
+        await sdk.transferOwner(roomId, { new_owner_id: newOwnerId });
         await refreshRoomDetail();
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to transfer ownership");
         throw err;
       }
     },
-    [sdk, activeRoomId, refreshRoomDetail, setError],
+    [sdk, refreshRoomDetail, setError],
   );
 
   return {

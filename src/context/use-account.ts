@@ -1,5 +1,5 @@
 import type { UserProfile, UserResponse } from "go-chat-sdk";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import { isErrorWithMessage } from "@/types/chat";
 
@@ -32,34 +32,42 @@ export interface UseAccountOptions extends ChatDomainDeps {
 
 /** Self profile, password, device token and sign-out. */
 export function useAccount(options: UseAccountOptions) {
-  const { sdk, state, setError, currentUser } = options;
+  const { sdk, setError, currentUser } = options;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const inFlightRef = useRef(false);
 
   const refreshProfile = useCallback(async () => {
-    if (!options.isAuthenticated()) {
+    if (!optionsRef.current.isAuthenticated()) {
       return;
     }
-    state.setIsLoadingProfile(true);
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
+    optionsRef.current.state.setIsLoadingProfile(true);
     try {
       const me = await sdk.getProfile();
-      state.setProfile(me);
+      optionsRef.current.state.setProfile(me);
     } catch (err) {
       setError(isErrorWithMessage(err) ? err.message : "Failed to load profile");
     } finally {
-      state.setIsLoadingProfile(false);
+      optionsRef.current.state.setIsLoadingProfile(false);
+      inFlightRef.current = false;
     }
-  }, [sdk, state, setError, options.isAuthenticated]);
+  }, [sdk, setError]);
 
   const updateProfile = useCallback(
     async (req: { nickname?: string; avatar_url?: string }) => {
       try {
         const me = await sdk.updateProfile(req);
-        state.setProfile(me);
+        optionsRef.current.state.setProfile(me);
       } catch (err) {
         setError(isErrorWithMessage(err) ? err.message : "Failed to update profile");
         throw err;
       }
     },
-    [sdk, state, setError],
+    [sdk, setError],
   );
 
   const updatePassword = useCallback(

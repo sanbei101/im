@@ -109,6 +109,11 @@ export function ChatSidebar({ isCollapsed, onToggleCollapse, onShowProfile }: Ch
             </TooltipTrigger>
             <TooltipContent side="right">
               <span className="font-medium">{currentUser?.username || "个人资料"}</span>
+              {currentUser && (
+                <span className="text-muted-foreground block font-mono text-[10px]">
+                  ID: {currentUser.user_id}
+                </span>
+              )}
               <span className="text-muted-foreground block text-[10px]">
                 {isConnected ? "在线" : "离线"} · 点击查看设置
               </span>
