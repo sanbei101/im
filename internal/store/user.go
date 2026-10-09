@@ -192,8 +192,16 @@ func (s *Store) SearchUsers(ctx context.Context, keyword string, limit int) ([]U
 
 	seen := make(map[uuid.UUID]struct{}, limit)
 	ids := make([]uuid.UUID, 0, limit)
-	if err := s.matchUsersByUsername(kw, limit, seen, &ids); err != nil {
-		return nil, err
+	if parsedID, err := uuid.Parse(keyword); err == nil {
+		if _, err := s.UserByID(ctx, parsedID); err == nil {
+			seen[parsedID] = struct{}{}
+			ids = append(ids, parsedID)
+		}
+	}
+	if len(ids) < limit {
+		if err := s.matchUsersByUsername(kw, limit, seen, &ids); err != nil {
+			return nil, err
+		}
 	}
 	if len(ids) < limit {
 		if err := s.matchUsersByNickname(kw, limit, seen, &ids); err != nil {
