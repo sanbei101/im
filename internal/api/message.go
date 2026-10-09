@@ -41,12 +41,26 @@ func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	after, ok := parseAfterSeq(w, q.Get("after_seq"))
+	if !ok {
+		return
+	}
 	before, ok := parseBeforeSeq(w, q.Get("before_seq"))
 	if !ok {
 		return
 	}
 	limit, ok := parseLimit(w, q.Get("page_size"))
 	if !ok {
+		return
+	}
+
+	if after > 0 {
+		page, err := a.store.MessagesAfter(r.Context(), roomID, after, limit)
+		if err != nil {
+			render.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		render.Success(w, "获取历史消息成功", page)
 		return
 	}
 
@@ -325,6 +339,20 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render.Success(w, "搜索聊天记录成功", messages)
+}
+
+// parseAfterSeq parses the after_seq pagination cursor; an empty value
+// means 0, a present-but-invalid value is rejected with 400.
+func parseAfterSeq(w http.ResponseWriter, raw string) (uint64, bool) {
+	if raw == "" {
+		return 0, true
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid after_seq")
+		return 0, false
+	}
+	return v, true
 }
 
 // parseBeforeSeq parses the before_seq pagination cursor; an empty value

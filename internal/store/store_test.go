@@ -442,6 +442,15 @@ func TestStoreMessages(t *testing.T) {
 		if empty, err := s.Messages(ctx, uuid.NewV7(), 0, 20); err != nil || len(empty.Messages) != 0 {
 			t.Fatalf("missing room page: page=%+v err=%v", empty, err)
 		}
+
+		afterPage, err := s.MessagesAfter(ctx, paged.RoomID, 4, 10)
+		if err != nil || len(afterPage.Messages) != 3 {
+			t.Fatalf("after page: page=%+v err=%v", afterPage, err)
+		}
+		if afterPage.Messages[0].RoomSeq != 5 || afterPage.Messages[1].RoomSeq != 6 ||
+			afterPage.Messages[2].RoomSeq != 7 {
+			t.Fatalf("after page ordering wrong: %+v", afterPage.Messages)
+		}
 	})
 
 	t.Run("concurrent writes keep sequence dense", func(t *testing.T) {

@@ -335,6 +335,59 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	return MessagePage{Messages: messages, HasMore: hasMore}, nil
 }
 
+// MessagesAfter returns messages with room_seq in (after, min(after+limit, LastSeq)] in ascending order.
+func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint64, limit int) (MessagePage, error) {
+	if err := contextErr(ctx); err != nil {
+		return MessagePage{}, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	room, err := s.Room(ctx, roomID)
+	if errors.Is(err, ErrNotFound) {
+		return MessagePage{Messages: []Message{}}, nil
+	}
+	if err != nil {
+		return MessagePage{}, err
+	}
+
+	if after >= room.LastSeq {
+		return MessagePage{Messages: []Message{}}, nil
+	}
+
+	lo := after + 1
+	hi := min(room.LastSeq+1, lo+uint64(limit))
+
+	watermark, err := s.archiveWatermark(roomID)
+	if err != nil {
+		return MessagePage{}, err
+	}
+	warmLo := lo
+	if watermark >= warmLo {
+		warmLo = watermark + 1
+	}
+	warm, err := s.scanWarm(roomID, warmLo, hi)
+	if err != nil {
+		return MessagePage{}, err
+	}
+	cold, err := s.readArchivedRange(ctx, roomID, lo, min64(hi, watermark+1))
+	if err != nil {
+		return MessagePage{}, err
+	}
+
+	ascending := make([]Message, 0, len(warm)+len(cold))
+	ascending = append(ascending, cold...)
+	ascending = append(ascending, warm...)
+
+	if err := s.populateReactions(ctx, roomID, ascending); err != nil {
+		return MessagePage{}, err
+	}
+
+	hasMore := room.LastSeq >= hi
+	return MessagePage{Messages: ascending, HasMore: hasMore}, nil
+}
+
 // scanWarm returns the Pebble messages with seq in [lo, hi) in ascending order.
 func (s *Store) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
 	if hi <= lo {

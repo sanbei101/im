@@ -96,8 +96,9 @@
 - [ ] **任务 3.2：窗口非聚焦状态提示**
   - 页面后台时，Document Title 闪烁：`【新消息】张三: ...`。
 
-- [ ] **任务 3.3：断线重连补拉 (Catch-up)**
-  - 重新连上 WebSocket 后，对比各房间最新 seq 与本地最大 seq，自动补拉间断的消息。
+- [x] **任务 3.3：断线重连补拉 (Catch-up)**（已完成并验证）
+  - 服务端与存储层实现 `after_seq` 序号范围查询（`MessagesAfter`），提供按游标正向补拉能力；
+  - 前端 SDK 与 UI 在 WebSocket 重连和窗口重新聚焦（VisibilityState / Focus）时，并行比对各房间服务端最新 `last_seq` 与本地已加载最大 `room_seq`，自动补拉间隙遗漏消息并保序合并。
 
 ---
 
