@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"errors"
@@ -158,11 +159,11 @@ func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
 	}
 	for _, targetID := range targets {
 		if session, ok := g.UserSessionManager.Load(targetID); ok {
-			for _, client := range session.Clients() {
+			session.ForEachClient(func(client *UserClient) {
 				if err := client.sendFrame(frameBytes); err != nil {
 					log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send typing frame failed")
 				}
-			}
+			})
 		}
 	}
 }
@@ -510,6 +511,10 @@ func (s *apiStream) handleResults(batch *pb.SendResultBatch) {
 }
 
 func (s *apiStream) handlePush(batch *pb.PushBatch) {
+	var (
+		lastMsgID      string
+		lastFrameBytes []byte
+	)
 	for _, push := range batch.GetPushes() {
 		if push == nil {
 			continue
@@ -522,37 +527,46 @@ func (s *apiStream) handlePush(batch *pb.PushBatch) {
 		if !ok {
 			continue
 		}
-		clients := session.Clients()
-		if len(clients) == 0 {
-			continue
+		var frameBytes []byte
+		if lastFrameBytes != nil && push.GetMsgId() == lastMsgID {
+			frameBytes = lastFrameBytes
+		} else {
+			frame := render.PushFrame{
+				Type:         "message",
+				MsgID:        push.GetMsgId(),
+				ClientMsgID:  push.GetClientMsgId(),
+				SenderID:     push.GetSenderId(),
+				RoomID:       push.GetRoomId(),
+				RoomSeq:      push.GetRoomSeq(),
+				ServerTime:   push.GetServerTime(),
+				MsgType:      store.MsgType(push.GetMsgType()).String(),
+				Payload:      jsontext.Value(push.GetPayload()),
+				ReplyToMsgID: push.GetReplyToMsgId(),
+				Ext:          jsontext.Value(push.GetExt()),
+			}
+			encoded, err := s.frames.EncodeFrame(frame)
+			if err != nil {
+				log.Error().Err(err).Msg("encode push frame failed")
+				continue
+			}
+			frameBytes = encoded
+			lastMsgID = push.GetMsgId()
+			lastFrameBytes = encoded
 		}
-		frame := render.PushFrame{
-			Type:         "message",
-			MsgID:        push.GetMsgId(),
-			ClientMsgID:  push.GetClientMsgId(),
-			SenderID:     push.GetSenderId(),
-			RoomID:       push.GetRoomId(),
-			RoomSeq:      push.GetRoomSeq(),
-			ServerTime:   push.GetServerTime(),
-			MsgType:      store.MsgType(push.GetMsgType()).String(),
-			Payload:      jsontext.Value(push.GetPayload()),
-			ReplyToMsgID: push.GetReplyToMsgId(),
-			Ext:          jsontext.Value(push.GetExt()),
-		}
-		frameBytes, err := s.frames.EncodeFrame(frame)
-		if err != nil {
-			log.Error().Err(err).Msg("encode push frame failed")
-			continue
-		}
-		for _, client := range clients {
+		session.ForEachClient(func(client *UserClient) {
 			if err := client.sendFrame(frameBytes); err != nil {
 				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
 			}
-		}
+		})
 	}
 }
 
 func (s *apiStream) handleNotification(batch *pb.NotificationBatch) {
+	var (
+		lastEvent      string
+		lastData       []byte
+		lastFrameBytes []byte
+	)
 	for _, notif := range batch.GetNotifications() {
 		if notif == nil {
 			continue
@@ -565,28 +579,34 @@ func (s *apiStream) handleNotification(batch *pb.NotificationBatch) {
 		if !ok {
 			continue
 		}
-		clients := session.Clients()
-		if len(clients) == 0 {
-			continue
+		var frameBytes []byte
+		data := notif.GetData()
+		if lastFrameBytes != nil && notif.GetEvent() == lastEvent && bytes.Equal(data, lastData) {
+			frameBytes = lastFrameBytes
+		} else {
+			frame := render.NotificationFrame{
+				Type:  "notification",
+				Event: notif.GetEvent(),
+				Data:  jsontext.Value(data),
+			}
+			encoded, err := s.frames.EncodeFrame(frame)
+			if err != nil {
+				log.Error().Err(err).Msg("encode notification frame failed")
+				continue
+			}
+			frameBytes = encoded
+			lastEvent = notif.GetEvent()
+			lastData = data
+			lastFrameBytes = encoded
 		}
-		frame := render.NotificationFrame{
-			Type:  "notification",
-			Event: notif.GetEvent(),
-			Data:  jsontext.Value(notif.GetData()),
-		}
-		frameBytes, err := s.frames.EncodeFrame(frame)
-		if err != nil {
-			log.Error().Err(err).Msg("encode notification frame failed")
-			continue
-		}
-		for _, client := range clients {
+		session.ForEachClient(func(client *UserClient) {
 			if err := client.sendFrame(frameBytes); err != nil {
 				log.Error().
 					Err(err).
 					Str("user_id", client.UserID.String()).
 					Msg("send notification frame to websocket failed")
 			}
-		}
+		})
 	}
 }
 

@@ -237,6 +237,15 @@ func (s *UserSession) Remove(client *UserClient) bool {
 	return len(s.clients) == 0
 }
 
+// ForEachClient traverses all clients in the session without allocating a slice.
+func (s *UserSession) ForEachClient(fn func(*UserClient)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for client := range s.clients {
+		fn(client)
+	}
+}
+
 // Clients 返回会话内全部客户端的快照(调用方遍历发送)。
 func (s *UserSession) Clients() []*UserClient {
 	s.mu.RLock()
