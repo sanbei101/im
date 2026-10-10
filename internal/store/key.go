@@ -169,13 +169,17 @@ func appendDeviceKey(dst []byte, user uuid.UUID) []byte {
 	return append(append(dst, 't'), user[:]...)
 }
 
-func prefixUpperBound(prefix []byte) []byte {
-	upperBound := append([]byte(nil), prefix...)
-	for i := len(upperBound) - 1; i >= 0; i-- {
-		if upperBound[i] < 0xff {
-			upperBound[i]++
-			return upperBound[:i+1]
+func prefixUpperBoundBuf(buf, prefix []byte) []byte {
+	buf = append(buf[:0], prefix...)
+	for i := len(buf) - 1; i >= 0; i-- {
+		if buf[i] < 0xff {
+			buf[i]++
+			return buf[:i+1]
 		}
 	}
 	return nil
+}
+
+func prefixUpperBound(prefix []byte) []byte {
+	return prefixUpperBoundBuf(nil, prefix)
 }

@@ -227,7 +227,10 @@ func (s *Store) SearchUsers(ctx context.Context, keyword string, limit int) ([]U
 func (s *Store) matchUsersByUsername(kw []byte, limit int, seen map[uuid.UUID]struct{}, ids *[]uuid.UUID) error {
 	var buf [1]byte
 	prefix := appendUsernamePrefix(buf[:0])
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	var upBuf [4]byte
+	iter, err := s.db.NewIter(
+		&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBoundBuf(upBuf[:0], prefix)},
+	)
 	if err != nil {
 		return err
 	}
@@ -251,7 +254,10 @@ func (s *Store) matchUsersByUsername(kw []byte, limit int, seen map[uuid.UUID]st
 func (s *Store) matchUsersByNickname(kw []byte, limit int, seen map[uuid.UUID]struct{}, ids *[]uuid.UUID) error {
 	var buf [1]byte
 	prefix := appendNicknamePrefix(buf[:0])
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	var upBuf [4]byte
+	iter, err := s.db.NewIter(
+		&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBoundBuf(upBuf[:0], prefix)},
+	)
 	if err != nil {
 		return err
 	}
@@ -278,13 +284,36 @@ func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	sorted := slices.Clone(ids)
+	if len(ids) == 0 {
+		return make(map[uuid.UUID]User), nil
+	}
+	if len(ids) == 1 {
+		user, err := s.UserByID(ctx, ids[0])
+		if errors.Is(err, ErrNotFound) {
+			return make(map[uuid.UUID]User), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[uuid.UUID]User{ids[0]: user}, nil
+	}
+
+	var stackBuf [32]uuid.UUID
+	var sorted []uuid.UUID
+	if len(ids) <= len(stackBuf) {
+		sorted = append(stackBuf[:0], ids...)
+	} else {
+		sorted = slices.Clone(ids)
+	}
 	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return a.Compare(b) })
 	sorted = slices.Compact(sorted)
 
 	var buf [1]byte
 	prefix := appendUserPrefix(buf[:0])
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	var upBuf [4]byte
+	iter, err := s.db.NewIter(
+		&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBoundBuf(upBuf[:0], prefix)},
+	)
 	if err != nil {
 		return nil, err
 	}

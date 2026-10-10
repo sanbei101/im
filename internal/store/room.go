@@ -291,7 +291,8 @@ func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error)
 		return nil, err
 	}
 
-	return s.scanPrefix(appendMemberPrefix(nil, roomID), decodeMember)
+	var buf [17]byte
+	return s.scanPrefix(appendMemberPrefix(buf[:0], roomID), decodeMember)
 }
 
 func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, error) {
@@ -299,15 +300,17 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 		return nil, err
 	}
 
-	prefix := appendUserRoomPrefix(nil, userID)
-	upper := prefixUpperBound(prefix)
+	var pBuf [17]byte
+	prefix := appendUserRoomPrefix(pBuf[:0], userID)
+	var upBuf [17]byte
+	upper := prefixUpperBoundBuf(upBuf[:0], prefix)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
 
-	var result []RoomInfo
+	result := make([]RoomInfo, 0, 16)
 	for iter.First(); iter.Valid(); iter.Next() {
 		member, err := decodeMember(iter.Value())
 		if err != nil {

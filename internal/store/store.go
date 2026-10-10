@@ -546,14 +546,15 @@ func (s *Store) getRecord[T any](key []byte, decode func([]byte) (T, error)) (T,
 
 // scanPrefix scans all keys with the given prefix and decodes values into []T.
 func (s *Store) scanPrefix[T any](prefix []byte, decode func([]byte) (T, error)) ([]T, error) {
-	upper := prefixUpperBound(prefix)
+	var upBuf [64]byte
+	upper := prefixUpperBoundBuf(upBuf[:0], prefix)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
 
-	var result []T
+	result := make([]T, 0, 16)
 	for iter.First(); iter.Valid(); iter.Next() {
 		item, err := decode(iter.Value())
 		if err != nil {
