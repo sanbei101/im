@@ -13,7 +13,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
-	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
 )
 
@@ -81,14 +80,9 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return
 	}
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	user1, err := uuid.Parse(userIDStr)
+	user1, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	user2, err := uuid.Parse(req.UserID2)
@@ -135,14 +129,9 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
-	creatorIDStr := jwt.GetUserIDFromContext(r)
-	if creatorIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	creatorID, err := uuid.Parse(creatorIDStr)
+	creatorID, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -220,10 +209,9 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) ListRooms(w http.ResponseWriter, r *http.Request) {
-	userIDStr := jwt.GetUserIDFromContext(r)
-	id, err := uuid.Parse(userIDStr)
+	id, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
+	"uuid"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -142,4 +144,27 @@ func NewRouter(
 	})
 
 	return r
+}
+
+func getContextUserID(r *http.Request) (uuid.UUID, error) {
+	raw := jwt.GetUserIDFromContext(r)
+	if raw == "" {
+		return uuid.Nil(), errors.New("user not authenticated")
+	}
+	return uuid.Parse(raw)
+}
+
+// requireRoomMember authenticates the caller and verifies membership of
+// roomID; on failure the response is already written and it returns false.
+func requireRoomMember(s *store.Store, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
+	userID, err := getContextUserID(r)
+	if err != nil {
+		render.Error(w, http.StatusUnauthorized, err.Error())
+		return false
+	}
+	if _, err := s.Member(r.Context(), roomID, userID); err != nil {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return false
+	}
+	return true
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
-	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
 )
 
@@ -78,14 +77,9 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	roomID, err := uuid.Parse(req.RoomID)
@@ -148,14 +142,9 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	roomID, err := uuid.Parse(req.RoomID)
@@ -197,14 +186,9 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid message id")
 		return
 	}
-	userIDStr := jwt.GetUserIDFromContext(r)
-	if userIDStr == "" {
-		render.Error(w, http.StatusUnauthorized, "user not authenticated")
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := getContextUserID(r)
 	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid user_id")
+		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	roomIDStr := r.URL.Query().Get("room_id")

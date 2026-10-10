@@ -122,11 +122,13 @@ type UserProfileResp struct {
 }
 
 func (a *UserAPI) GetProfile(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	if idStr == "" || idStr == "me" {
-		idStr = jwt.GetUserIDFromContext(r)
+	var id uuid.UUID
+	var err error
+	if idStr := chi.URLParam(r, "id"); idStr == "" || idStr == "me" {
+		id, err = getContextUserID(r)
+	} else {
+		id, err = uuid.Parse(idStr)
 	}
-	id, err := uuid.Parse(idStr)
 	if err != nil {
 		render.Error(w, http.StatusBadRequest, "invalid user id")
 		return

@@ -12,7 +12,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
-	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
 )
 
@@ -361,27 +360,4 @@ func (a *FriendAPI) ListBlacklist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render.Success(w, "获取黑名单成功", result)
-}
-
-func getContextUserID(r *http.Request) (uuid.UUID, error) {
-	raw := jwt.GetUserIDFromContext(r)
-	if raw == "" {
-		return uuid.Nil(), errors.New("user not authenticated")
-	}
-	return uuid.Parse(raw)
-}
-
-// requireRoomMember authenticates the caller and verifies membership of
-// roomID; on failure the response is already written and it returns false.
-func requireRoomMember(s *store.Store, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
-	userID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
-		return false
-	}
-	if _, err := s.Member(r.Context(), roomID, userID); err != nil {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return false
-	}
-	return true
 }
