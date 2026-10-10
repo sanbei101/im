@@ -108,11 +108,6 @@ function parseStoredConfig(): ServerConfig {
 }
 
 function parseStoredUser(): UserResponse | null {
-  // Clean up legacy shared localStorage user if any
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem(STORAGE_KEYS.USER);
-  }
-
   const json = getSessionString(STORAGE_KEYS.USER);
   if (!json) {
     return null;
