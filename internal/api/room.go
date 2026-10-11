@@ -186,13 +186,9 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 				memberIDs = append(memberIDs, m.UserID)
 			}
 		}
-		a.streamHandler.NotifyUsers(memberIDs, "room_update", map[string]any{
-			"room_id":    roomID.String(),
-			"chat_type":  store.ChatTypeGroup,
-			"name":       name,
-			"avatar_url": avatar,
-			"inviter_id": creatorID.String(),
-			"action":     "created",
+		a.streamHandler.NotifyUsers(memberIDs, RoomUpdated{
+			Action: "created", RoomID: roomID, ChatType: store.ChatTypeGroup,
+			Name: name, AvatarURL: avatar, InviterID: creatorID,
 		})
 	}
 
@@ -318,12 +314,9 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.streamHandler != nil {
-		a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "room_update", map[string]any{
-			"room_id":    updated.RoomID.String(),
-			"name":       updated.Name,
-			"avatar_url": updated.AvatarURL,
-			"notice":     updated.Notice,
-			"action":     "info_updated",
+		a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), RoomUpdated{
+			Action: "info_updated", RoomID: updated.RoomID,
+			Name: updated.Name, AvatarURL: updated.AvatarURL, Notice: updated.Notice,
 		})
 	}
 
@@ -443,20 +436,13 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 			for i, m := range toAdd {
 				newMemberIDs[i] = m.UserID
 			}
-			newMemberData := map[string]any{
-				"room_id":    roomID.String(),
-				"inviter_id": myID.String(),
-				"action":     "invited",
-			}
+			invited := RoomUpdated{Action: "invited", RoomID: roomID, InviterID: myID}
 			if rInfo, err := a.store.Room(r.Context(), roomID); err == nil {
-				newMemberData["name"] = rInfo.Name
-				newMemberData["avatar_url"] = rInfo.AvatarURL
-				newMemberData["chat_type"] = rInfo.ChatType
+				invited.Name, invited.AvatarURL, invited.ChatType = rInfo.Name, rInfo.AvatarURL, rInfo.ChatType
 			}
-			a.streamHandler.NotifyUsers(newMemberIDs, "room_update", newMemberData)
-			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "room_members_changed", map[string]any{
-				"room_id": roomID.String(),
-				"action":  "members_added",
+			a.streamHandler.NotifyUsers(newMemberIDs, invited)
+			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), RoomMembersChanged{
+				RoomID: roomID, Action: "members_added",
 			})
 		}
 	}
@@ -673,9 +659,8 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.streamHandler != nil {
-		a.streamHandler.NotifyRoom(r.Context(), roomID, myID, "room_update", map[string]any{
-			"room_id": roomID.String(),
-			"action":  "dissolved",
+		a.streamHandler.NotifyRoom(r.Context(), roomID, myID, RoomUpdated{
+			Action: "dissolved", RoomID: roomID,
 		})
 		a.streamHandler.InvalidateRoomMembers(roomID)
 	}

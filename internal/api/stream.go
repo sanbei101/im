@@ -413,20 +413,81 @@ func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error 
 	return h.push(ctx, message)
 }
 
-// NotifyUser delivers one event to a user, if the user is online on this
-// node. Handlers' fire-and-forget entry point: the payload is marshaled here
-// (a failure, never expected for plain maps, is logged) and the frame lands
-// in the connection outbox; a drop is logged and ends the delivery.
-func (h *StreamHandler) NotifyUser(userID uuid.UUID, event string, data map[string]any) {
-	h.NotifyUsers([]uuid.UUID{userID}, event, data)
+// Notification is the typed payload of one push event. Each implementation
+// also names its wire event, so an event and its payload shape cannot drift
+// apart; the set of notifications is closed and grep-visible via event().
+type Notification interface {
+	event() string
 }
 
-// NotifyUsers delivers one event to every online user in the list, grouped
-// per gateway connection so the payload crosses each gateway once.
-func (h *StreamHandler) NotifyUsers(userIDs []uuid.UUID, event string, data map[string]any) {
-	payload, err := json.Marshal(data)
+// RoomUpdated reports room lifecycle changes; Action discriminates "created",
+// "invited", "info_updated" and "dissolved", and only the fields an action
+// carries are set.
+type RoomUpdated struct {
+	Action    string    `json:"action"`
+	RoomID    uuid.UUID `json:"room_id"`
+	ChatType  string    `json:"chat_type,omitzero"`
+	Name      string    `json:"name,omitzero"`
+	AvatarURL string    `json:"avatar_url,omitzero"`
+	Notice    string    `json:"notice,omitzero"`
+	InviterID uuid.UUID `json:"inviter_id,omitzero"`
+}
+
+func (RoomUpdated) event() string { return "room_update" }
+
+// RoomMembersChanged tells the room's online members that membership changed.
+type RoomMembersChanged struct {
+	RoomID uuid.UUID `json:"room_id"`
+	Action string    `json:"action"`
+}
+
+func (RoomMembersChanged) event() string { return "room_members_changed" }
+
+// ReactionUpdated carries the current reaction groups of one message.
+type ReactionUpdated struct {
+	RoomID    uuid.UUID             `json:"room_id"`
+	MsgID     uuid.UUID             `json:"msg_id"`
+	Reactions []store.ReactionGroup `json:"reactions"`
+}
+
+func (ReactionUpdated) event() string { return "reaction" }
+
+// FriendApplication tells the target about an incoming friend request, with
+// the sender's profile filled in when it resolves.
+type FriendApplication struct {
+	FromUserID    uuid.UUID `json:"from_user_id"`
+	Greeting      string    `json:"greeting"`
+	FromUsername  string    `json:"from_username,omitzero"`
+	FromNickname  string    `json:"from_nickname,omitzero"`
+	FromAvatarURL string    `json:"from_avatar_url,omitzero"`
+}
+
+func (FriendApplication) event() string { return "friend_application" }
+
+// FriendAccepted tells the applicant that the request was accepted, with the
+// accepter's profile filled in when it resolves.
+type FriendAccepted struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Username  string    `json:"username,omitzero"`
+	Nickname  string    `json:"nickname,omitzero"`
+	AvatarURL string    `json:"avatar_url,omitzero"`
+}
+
+func (FriendAccepted) event() string { return "friend_accepted" }
+
+// NotifyUser delivers one notification to a user, if the user is online on
+// this node. Fire-and-forget: the frame lands in the connection outbox and a
+// drop is logged.
+func (h *StreamHandler) NotifyUser(userID uuid.UUID, n Notification) {
+	h.NotifyUsers([]uuid.UUID{userID}, n)
+}
+
+// NotifyUsers delivers one notification to every online user in the list,
+// grouped per gateway connection so the payload crosses each gateway once.
+func (h *StreamHandler) NotifyUsers(userIDs []uuid.UUID, n Notification) {
+	payload, err := json.Marshal(n)
 	if err != nil {
-		log.Error().Err(err).Str("event", event).Msg("marshal notification failed")
+		log.Error().Err(err).Str("event", n.event()).Msg("marshal notification failed")
 		return
 	}
 	targets := make(map[*apiConnection][]string)
@@ -436,38 +497,25 @@ func (h *StreamHandler) NotifyUsers(userIDs []uuid.UUID, event string, data map[
 			targets[conn] = append(targets[conn], uidStr)
 		}
 	}
-	h.fanOut(targets, event, payload)
+	h.fanOut(targets, n.event(), payload)
 }
 
-// NotifyRoom delivers one event to every online room member except
-// excludeUserID. Best effort per gateway: one stalled connection drops its
-// frame and the rest of the fan-out continues.
-func (h *StreamHandler) NotifyRoom(
-	ctx context.Context,
-	roomID, excludeUserID uuid.UUID,
-	event string,
-	data map[string]any,
-) {
+// NotifyRoom delivers one notification to every online room member except
+// excludeUserID.
+func (h *StreamHandler) NotifyRoom(ctx context.Context, roomID, excludeUserID uuid.UUID, n Notification) {
 	members, err := h.getRoomMembers(ctx, roomID)
 	if err != nil {
 		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load room members for notification failed")
 		return
 	}
-	payload, err := json.Marshal(data)
-	if err != nil {
-		log.Error().Err(err).Str("event", event).Msg("marshal notification failed")
-		return
-	}
-	targets := make(map[*apiConnection][]string)
+	userIDs := make([]uuid.UUID, 0, len(members))
 	for _, member := range members {
 		if excludeUserID != uuid.Nil() && member.userID == excludeUserID {
 			continue
 		}
-		if conn := h.onlineConnection(member.userIDStr); conn != nil {
-			targets[conn] = append(targets[conn], member.userIDStr)
-		}
+		userIDs = append(userIDs, member.userID)
 	}
-	h.fanOut(targets, event, payload)
+	h.NotifyUsers(userIDs, n)
 }
 
 // fanOut enqueues one notification frame per gateway connection; a stalled

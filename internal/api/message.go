@@ -167,10 +167,8 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.streamHandler != nil {
 		if reactions, err := a.store.Reactions(r.Context(), roomID, msgID); err == nil {
-			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "reaction", map[string]any{
-				"room_id":   roomID.String(),
-				"msg_id":    msgID.String(),
-				"reactions": reactions,
+			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), ReactionUpdated{
+				RoomID: roomID, MsgID: msgID, Reactions: reactions,
 			})
 		}
 	}
@@ -208,10 +206,8 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.streamHandler != nil {
 		if reactions, err := a.store.Reactions(r.Context(), roomID, msgID); err == nil {
-			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "reaction", map[string]any{
-				"room_id":   roomID.String(),
-				"msg_id":    msgID.String(),
-				"reactions": reactions,
+			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), ReactionUpdated{
+				RoomID: roomID, MsgID: msgID, Reactions: reactions,
 			})
 		}
 	}
