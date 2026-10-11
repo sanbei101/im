@@ -107,6 +107,8 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (User
 	if err := commit(batch); err != nil {
 		return User{}, fmt.Errorf("commit user: %w", err)
 	}
+	s.usernameCache.Set(username, user.UserID)
+	s.getUserShard(user.UserID).users.Set(user.UserID, user)
 	return user, nil
 }
 
@@ -115,13 +117,19 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, erro
 		return User{}, err
 	}
 
+	if id, ok := s.usernameCache.Get(username); ok {
+		if user, err := s.UserByID(ctx, id); err == nil {
+			return user, nil
+		}
+	}
+
 	var buf [64]byte
 	id, err := s.getRecord(appendUsernameKey(buf[:0], username), getUUID)
 	if err != nil {
 		return User{}, err
 	}
-	var uKeyBuf [32]byte
-	return s.getRecord(appendUserKey(uKeyBuf[:0], id), decodeUser)
+	s.usernameCache.Set(username, id)
+	return s.UserByID(ctx, id)
 }
 
 func (s *Store) UserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -129,8 +137,17 @@ func (s *Store) UserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		return User{}, err
 	}
 
+	if user, ok := s.getUserShard(id).users.Get(id); ok {
+		return user, nil
+	}
+
 	var buf [32]byte
-	return s.getRecord(appendUserKey(buf[:0], id), decodeUser)
+	user, err := s.getRecord(appendUserKey(buf[:0], id), decodeUser)
+	if err != nil {
+		return User{}, err
+	}
+	s.getUserShard(id).users.Set(id, user)
+	return user, nil
 }
 
 func (s *Store) UpdateUserProfile(ctx context.Context, id uuid.UUID, nickname, avatarURL string) (User, error) {
@@ -171,6 +188,7 @@ func (s *Store) UpdateUserProfile(ctx context.Context, id uuid.UUID, nickname, a
 	if err := commit(batch); err != nil {
 		return User{}, fmt.Errorf("commit update user: %w", err)
 	}
+	s.getUserShard(id).users.Set(id, user)
 	return user, nil
 }
 
@@ -278,8 +296,8 @@ func (s *Store) matchUsersByNickname(kw []byte, limit int, seen map[uuid.UUID]st
 	return iter.Error()
 }
 
-// UsersByIDs resolves user records in one iterator: ids are seeked in sorted
-// order instead of one Get per id. Missing ids are simply absent from the map.
+// UsersByIDs resolves user records, serving cached users from LRU and seeking
+// only missing ids from Pebble in a single sorted iterator. Missing ids are simply absent.
 func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]User, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -287,23 +305,38 @@ func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	if len(ids) == 0 {
 		return make(map[uuid.UUID]User), nil
 	}
-	if len(ids) == 1 {
-		user, err := s.UserByID(ctx, ids[0])
-		if errors.Is(err, ErrNotFound) {
-			return make(map[uuid.UUID]User), nil
+
+	users := make(map[uuid.UUID]User, len(ids))
+	var missing []uuid.UUID
+	for _, id := range ids {
+		if _, ok := users[id]; ok {
+			continue
 		}
-		if err != nil {
+		if u, ok := s.getUserShard(id).users.Get(id); ok {
+			users[id] = u
+		} else {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
+		return users, nil
+	}
+	if len(missing) == 1 {
+		user, err := s.UserByID(ctx, missing[0])
+		if err == nil {
+			users[missing[0]] = user
+		} else if !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
-		return map[uuid.UUID]User{ids[0]: user}, nil
+		return users, nil
 	}
 
 	var stackBuf [32]uuid.UUID
 	var sorted []uuid.UUID
-	if len(ids) <= len(stackBuf) {
-		sorted = append(stackBuf[:0], ids...)
+	if len(missing) <= len(stackBuf) {
+		sorted = append(stackBuf[:0], missing...)
 	} else {
-		sorted = slices.Clone(ids)
+		sorted = slices.Clone(missing)
 	}
 	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return a.Compare(b) })
 	sorted = slices.Compact(sorted)
@@ -319,7 +352,6 @@ func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	}
 	defer iter.Close()
 
-	users := make(map[uuid.UUID]User, len(sorted))
 	var keyBuf [17]byte
 	for _, id := range sorted {
 		key := appendUserKey(keyBuf[:0], id)
@@ -330,6 +362,7 @@ func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 		if err != nil {
 			return nil, err
 		}
+		s.getUserShard(id).users.Set(id, user)
 		users[id] = user
 	}
 	return users, iter.Error()
@@ -357,5 +390,6 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id uuid.UUID, password s
 	if err := commit(batch); err != nil {
 		return fmt.Errorf("commit update password: %w", err)
 	}
+	s.getUserShard(id).users.Set(id, user)
 	return nil
 }

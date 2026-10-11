@@ -89,24 +89,21 @@ func (c *messageCache) page(room uuid.UUID, before uint64, limit int) ([]Message
 		return nil, false, false
 	}
 
-	messages := make([]Message, 0, hi-lo)
-	for i := tail.find(lo); i < tail.count; i++ {
-		message := &tail.messages[(tail.head+i)%tailCapacity]
-		if message.RoomSeq >= hi {
-			break
-		}
-		messages = append(messages, *message)
-	}
-	if uint64(len(messages)) != hi-lo {
+	start := tail.find(lo)
+	end := tail.find(hi)
+	count := end - start
+	if uint64(count) != hi-lo {
 		// Seq gap from a failed batch write: let Pebble answer.
 		return nil, false, false
 	}
-	hasMore := uint64(len(messages)) > uint64(limit)
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
-	}
+	hasMore := count > limit
+	n := count
 	if hasMore {
-		messages = messages[:limit]
+		n = limit
+	}
+	messages := make([]Message, n)
+	for i := range n {
+		messages[i] = tail.messages[(tail.head+end-1-i)%tailCapacity]
 	}
 	return messages, hasMore, true
 }

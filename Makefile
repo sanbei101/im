@@ -31,7 +31,15 @@ test:
 		exit $$status
 
 bench:
-	go test ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
+	go test -p 4 ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
+
+pprof:
+	@mkdir -p $(PPROF_DIR)
+	go test -p 4 ./internal/store -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
+		-cpuprofile $(PPROF_DIR)/cpu.prof \
+		-memprofile $(PPROF_DIR)/mem.prof \
+		-mutexprofile $(PPROF_DIR)/mutex.prof \
+		-blockprofile $(PPROF_DIR)/block.prof
 
 verify: lint test bench
 

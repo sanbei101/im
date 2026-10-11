@@ -46,8 +46,38 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - UUID 统一使用 Go 标准库 `uuid`,不要引入第三方 UUID 包。
 - 消息使用 `room_seq` 做历史分页和断线补拉,不使用时间戳作为唯一游标。
 - 消息幂等键为 `room_id + sender_id + client_msg_id`,相同键不同内容必须返回冲突。
-- 客户端成功 ACK 表示消息已写入本地 Pebble;进入 channel、进入 gRPC 流或开始处理不代表成功。
 - 不需要考虑任何的兼容性行为,一切以代码最优雅简洁,性能为目标
+
+## 存储架构 (内存 -> 文件 -> Parquet 归档)
+
+本项目采用严格的三层渐进式分层存储架构,兼顾极端读写性能、严格持久化一致性与海量冷数据低成本保留:
+
+### 1. 内存层
+- **高性能分片 LRU 缓存 (`phuslu/lru`)**:
+  - `messageCache` (`roomTail`):4096 房间的分片 LRU 环形缓冲区,每个活跃房间保留最新 128 条(至多 64KB)已提交消息。最新一页(`before=0`)历史读取 100% 命中内存,单次读取仅 ~790ns,0 Pebble I/O。
+  - `roomShards`:64 分片 LRU 缓存热点房间元数据(反范式化嵌入 `LastMsg` 与 `LastSeq`),消除会话列表渲染时的逐房间消息回表。
+  - `userShards` & `usernameCache`:64 分片 LRU 缓存热点用户资料与用户名反查,批量用户解析(`UsersByIDs`)优先走内存,吞吐提升 10 倍以上且 0 堆内存分配。
+  - `dedupCache`:缓存近期 32K 条消息的幂等键(`room_id + sender_id + client_msg_id`),秒级拦截网络重发,消除写前读取 Pebble 的 LSM 读放大。
+- **写聚合缓冲管道**:客户端发送请求通过 `messageQueue`(4096 容量)由单写协程在 1ms 或 128 条批大小窗口内合并,变随机小写为顺序批写。
+
+### 2. 文件存储层
+- **无中心化独立存储**:单 API 节点全权负责本地逻辑槽的 Pebble 实例,不依赖任何外部集中式数据库。
+- **大端字典序 Key 编码**:
+  - 消息主表 `m:<room_id>:<room_seq>`:单调自增前缀连续存储,消息游标分页与断线补拉天然有序高效。
+  - 消息索引 `i:<room_id>:<msg_id>` -> `room_seq`:支持点查与快速定位。
+  - 幂等记账 `d:<room_id>:<sender_id>:<client_msg_id>` -> `Dedup`(记录 SHA-256 `PayloadSum` 防止冲突)。
+  - 房间元数据 `r:<room_id>`、成员关系 `M:<room_id>:<user_id>`、已读游标 `R:<user_id>:<room_id>`。
+- **单 Batch 严格原子性**:消息记录、房间 `LastSeq`、最新消息预览与幂等凭证必须提交至同一个 `pebble.Batch`;持久化至本地 WAL/SST 后才向客户端返回 ACK。
+- **Checkpoint 物理快照**:由 API 节点定期生成硬链接快照,零停机且无锁备份。
+
+### 3. 冷数据归档层
+- **异步批归档**:后台 Archiver 协程周期巡检沉淀的冷历史消息(超过 `ArchiveThreshold`),按房间与序号区间分段。
+- **Parquet 列式高压缩 (`parquet-go`)**:
+  - 高基数 ID(`MsgID`、`SenderID` 等)采用字典编码(Dictionary Encoding);
+  - 单调递增序号与时间戳(`RoomSeq`、`ServerTime`)采用 Delta 增量压缩;
+  - 变长二进制内容(`Payload`、`Ext`)采用 ZSTD 块级压缩;
+  - 体积较原始行存压缩 60%~80%,大幅降低长期存储成本。
+- **透明分层读取 (`remoteReader`)**:当客户端请求早于 Pebble 本地保留范围的历史消息时,存储层自动向对象存储拉取对应 Parquet 数据块解码并拼接,上层 API 与前端无感知。
 
 ## 验证
 

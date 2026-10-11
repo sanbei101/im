@@ -74,12 +74,24 @@ type roomShard struct {
 	rooms *lru.LRUCache[uuid.UUID, Room]
 }
 
+const (
+	userShardCount    = 64
+	userCachePerShard = 256
+)
+
+type userShard struct {
+	users *lru.LRUCache[uuid.UUID, User]
+}
+
 type Store struct {
 	db *pebble.DB
 
-	roomShards [roomShardCount]roomShard
-	cache      *messageCache
-	remote     *remoteReader
+	roomShards    [roomShardCount]roomShard
+	userShards    [userShardCount]userShard
+	usernameCache *lru.LRUCache[string, uuid.UUID]
+	dedupCache    *lru.LRUCache[dedupLookupKey, Dedup]
+	cache         *messageCache
+	remote        *remoteReader
 
 	messageQueue chan messageWriteRequest
 	recallQueue  chan *recallRequest
@@ -101,6 +113,10 @@ type Store struct {
 
 func (s *Store) getRoomShard(id uuid.UUID) *roomShard {
 	return &s.roomShards[id[15]%roomShardCount]
+}
+
+func (s *Store) getUserShard(id uuid.UUID) *userShard {
+	return &s.userShards[id[15]%userShardCount]
 }
 
 type User struct {
@@ -329,6 +345,11 @@ func Open(path string) (*Store, error) {
 	for i := range store.roomShards {
 		store.roomShards[i].rooms = lru.NewLRUCache[uuid.UUID, Room](roomCachePerShard)
 	}
+	for i := range store.userShards {
+		store.userShards[i].users = lru.NewLRUCache[uuid.UUID, User](userCachePerShard)
+	}
+	store.usernameCache = lru.NewLRUCache[string, uuid.UUID](16384)
+	store.dedupCache = lru.NewLRUCache[dedupLookupKey, Dedup](32768)
 	go store.runMessageWriter()
 	return store, nil
 }

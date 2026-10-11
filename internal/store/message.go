@@ -185,9 +185,20 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			continue
 		}
 
+		if old, ok := s.dedupCache.Get(lookup); ok {
+			pending[lookup] = index
+			if old.PayloadSum != digests[index] {
+				results[index].Err = ErrConflict
+			} else {
+				results[index].Message.MsgID, results[index].Message.RoomSeq, results[index].Message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
+			}
+			continue
+		}
+
 		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		pending[lookup] = index
 		if old, err := s.getRecord(dedupKeyBytes, decodeDedup); err == nil {
+			s.dedupCache.Set(lookup, old)
 			if old.PayloadSum != digests[index] {
 				results[index].Err = ErrConflict
 			} else {
@@ -229,6 +240,7 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
 		}
+		s.dedupCache.Set(lookup, dedup)
 		if err := s.setBytes(batch, dedupKeyBytes, appendDedup(s.dedupScratch[:0], dedup)); err != nil {
 			results[index].Err = err
 		}
