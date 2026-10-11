@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -320,11 +321,7 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 		if member.userID == message.SenderID {
 			continue
 		}
-		shard := h.getSessionShard(member.userIDStr)
-		shard.mu.RLock()
-		connection := shard.sessions[member.userIDStr]
-		shard.mu.RUnlock()
-		if connection != nil {
+		if connection := h.onlineConnection(member.userIDStr); connection != nil {
 			targets[connection] = append(targets[connection], member.userIDStr)
 		}
 	}
@@ -399,118 +396,94 @@ func (h *StreamHandler) message(input *pb.SendMessage) (store.Message, error) {
 	return message, nil
 }
 
-func (h *StreamHandler) IsOnline(userID string) bool {
+// onlineConnection returns the gateway connection carrying the user's
+// session, or nil when the user is offline on this node.
+func (h *StreamHandler) onlineConnection(userID string) *apiConnection {
 	shard := h.getSessionShard(userID)
 	shard.mu.RLock()
-	_, ok := shard.sessions[userID]
-	shard.mu.RUnlock()
-	return ok
+	defer shard.mu.RUnlock()
+	return shard.sessions[userID]
+}
+
+func (h *StreamHandler) IsOnline(userID string) bool {
+	return h.onlineConnection(userID) != nil
 }
 
 func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error {
 	return h.push(ctx, message)
 }
 
-// PushNotification delivers one event to a user's gateway connection, if the
-// user is online on this node. Delivery is fire-and-forget: the frame lands
-// in the connection outbox, and a drop is logged and ends the delivery.
-func (h *StreamHandler) PushNotification(userID uuid.UUID, event string, data []byte) {
-	userIDStr := userID.String()
-	shard := h.getSessionShard(userIDStr)
-	shard.mu.RLock()
-	connection := shard.sessions[userIDStr]
-	shard.mu.RUnlock()
-	if connection == nil {
+// NotifyUser delivers one event to a user, if the user is online on this
+// node. Handlers' fire-and-forget entry point: the payload is marshaled here
+// (a failure, never expected for plain maps, is logged) and the frame lands
+// in the connection outbox; a drop is logged and ends the delivery.
+func (h *StreamHandler) NotifyUser(userID uuid.UUID, event string, data map[string]any) {
+	h.NotifyUsers([]uuid.UUID{userID}, event, data)
+}
+
+// NotifyUsers delivers one event to every online user in the list, grouped
+// per gateway connection so the payload crosses each gateway once.
+func (h *StreamHandler) NotifyUsers(userIDs []uuid.UUID, event string, data map[string]any) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		log.Error().Err(err).Str("event", event).Msg("marshal notification failed")
 		return
 	}
-	if err := connection.enqueue(&pb.APIFrame{
-		Body: &pb.APIFrame_NotificationBatch{
-			NotificationBatch: &pb.NotificationBatch{
-				Notifications: []*pb.Notification{
-					{
-						UserId: userIDStr,
-						Event:  event,
-						Data:   data,
-					},
-				},
-			},
-		},
-	}); err != nil {
-		log.Error().Err(err).Str("event", event).Msg("push notification dropped")
-	}
-}
-
-// BroadcastNotification pushes one event to every online user, grouped per
-// gateway connection. Best effort per gateway: one stalled connection drops
-// its frame and the rest of the fan-out continues.
-func (h *StreamHandler) BroadcastNotification(userIDs []uuid.UUID, event string, data []byte) {
-	notifs := make(map[*apiConnection][]*pb.Notification)
+	targets := make(map[*apiConnection][]string)
 	for _, uid := range userIDs {
 		uidStr := uid.String()
-		shard := h.getSessionShard(uidStr)
-		shard.mu.RLock()
-		conn := shard.sessions[uidStr]
-		shard.mu.RUnlock()
-		if conn != nil {
-			notifs[conn] = append(notifs[conn], &pb.Notification{
-				UserId: uidStr,
-				Event:  event,
-				Data:   data,
-			})
+		if conn := h.onlineConnection(uidStr); conn != nil {
+			targets[conn] = append(targets[conn], uidStr)
 		}
 	}
-	for conn, items := range notifs {
-		if err := conn.enqueue(&pb.APIFrame{
-			Body: &pb.APIFrame_NotificationBatch{
-				NotificationBatch: &pb.NotificationBatch{Notifications: items},
-			},
-		}); err != nil {
-			log.Error().Err(err).Str("event", event).Int("dropped", len(items)).Msg("broadcast notification dropped")
-		}
-	}
+	h.fanOut(targets, event, payload)
 }
 
-// BroadcastRoomNotification pushes one event to every online room member,
-// excluding one user. Best effort per gateway, like BroadcastNotification.
-func (h *StreamHandler) BroadcastRoomNotification(
+// NotifyRoom delivers one event to every online room member except
+// excludeUserID. Best effort per gateway: one stalled connection drops its
+// frame and the rest of the fan-out continues.
+func (h *StreamHandler) NotifyRoom(
 	ctx context.Context,
 	roomID, excludeUserID uuid.UUID,
 	event string,
-	data []byte,
+	data map[string]any,
 ) {
 	members, err := h.getRoomMembers(ctx, roomID)
 	if err != nil {
-		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load room members for broadcast failed")
+		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load room members for notification failed")
 		return
 	}
-	notifs := make(map[*apiConnection][]*pb.Notification)
+	payload, err := json.Marshal(data)
+	if err != nil {
+		log.Error().Err(err).Str("event", event).Msg("marshal notification failed")
+		return
+	}
+	targets := make(map[*apiConnection][]string)
 	for _, member := range members {
 		if excludeUserID != uuid.Nil() && member.userID == excludeUserID {
 			continue
 		}
-		shard := h.getSessionShard(member.userIDStr)
-		shard.mu.RLock()
-		conn := shard.sessions[member.userIDStr]
-		shard.mu.RUnlock()
-		if conn != nil {
-			notifs[conn] = append(notifs[conn], &pb.Notification{
-				UserId: member.userIDStr,
-				Event:  event,
-				Data:   data,
-			})
+		if conn := h.onlineConnection(member.userIDStr); conn != nil {
+			targets[conn] = append(targets[conn], member.userIDStr)
 		}
 	}
-	for conn, items := range notifs {
+	h.fanOut(targets, event, payload)
+}
+
+// fanOut enqueues one notification frame per gateway connection; a stalled
+// gateway drops only its frame.
+func (h *StreamHandler) fanOut(targets map[*apiConnection][]string, event string, payload []byte) {
+	for conn, userIDs := range targets {
+		notifications := make([]*pb.Notification, len(userIDs))
+		for i, userIDStr := range userIDs {
+			notifications[i] = &pb.Notification{UserId: userIDStr, Event: event, Data: payload}
+		}
 		if err := conn.enqueue(&pb.APIFrame{
 			Body: &pb.APIFrame_NotificationBatch{
-				NotificationBatch: &pb.NotificationBatch{Notifications: items},
+				NotificationBatch: &pb.NotificationBatch{Notifications: notifications},
 			},
 		}); err != nil {
-			log.Error().
-				Err(err).
-				Str("event", event).
-				Int("dropped", len(items)).
-				Msg("broadcast room notification dropped")
+			log.Error().Err(err).Str("event", event).Int("dropped", len(userIDs)).Msg("notification dropped")
 		}
 	}
 }

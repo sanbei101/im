@@ -699,7 +699,11 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 	}
 	// The room record embeds its newest message: recall of that message must
 	// refresh the embedded copy in the same batch.
-	if room, err := s.Room(request.ctx, roomID); err == nil && room.LastSeq == msg.RoomSeq {
+	room, err := s.Room(request.ctx, roomID)
+	if err != nil {
+		return Message{}, fmt.Errorf("load room for recall: %w", err)
+	}
+	if room.LastSeq == msg.RoomSeq {
 		room.LastMsg = &msg
 		var rKeyBuf [32]byte
 		if err := s.setBytes(batch, appendRoomKey(rKeyBuf[:0], roomID), encodeRoom(room)); err != nil {

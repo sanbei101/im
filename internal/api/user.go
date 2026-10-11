@@ -153,9 +153,8 @@ func (a *UserAPI) GetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *UserAPI) UpdateProfile(w http.ResponseWriter, r *http.Request) {
-	id, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	id, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -241,9 +240,8 @@ func (a *UserAPI) SaveDeviceToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	userID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 	if err := a.store.SaveDeviceToken(r.Context(), userID, store.DeviceInfo{
@@ -277,9 +275,8 @@ type UpdatePasswordReq struct {
 }
 
 func (a *UserAPI) UpdatePassword(w http.ResponseWriter, r *http.Request) {
-	userID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 

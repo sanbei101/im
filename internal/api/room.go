@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/sha256"
-	"encoding/json/v2"
 	"errors"
 	"math/rand/v2"
 	"net/http"
@@ -78,9 +77,8 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return
 	}
-	user1, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	user1, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 	user2, err := uuid.Parse(req.UserID2)
@@ -133,9 +131,8 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
-	creatorID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	creatorID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -189,26 +186,22 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 				memberIDs = append(memberIDs, m.UserID)
 			}
 		}
-		data := map[string]any{
+		a.streamHandler.NotifyUsers(memberIDs, "room_update", map[string]any{
 			"room_id":    roomID.String(),
 			"chat_type":  store.ChatTypeGroup,
 			"name":       name,
 			"avatar_url": avatar,
 			"inviter_id": creatorID.String(),
 			"action":     "created",
-		}
-		if payload, err := json.Marshal(data); err == nil {
-			a.streamHandler.BroadcastNotification(memberIDs, "room_update", payload)
-		}
+		})
 	}
 
 	render.Success(w, "创建群聊房间成功", RoomResp{RoomID: roomID.String()})
 }
 
 func (a *RoomAPI) ListRooms(w http.ResponseWriter, r *http.Request) {
-	id, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	id, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -250,14 +243,12 @@ func generateRoomInfo(roomID uuid.UUID) (string, string) {
 }
 
 func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -292,14 +283,12 @@ func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -312,7 +301,7 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if member.Role != store.RoleOwner && member.Role != store.RoleAdmin {
+	if !isManager(member.Role) {
 		render.Error(w, http.StatusForbidden, "only owner or admin can update room")
 		return
 	}
@@ -329,15 +318,13 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.streamHandler != nil {
-		if payload, err := json.Marshal(map[string]any{
+		a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "room_update", map[string]any{
 			"room_id":    updated.RoomID.String(),
 			"name":       updated.Name,
 			"avatar_url": updated.AvatarURL,
 			"notice":     updated.Notice,
 			"action":     "info_updated",
-		}); err == nil {
-			a.streamHandler.BroadcastRoomNotification(r.Context(), roomID, uuid.Nil(), "room_update", payload)
-		}
+		})
 	}
 
 	render.Success(w, "更新房间信息成功", RoomDetailResp{
@@ -351,14 +338,12 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -404,14 +389,12 @@ func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -470,21 +453,11 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 				newMemberData["avatar_url"] = rInfo.AvatarURL
 				newMemberData["chat_type"] = rInfo.ChatType
 			}
-			if payload, err := json.Marshal(newMemberData); err == nil {
-				a.streamHandler.BroadcastNotification(newMemberIDs, "room_update", payload)
-			}
-			if payload, err := json.Marshal(map[string]any{
+			a.streamHandler.NotifyUsers(newMemberIDs, "room_update", newMemberData)
+			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "room_members_changed", map[string]any{
 				"room_id": roomID.String(),
 				"action":  "members_added",
-			}); err == nil {
-				a.streamHandler.BroadcastRoomNotification(
-					r.Context(),
-					roomID,
-					uuid.Nil(),
-					"room_members_changed",
-					payload,
-				)
-			}
+			})
 		}
 	}
 
@@ -492,14 +465,12 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 	targetID, err := uuid.Parse(chi.URLParam(r, "user_id"))
@@ -546,14 +517,12 @@ type UpdateMemberRoleReq struct {
 }
 
 func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 	targetID, err := uuid.Parse(chi.URLParam(r, "user_id"))
@@ -606,14 +575,12 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -640,14 +607,12 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -688,14 +653,12 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -710,12 +673,10 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.streamHandler != nil {
-		if payload, err := json.Marshal(map[string]any{
+		a.streamHandler.NotifyRoom(r.Context(), roomID, myID, "room_update", map[string]any{
 			"room_id": roomID.String(),
 			"action":  "dissolved",
-		}); err == nil {
-			a.streamHandler.BroadcastRoomNotification(r.Context(), roomID, myID, "room_update", payload)
-		}
+		})
 		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
 
@@ -727,14 +688,12 @@ type PinReq struct {
 }
 
 func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 	req, err := render.ReadBody[PinReq](w, r)
@@ -748,7 +707,7 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || (member.Role != store.RoleOwner && member.Role != store.RoleAdmin) {
+	if err != nil || !isManager(member.Role) {
 		render.Error(w, http.StatusForbidden, "只有群主或管理员可以置顶消息")
 		return
 	}
@@ -761,14 +720,12 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 	msgID, err := uuid.Parse(chi.URLParam(r, "msg_id"))
@@ -778,7 +735,7 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || (member.Role != store.RoleOwner && member.Role != store.RoleAdmin) {
+	if err != nil || !isManager(member.Role) {
 		render.Error(w, http.StatusForbidden, "只有群主或管理员可以取消置顶消息")
 		return
 	}
@@ -791,14 +748,12 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RoomAPI) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 

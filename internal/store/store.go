@@ -469,15 +469,20 @@ func (s *Store) runMessageWriter() {
 	}
 }
 
+// collectMessageRequests gathers queued requests into one write batch, bounded
+// by messageBatchSize messages or messageBatchWindow of wait time, whichever
+// comes first: many small random writes become one sequential batch commit.
 func (s *Store) collectMessageRequests(first messageWriteRequest) []messageWriteRequest {
 	requests := []messageWriteRequest{first}
 	messageCount := len(first.messages)
+	window := time.NewTimer(messageBatchWindow)
+	defer window.Stop()
 	for messageCount < messageBatchSize {
 		select {
 		case request := <-s.messageQueue:
 			requests = append(requests, request)
 			messageCount += len(request.messages)
-		default:
+		case <-window.C:
 			return requests
 		}
 	}

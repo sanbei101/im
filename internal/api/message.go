@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -81,9 +80,8 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	userID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 	roomID, err := uuid.Parse(req.RoomID)
@@ -106,7 +104,7 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	isOwnerOrAdmin := member.Role == store.RoleOwner || member.Role == store.RoleAdmin
+	isOwnerOrAdmin := isManager(member.Role)
 
 	recalled, err := a.store.RecallMessage(r.Context(), roomID, msgID, userID, isOwnerOrAdmin)
 	if err != nil {
@@ -146,9 +144,8 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	userID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 	roomID, err := uuid.Parse(req.RoomID)
@@ -170,13 +167,11 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.streamHandler != nil {
 		if reactions, err := a.store.Reactions(r.Context(), roomID, msgID); err == nil {
-			if payload, err := json.Marshal(map[string]any{
+			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "reaction", map[string]any{
 				"room_id":   roomID.String(),
 				"msg_id":    msgID.String(),
 				"reactions": reactions,
-			}); err == nil {
-				a.streamHandler.BroadcastRoomNotification(r.Context(), roomID, uuid.Nil(), "reaction", payload)
-			}
+			})
 		}
 	}
 	render.SuccessNoData(w, http.StatusOK, "添加表情表态成功")
@@ -188,9 +183,8 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid message id")
 		return
 	}
-	userID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 	q := r.URL.Query()
@@ -214,13 +208,11 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.streamHandler != nil {
 		if reactions, err := a.store.Reactions(r.Context(), roomID, msgID); err == nil {
-			if payload, err := json.Marshal(map[string]any{
+			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), "reaction", map[string]any{
 				"room_id":   roomID.String(),
 				"msg_id":    msgID.String(),
 				"reactions": reactions,
-			}); err == nil {
-				a.streamHandler.BroadcastRoomNotification(r.Context(), roomID, uuid.Nil(), "reaction", payload)
-			}
+			})
 		}
 	}
 	render.SuccessNoData(w, http.StatusOK, "取消表情表态成功")

@@ -73,19 +73,18 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	if input.Type == "ping" {
 		return c.encodeFrame(render.PongFrame{Type: "pong"})
 	}
-	if input.Type == "typing" {
-		if input.RoomID == "" {
-			return errors.New("room_id is required for typing")
+	if input.Type == "typing" || input.Type == "join_room" {
+		roomID, err := uuid.Parse(input.RoomID)
+		if err != nil {
+			return errors.New("room_id must be a valid uuid")
 		}
-		c.gateway.TouchRoomUser(input.RoomID, c.UserID)
-		c.gateway.BroadcastTyping(c.UserID, input.RoomID)
-		return nil
-	}
-	if input.Type == "join_room" {
-		if input.RoomID == "" {
-			return errors.New("room_id is required")
+		// The canonical string is the map key: two spellings of one UUID must
+		// not grow two presence entries.
+		roomIDStr := roomID.String()
+		c.gateway.TouchRoomUser(roomIDStr, c.UserID)
+		if input.Type == "typing" {
+			c.gateway.BroadcastTyping(c.UserID, roomIDStr)
 		}
-		c.gateway.TouchRoomUser(input.RoomID, c.UserID)
 		return nil
 	}
 	if input.RoomID == "" || input.ClientMsgID == "" {
@@ -108,7 +107,7 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 		RoomId: input.RoomID, MsgType: int32(msgType), Payload: input.Payload, Ext: input.Ext,
 		ReplyToMsgId: input.ReplyToMsgID,
 	}
-	c.gateway.TouchRoomUser(input.RoomID, c.UserID)
+	c.gateway.TouchRoomUser(roomID.String(), c.UserID)
 	c.gateway.StorePending(requestID, c)
 	if err := c.gateway.send(ctx, roomID, message); err != nil {
 		c.gateway.DeletePending(requestID)

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -47,9 +46,8 @@ type FriendItemResp struct {
 }
 
 func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -98,18 +96,15 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 			data["from_nickname"] = myUser.Nickname
 			data["from_avatar_url"] = myUser.AvatarURL
 		}
-		if payload, err := json.Marshal(data); err == nil {
-			a.streamHandler.PushNotification(targetID, "friend_application", payload)
-		}
+		a.streamHandler.NotifyUser(targetID, "friend_application", data)
 	}
 
 	render.SuccessNoData(w, http.StatusOK, "好友申请已发送")
 }
 
 func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -143,9 +138,7 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 			data["nickname"] = myUser.Nickname
 			data["avatar_url"] = myUser.AvatarURL
 		}
-		if payload, err := json.Marshal(data); err == nil {
-			a.streamHandler.PushNotification(fromID, "friend_accepted", payload)
-		}
+		a.streamHandler.NotifyUser(fromID, "friend_accepted", data)
 	}
 
 	msg := "已同意好友申请"
@@ -156,9 +149,8 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) ListApplications(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -172,9 +164,8 @@ func (a *FriendAPI) ListApplications(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) ListFriends(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -214,9 +205,8 @@ func (a *FriendAPI) ListFriends(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) DeleteFriend(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -235,9 +225,8 @@ func (a *FriendAPI) DeleteFriend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) UpdateRemark(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -265,9 +254,8 @@ func (a *FriendAPI) UpdateRemark(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) AddBlacklist(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -291,9 +279,8 @@ func (a *FriendAPI) AddBlacklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) RemoveBlacklist(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -312,9 +299,8 @@ func (a *FriendAPI) RemoveBlacklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) ListBlacklist(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 

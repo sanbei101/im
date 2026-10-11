@@ -156,12 +156,38 @@ func getContextUserID(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(raw)
 }
 
-// requireRoomMember authenticates the caller and verifies membership of
-// roomID; on failure the response is already written and it returns false.
-func requireRoomMember(s *store.Store, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
+// requireUser resolves the authenticated caller; on failure the response is
+// already written and it returns false.
+func requireUser(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	userID, err := getContextUserID(r)
 	if err != nil {
 		render.Error(w, http.StatusUnauthorized, err.Error())
+		return uuid.Nil(), false
+	}
+	return userID, true
+}
+
+// roomIDFromPath parses the {id} URL parameter as a room UUID; on failure the
+// response is already written and it returns false.
+func roomIDFromPath(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room id")
+		return uuid.Nil(), false
+	}
+	return roomID, true
+}
+
+// isManager reports whether the role may manage room-wide settings.
+func isManager(role string) bool {
+	return role == store.RoleOwner || role == store.RoleAdmin
+}
+
+// requireRoomMember authenticates the caller and verifies membership of
+// roomID; on failure the response is already written and it returns false.
+func requireRoomMember(s *store.Store, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return false
 	}
 	if _, err := s.Member(r.Context(), roomID, userID); err != nil {

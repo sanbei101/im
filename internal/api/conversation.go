@@ -3,9 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"uuid"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/render"
@@ -28,9 +25,8 @@ type MuteConversationReq struct {
 }
 
 func (a *ConversationAPI) ListConversations(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -44,14 +40,12 @@ func (a *ConversationAPI) ListConversations(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 	if !requireRoomMember(a.store, w, r, roomID) {
@@ -72,14 +66,12 @@ func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+	myID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -104,60 +96,47 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 	render.SuccessNoData(w, http.StatusOK, "清空未读成功")
 }
 
-func (a *ConversationAPI) PinConversation(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
+// updateMemberSettings applies one conversation toggle for the caller and
+// writes the response; Pin and Mute differ only in which switch they flip.
+func (a *ConversationAPI) updateMemberSettings(
+	w http.ResponseWriter,
+	r *http.Request,
+	pinned, muted *bool,
+	successMsg string,
+) {
+	userID, ok := requireUser(w, r)
+	if !ok {
 		return
 	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
+	roomID, ok := roomIDFromPath(w, r)
+	if !ok {
 		return
 	}
 
+	if err := a.store.UpdateMemberSettings(r.Context(), roomID, userID, pinned, muted); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			render.Error(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render.SuccessNoData(w, http.StatusOK, successMsg)
+}
+
+func (a *ConversationAPI) PinConversation(w http.ResponseWriter, r *http.Request) {
 	req, err := render.ReadBody[PinConversationReq](w, r)
 	if err != nil {
 		return
 	}
-
-	if err := a.store.UpdateMemberSettings(r.Context(), roomID, myID, &req.IsPinned, nil); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			render.Error(w, http.StatusNotFound, "conversation not found")
-			return
-		}
-		render.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	render.SuccessNoData(w, http.StatusOK, "更新置顶设置成功")
+	a.updateMemberSettings(w, r, &req.IsPinned, nil, "更新置顶设置成功")
 }
 
 func (a *ConversationAPI) MuteConversation(w http.ResponseWriter, r *http.Request) {
-	myID, err := getContextUserID(r)
-	if err != nil {
-		render.Error(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid room id")
-		return
-	}
-
 	req, err := render.ReadBody[MuteConversationReq](w, r)
 	if err != nil {
 		return
 	}
-
-	if err := a.store.UpdateMemberSettings(r.Context(), roomID, myID, nil, &req.IsMuted); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			render.Error(w, http.StatusNotFound, "conversation not found")
-			return
-		}
-		render.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	render.SuccessNoData(w, http.StatusOK, "更新免打扰设置成功")
+	a.updateMemberSettings(w, r, nil, &req.IsMuted, "更新免打扰设置成功")
 }
