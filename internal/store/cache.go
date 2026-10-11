@@ -108,6 +108,47 @@ func (c *messageCache) page(room uuid.UUID, before uint64, limit int) ([]Message
 	return messages, hasMore, true
 }
 
+// after serves an incremental history page with seq in (after, min(after+limit, LastSeq)]
+// in ascending order, supporting the push-pull hybrid sync path directly from memory.
+func (c *messageCache) after(room uuid.UUID, after uint64, limit int) ([]Message, bool, bool) {
+	tail, ok := c.cache.Get(room)
+	if !ok {
+		return nil, false, false
+	}
+
+	tail.mu.RLock()
+	defer tail.mu.RUnlock()
+	if tail.startSeq == 0 {
+		return nil, false, false
+	}
+
+	if after >= tail.endSeq {
+		return []Message{}, false, true
+	}
+
+	lo := after + 1
+	if lo < tail.startSeq && tail.startSeq != 1 {
+		// Old seq not covered by tail: fall back to Pebble.
+		return nil, false, false
+	}
+
+	start := tail.find(lo)
+	hi := min(tail.endSeq+1, lo+uint64(limit))
+	end := tail.find(hi)
+	count := end - start
+	if uint64(count) != hi-lo {
+		// Seq gap from a failed batch write: let Pebble answer.
+		return nil, false, false
+	}
+
+	hasMore := tail.endSeq >= hi
+	messages := make([]Message, count)
+	for i := range count {
+		messages[i] = tail.messages[(tail.head+start+i)%tailCapacity]
+	}
+	return messages, hasMore, true
+}
+
 // put backfills the tail from a Pebble read (ascending messages). Only a page
 // that reaches the room's newest seq may install or replace a tail: anything
 // older would masquerade as the newest page in before=0 reads. Pages older

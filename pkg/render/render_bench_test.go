@@ -36,4 +36,17 @@ func BenchmarkRender(b *testing.B) {
 			}
 		}
 	})
+	b.Run("read-client-frame-reused", func(b *testing.B) {
+		reader := NewFrameReader(nil)
+		br := bytes.NewReader(raw)
+		b.ReportAllocs()
+		for b.Loop() {
+			br.Reset(raw)
+			reader.Reset(br)
+			var frame ClientFrame
+			if err := reader.ReadFrame(&frame); err != nil {
+				b.Fatalf("read frame failed: %v", err)
+			}
+		}
+	})
 }

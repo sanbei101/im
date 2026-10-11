@@ -440,6 +440,8 @@ func (s *apiStream) loop(ctx context.Context) error {
 				s.handleResults(frame.GetSendResultBatch())
 			case frame.GetPushBatch() != nil:
 				s.handlePush(frame.GetPushBatch())
+			case frame.GetRoomPushBatch() != nil:
+				s.handleRoomPush(frame.GetRoomPushBatch())
 			case frame.GetNotificationBatch() != nil:
 				s.handleNotification(frame.GetNotificationBatch())
 			}
@@ -558,6 +560,49 @@ func (s *apiStream) handlePush(batch *pb.PushBatch) {
 				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
 			}
 		})
+	}
+}
+
+func (s *apiStream) handleRoomPush(batch *pb.RoomPushBatch) {
+	for _, push := range batch.GetRoomPushes() {
+		if push == nil {
+			continue
+		}
+		// 消息体在网关本地仅编码 1 次，随后零冗余分发给所有目标连接
+		frame := render.PushFrame{
+			Type:         "message",
+			MsgID:        push.GetMsgId(),
+			ClientMsgID:  push.GetClientMsgId(),
+			SenderID:     push.GetSenderId(),
+			RoomID:       push.GetRoomId(),
+			RoomSeq:      push.GetRoomSeq(),
+			ServerTime:   push.GetServerTime(),
+			MsgType:      store.MsgType(push.GetMsgType()).String(),
+			Payload:      jsontext.Value(push.GetPayload()),
+			ReplyToMsgID: push.GetReplyToMsgId(),
+			Ext:          jsontext.Value(push.GetExt()),
+		}
+		frameBytes, err := s.frames.EncodeFrame(frame)
+		if err != nil {
+			log.Error().Err(err).Msg("encode room push frame failed")
+			continue
+		}
+
+		for _, idStr := range push.GetUserIds() {
+			userID, err := uuid.Parse(idStr)
+			if err != nil {
+				continue
+			}
+			session, ok := s.gateway.UserSessionManager.Load(userID)
+			if !ok {
+				continue
+			}
+			session.ForEachClient(func(client *UserClient) {
+				if err := client.sendFrame(frameBytes); err != nil {
+					log.Error().Err(err).Str("user_id", idStr).Msg("send room push frame to websocket failed")
+				}
+			})
+		}
 	}
 }
 

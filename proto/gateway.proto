@@ -26,6 +26,7 @@ message APIFrame {
     RoutingError routing_error = 4;
     Heartbeat heartbeat = 5;
     NotificationBatch notification_batch = 6;
+    RoomPushBatch room_push_batch = 7;
   }
 }
 
@@ -83,4 +84,19 @@ message Notification {
   string user_id = 1;
   string event = 2;
   bytes data = 3;
+}
+
+message RoomPushBatch { repeated RoomPush room_pushes = 1; }
+message RoomPush {
+  string room_id = 1;
+  uint64 room_seq = 2;
+  string msg_id = 3;
+  string sender_id = 4;
+  int32 msg_type = 5;
+  bytes payload = 6;
+  int64 server_time = 7;
+  bytes ext = 8;
+  string client_msg_id = 9;
+  string reply_to_msg_id = 10;
+  repeated string user_ids = 11;
 }

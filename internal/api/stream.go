@@ -268,8 +268,8 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 		replyToMsgIDStr = message.ReplyToMsgID.String()
 	}
 
-	// Map connection -> pushes so every gateway stream receives one batch per room fan-out.
-	pushes := make(map[*apiConnection][]*pb.Push)
+	// Group online recipients per gateway connection; payload is sent once per gateway.
+	targets := make(map[*apiConnection][]string)
 	for _, member := range members {
 		if member.userID == message.SenderID {
 			continue
@@ -279,25 +279,29 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 		connection := shard.sessions[member.userIDStr]
 		shard.mu.RUnlock()
 		if connection != nil {
-			pushes[connection] = append(pushes[connection], &pb.Push{
-				UserId:       member.userIDStr,
-				RoomId:       roomIDStr,
-				RoomSeq:      message.RoomSeq,
-				MsgId:        msgIDStr,
-				SenderId:     senderIDStr,
-				MsgType:      int32(message.MsgType),
-				Payload:      message.Payload,
-				ServerTime:   message.ServerTime,
-				Ext:          message.Ext,
-				ClientMsgId:  clientMsgIDStr,
-				ReplyToMsgId: replyToMsgIDStr,
-			})
+			targets[connection] = append(targets[connection], member.userIDStr)
 		}
 	}
-	for connection, items := range pushes {
-		if err := connection.send(ctx,
-			&pb.APIFrame{Body: &pb.APIFrame_PushBatch{PushBatch: &pb.PushBatch{Pushes: items}}},
-		); err != nil {
+
+	for connection, userIDs := range targets {
+		roomPush := &pb.RoomPush{
+			RoomId:       roomIDStr,
+			RoomSeq:      message.RoomSeq,
+			MsgId:        msgIDStr,
+			SenderId:     senderIDStr,
+			MsgType:      int32(message.MsgType),
+			Payload:      message.Payload,
+			ServerTime:   message.ServerTime,
+			Ext:          message.Ext,
+			ClientMsgId:  clientMsgIDStr,
+			ReplyToMsgId: replyToMsgIDStr,
+			UserIds:      userIDs,
+		}
+		if err := connection.send(ctx, &pb.APIFrame{
+			Body: &pb.APIFrame_RoomPushBatch{
+				RoomPushBatch: &pb.RoomPushBatch{RoomPushes: []*pb.RoomPush{roomPush}},
+			},
+		}); err != nil {
 			return fmt.Errorf("push room message: %w", err)
 		}
 	}

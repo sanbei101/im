@@ -22,6 +22,7 @@ type UserClient struct {
 	Send    chan []byte
 	UserID  uuid.UUID
 	frames  *render.FrameWriter
+	reader  *render.FrameReader
 
 	sendMu sync.Mutex
 	closed bool
@@ -60,8 +61,13 @@ func (c *UserClient) readPump(ctx context.Context) {
 }
 
 func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
+	if c.reader == nil {
+		c.reader = render.NewFrameReader(r)
+	} else {
+		c.reader.Reset(r)
+	}
 	var input render.ClientFrame
-	if err := render.NewFrameReader(r).ReadFrame(&input); err != nil {
+	if err := c.reader.ReadFrame(&input); err != nil {
 		return fmt.Errorf("decode websocket message: %w", err)
 	}
 	if input.Type == "ping" {

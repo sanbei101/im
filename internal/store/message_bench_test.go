@@ -106,6 +106,19 @@ func BenchmarkStoreRead(b *testing.B) {
 			}
 		}
 	})
+	b.Run("sync-pull-after", func(b *testing.B) {
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		benchWrite(b, s, room, sender, 50)
+
+		b.ReportAllocs()
+		for b.Loop() {
+			page, err := s.MessagesAfter(context.Background(), room, 30, 20)
+			if err != nil || len(page.Messages) != 20 {
+				b.Fatalf("sync pull after: count=%d err=%v", len(page.Messages), err)
+			}
+		}
+	})
 	b.Run("by-id", func(b *testing.B) {
 		s := newBenchStore(b)
 		room, sender := benchRoom(b, s)

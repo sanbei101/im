@@ -376,6 +376,13 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 		return MessagePage{Messages: []Message{}}, nil
 	}
 
+	if cached, hasMore, ok := s.cache.after(roomID, after, limit); ok {
+		if err := s.populateReactions(ctx, roomID, cached); err != nil {
+			return MessagePage{}, err
+		}
+		return MessagePage{Messages: cached, HasMore: hasMore}, nil
+	}
+
 	lo := after + 1
 	hi := min(room.LastSeq+1, lo+uint64(limit))
 

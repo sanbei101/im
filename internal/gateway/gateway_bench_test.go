@@ -104,3 +104,45 @@ func BenchmarkGatewayHandlePush(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkGatewayHandleRoomPush(b *testing.B) {
+	g := NewGateway(config.NewTest())
+	stream := newAPIStream(g, "bench", "127.0.0.1:1")
+
+	const users = 50
+	peers := make([]*UserClient, users)
+	userIDs := make([]string, users)
+	for i := range peers {
+		id := uuid.NewV7()
+		userIDs[i] = id.String()
+		peers[i] = newTestClient(id, 1)
+		g.UserSessionManager.LoadOrCreate(id, NewUserSession).Add(peers[i])
+	}
+
+	roomBatch := &pb.RoomPushBatch{
+		RoomPushes: []*pb.RoomPush{
+			{
+				RoomId:      "bench-room",
+				RoomSeq:     1,
+				MsgId:       uuid.NewV7().String(),
+				SenderId:    uuid.NewV7().String(),
+				MsgType:     1,
+				Payload:     []byte(`{"text":"push benchmark"}`),
+				ServerTime:  1728000000000000,
+				ClientMsgId: uuid.NewV7().String(),
+				UserIds:     userIDs,
+			},
+		},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		stream.handleRoomPush(roomBatch)
+		for _, peer := range peers {
+			select {
+			case <-peer.Send:
+			default:
+			}
+		}
+	}
+}

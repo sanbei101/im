@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json/jsontext"
 	"testing"
 	"time"
@@ -35,6 +36,51 @@ func BenchmarkRoomDecode(b *testing.B) {
 	b.Run("head", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			if _, err := decodeRoomHead(data); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkStoreRoomOps(b *testing.B) {
+	s := newBenchStore(b)
+	ctx := context.Background()
+
+	roomID := uuid.NewV7()
+	members := make([]Member, 50)
+	for i := range members {
+		members[i] = Member{RoomID: roomID, UserID: uuid.NewV7(), Role: RoleMember}
+	}
+	members[0].Role = RoleOwner
+	ownerID := members[0].UserID
+
+	room := Room{RoomID: roomID, ChatType: ChatTypeGroup, Name: "bench-room"}
+	if err := s.CreateRoom(ctx, room, members); err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("room-get", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := s.Room(ctx, roomID); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("member-get", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := s.Member(ctx, roomID, ownerID); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("members-50", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := s.Members(ctx, roomID); err != nil {
 				b.Fatal(err)
 			}
 		}

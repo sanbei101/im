@@ -163,6 +163,16 @@ type NotificationFrame struct {
 	Data  jsontext.Value `json:"data,omitempty"`
 }
 
+// SyncNoticeFrame 客户端增量同步通知帧 (推拉结合模型: 推送最新序号与概要, 触发客户端按需 Pull)
+type SyncNoticeFrame struct {
+	Type       string `json:"type"` // "sync"
+	RoomID     string `json:"room_id"`
+	RoomSeq    uint64 `json:"room_seq"`
+	MsgID      string `json:"msg_id,omitempty"`
+	SenderID   string `json:"sender_id,omitempty"`
+	ServerTime int64  `json:"server_time,omitempty"`
+}
+
 // FrameWriter 持有可复用的 jsontext.Encoder,把下行帧流式编码进内部 buffer
 type FrameWriter struct {
 	mu  sync.Mutex
@@ -199,7 +209,19 @@ type FrameReader struct {
 }
 
 func NewFrameReader(r io.Reader) *FrameReader {
-	return &FrameReader{dec: jsontext.NewDecoder(r)}
+	fr := &FrameReader{}
+	if r != nil {
+		fr.dec = jsontext.NewDecoder(r)
+	}
+	return fr
+}
+
+func (fr *FrameReader) Reset(r io.Reader) {
+	if fr.dec == nil {
+		fr.dec = jsontext.NewDecoder(r)
+	} else {
+		fr.dec.Reset(r)
+	}
 }
 
 func (fr *FrameReader) ReadFrame(out any) error {

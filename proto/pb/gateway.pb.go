@@ -121,6 +121,7 @@ type APIFrame struct {
 	//	*APIFrame_RoutingError
 	//	*APIFrame_Heartbeat
 	//	*APIFrame_NotificationBatch
+	//	*APIFrame_RoomPushBatch
 	Body isAPIFrame_Body `protobuf_oneof:"body"`
 }
 
@@ -178,6 +179,13 @@ func (x *APIFrame) GetNotificationBatch() *NotificationBatch {
 	return nil
 }
 
+func (x *APIFrame) GetRoomPushBatch() *RoomPushBatch {
+	if p, ok := x.GetBody().(*APIFrame_RoomPushBatch); ok {
+		return p.RoomPushBatch
+	}
+	return nil
+}
+
 // XXX_OneofWrappers is for the internal use of the prutal package.
 func (*APIFrame) XXX_OneofWrappers() []interface{} {
 	return []interface{}{
@@ -187,6 +195,7 @@ func (*APIFrame) XXX_OneofWrappers() []interface{} {
 		(*APIFrame_RoutingError)(nil),
 		(*APIFrame_Heartbeat)(nil),
 		(*APIFrame_NotificationBatch)(nil),
+		(*APIFrame_RoomPushBatch)(nil),
 	}
 }
 
@@ -229,6 +238,12 @@ type APIFrame_NotificationBatch struct {
 }
 
 func (*APIFrame_NotificationBatch) isAPIFrame_Body() {}
+
+type APIFrame_RoomPushBatch struct {
+	RoomPushBatch *RoomPushBatch `protobuf:"bytes,7,opt,name=room_push_batch" json:"room_push_batch,omitempty"`
+}
+
+func (*APIFrame_RoomPushBatch) isAPIFrame_Body() {}
 
 type Hello struct {
 	GatewayId       string `protobuf:"bytes,1,opt,name=gateway_id" json:"gateway_id,omitempty"`
@@ -786,6 +801,120 @@ func (x *Notification) GetEvent() string {
 func (x *Notification) GetData() []byte {
 	if x != nil {
 		return x.Data
+	}
+	return nil
+}
+
+type RoomPushBatch struct {
+	RoomPushes []*RoomPush `protobuf:"bytes,1,rep,name=room_pushes" json:"room_pushes,omitempty"`
+}
+
+func (x *RoomPushBatch) Reset() { *x = RoomPushBatch{} }
+
+func (x *RoomPushBatch) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
+
+func (x *RoomPushBatch) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
+
+func (x *RoomPushBatch) GetRoomPushes() []*RoomPush {
+	if x != nil {
+		return x.RoomPushes
+	}
+	return nil
+}
+
+type RoomPush struct {
+	RoomId       string   `protobuf:"bytes,1,opt,name=room_id" json:"room_id,omitempty"`
+	RoomSeq      uint64   `protobuf:"varint,2,opt,name=room_seq" json:"room_seq,omitempty"`
+	MsgId        string   `protobuf:"bytes,3,opt,name=msg_id" json:"msg_id,omitempty"`
+	SenderId     string   `protobuf:"bytes,4,opt,name=sender_id" json:"sender_id,omitempty"`
+	MsgType      int32    `protobuf:"varint,5,opt,name=msg_type" json:"msg_type,omitempty"`
+	Payload      []byte   `protobuf:"bytes,6,opt,name=payload" json:"payload,omitempty"`
+	ServerTime   int64    `protobuf:"varint,7,opt,name=server_time" json:"server_time,omitempty"`
+	Ext          []byte   `protobuf:"bytes,8,opt,name=ext" json:"ext,omitempty"`
+	ClientMsgId  string   `protobuf:"bytes,9,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
+	ReplyToMsgId string   `protobuf:"bytes,10,opt,name=reply_to_msg_id" json:"reply_to_msg_id,omitempty"`
+	UserIds      []string `protobuf:"bytes,11,rep,name=user_ids" json:"user_ids,omitempty"`
+}
+
+func (x *RoomPush) Reset() { *x = RoomPush{} }
+
+func (x *RoomPush) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
+
+func (x *RoomPush) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
+
+func (x *RoomPush) GetRoomId() string {
+	if x != nil {
+		return x.RoomId
+	}
+	return ""
+}
+
+func (x *RoomPush) GetRoomSeq() uint64 {
+	if x != nil {
+		return x.RoomSeq
+	}
+	return 0
+}
+
+func (x *RoomPush) GetMsgId() string {
+	if x != nil {
+		return x.MsgId
+	}
+	return ""
+}
+
+func (x *RoomPush) GetSenderId() string {
+	if x != nil {
+		return x.SenderId
+	}
+	return ""
+}
+
+func (x *RoomPush) GetMsgType() int32 {
+	if x != nil {
+		return x.MsgType
+	}
+	return 0
+}
+
+func (x *RoomPush) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *RoomPush) GetServerTime() int64 {
+	if x != nil {
+		return x.ServerTime
+	}
+	return 0
+}
+
+func (x *RoomPush) GetExt() []byte {
+	if x != nil {
+		return x.Ext
+	}
+	return nil
+}
+
+func (x *RoomPush) GetClientMsgId() string {
+	if x != nil {
+		return x.ClientMsgId
+	}
+	return ""
+}
+
+func (x *RoomPush) GetReplyToMsgId() string {
+	if x != nil {
+		return x.ReplyToMsgId
+	}
+	return ""
+}
+
+func (x *RoomPush) GetUserIds() []string {
+	if x != nil {
+		return x.UserIds
 	}
 	return nil
 }

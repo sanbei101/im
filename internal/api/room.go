@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"math/rand/v2"
 	"net/http"
 	"uuid"
@@ -96,7 +95,7 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 	}
 
 	hash := singleHash(user1, user2)
-	if room, err := a.store.RoomBySingleHash(r.Context(), hash); err == nil {
+	if room, err := a.store.RoomBySingleHash(r.Context(), hash[:]); err == nil {
 		render.Success(w, "获取或创建单聊房间成功", RoomResp{RoomID: room.RoomID.String()})
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -108,11 +107,17 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 	name, avatar := generateRoomInfo(roomID)
 	err = a.store.CreateRoom(
 		r.Context(),
-		store.Room{RoomID: roomID, ChatType: store.ChatTypeSingle, Name: name, AvatarURL: avatar, SingleChatHash: hash},
+		store.Room{
+			RoomID:         roomID,
+			ChatType:       store.ChatTypeSingle,
+			Name:           name,
+			AvatarURL:      avatar,
+			SingleChatHash: hash[:],
+		},
 		[]store.Member{{UserID: user1, Role: store.RoleMember}, {UserID: user2, Role: store.RoleMember}},
 	)
 	if errors.Is(err, store.ErrAlreadyExists) {
-		room, lookupErr := a.store.RoomBySingleHash(r.Context(), hash)
+		room, lookupErr := a.store.RoomBySingleHash(r.Context(), hash[:])
 		if lookupErr != nil {
 			render.Error(w, http.StatusInternalServerError, lookupErr.Error())
 			return
@@ -233,14 +238,14 @@ func (a *RoomAPI) ListRooms(w http.ResponseWriter, r *http.Request) {
 	render.Success(w, "获取房间列表成功", map[string]any{"rooms": result})
 }
 
-func singleHash(a, b uuid.UUID) []byte {
+func singleHash(a, b uuid.UUID) [32]byte {
 	if a.Compare(b) > 0 {
 		a, b = b, a
 	}
-	hash := sha256.New()
-	hash.Write(a[:])
-	hash.Write(b[:])
-	return hash.Sum(nil)
+	var data [32]byte
+	copy(data[:16], a[:])
+	copy(data[16:], b[:])
+	return sha256.Sum256(data[:])
 }
 
 var (
@@ -249,7 +254,7 @@ var (
 )
 
 func generateRoomInfo(roomID uuid.UUID) (string, string) {
-	return adjectives[rand.IntN(len(adjectives))] + nouns[rand.IntN(len(nouns))], "room://" + fmt.Sprint(roomID)
+	return adjectives[rand.IntN(len(adjectives))] + nouns[rand.IntN(len(nouns))], "room://" + roomID.String()
 }
 
 func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
