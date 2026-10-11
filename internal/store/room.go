@@ -90,6 +90,9 @@ func decodeRoom(data []byte) (Room, error) {
 		if err != nil {
 			return Room{}, err
 		}
+		// The room outlives the Get closer inside the rooms LRU: its embedded
+		// last message must not alias the pebble buffer.
+		msg = ownedMessage(msg)
 		lastMsg = &msg
 	}
 	if !d.done() {

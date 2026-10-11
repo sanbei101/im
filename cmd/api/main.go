@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -114,24 +115,31 @@ func run() error {
 		}
 	}()
 
+	serveErr := make(chan error, 2)
 	go func() {
 		log.Info().Msg("starting API server on :8801")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			cancel()
-			log.Fatal().Err(err).Msg("failed to start API server")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- fmt.Errorf("start api server: %w", err)
+			return
 		}
 		log.Info().Msg("API server stopped")
 	}()
 	go func() {
 		log.Info().Str("addr", cfg.API.Addr).Msg("starting api stream server")
 		if err := kitexServer.Run(); err != nil {
-			log.Error().Err(err).Msg("api stream server stopped")
-			cancel()
+			serveErr <- fmt.Errorf("api stream server: %w", err)
+			return
 		}
 	}()
 
-	<-ctx.Done()
-	log.Info().Msg("shutting down gracefully...")
+	var serveFailure error
+	select {
+	case <-ctx.Done():
+		log.Info().Msg("shutting down gracefully...")
+	case err := <-serveErr:
+		serveFailure = err
+		log.Error().Err(err).Msg("api server failed, shutting down")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
@@ -140,6 +148,9 @@ func run() error {
 	}
 	if err := kitexServer.Stop(); err != nil {
 		log.Error().Err(err).Msg("api stream server shutdown failed")
+	}
+	if serveFailure != nil {
+		return serveFailure
 	}
 	log.Info().Msg("API server exited")
 	return nil

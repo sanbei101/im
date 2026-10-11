@@ -29,6 +29,10 @@ type ReactionReq struct {
 	Emoji  string `json:"emoji"   validate:"required"`
 }
 
+// maxReactionEmojiLen bounds the emoji carried in a reaction key so a client
+// cannot stuff arbitrary bytes into the LSM.
+const maxReactionEmojiLen = 32
+
 func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	roomID, err := uuid.Parse(q.Get("room_id"))
@@ -152,6 +156,13 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
+	if len(req.Emoji) > maxReactionEmojiLen {
+		render.Error(w, http.StatusBadRequest, "emoji too long")
+		return
+	}
+	if !requireRoomMember(a.store, w, r, roomID) {
+		return
+	}
 
 	if err := a.store.AddReaction(r.Context(), roomID, msgID, userID, req.Emoji); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
@@ -203,6 +214,13 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	roomID, err := uuid.Parse(roomIDStr)
 	if err != nil {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
+		return
+	}
+	if len(emoji) > maxReactionEmojiLen {
+		render.Error(w, http.StatusBadRequest, "emoji too long")
+		return
+	}
+	if !requireRoomMember(a.store, w, r, roomID) {
 		return
 	}
 

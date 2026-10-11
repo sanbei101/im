@@ -54,6 +54,9 @@ func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room id")
 		return
 	}
+	if !requireRoomMember(a.store, w, r, roomID) {
+		return
+	}
 
 	req, err := render.ReadBody[MarkReadReq](w, r)
 	if err != nil {
@@ -87,6 +90,9 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !requireRoomMember(a.store, w, r, roomID) {
 		return
 	}
 

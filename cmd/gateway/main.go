@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os/signal"
@@ -18,6 +20,12 @@ import (
 
 func main() {
 	logger.InitLogger()
+	if err := run(); err != nil {
+		log.Fatal().Err(err).Msg("gateway server failed")
+	}
+}
+
+func run() error {
 	cfg := config.New()
 	g := gateway.NewGateway(cfg)
 
@@ -41,16 +49,24 @@ func main() {
 
 	g.Start(ctx)
 
+	serveErr := make(chan error, 1)
 	wg.Go(func() {
 		log.Info().Msg("starting gateway server on :8800...")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("failed to start gateway server")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- fmt.Errorf("start gateway server: %w", err)
+			return
 		}
 		log.Info().Msg("gateway server stopped")
 	})
 
-	<-ctx.Done()
-	log.Info().Msg("shutting down gracefully...")
+	var serveFailure error
+	select {
+	case <-ctx.Done():
+		log.Info().Msg("shutting down gracefully...")
+	case err := <-serveErr:
+		serveFailure = err
+		log.Error().Err(err).Msg("gateway server failed, shutting down")
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -58,5 +74,9 @@ func main() {
 		log.Error().Err(err).Msg("server forced to shutdown")
 	}
 	wg.Wait()
+	if serveFailure != nil {
+		return serveFailure
+	}
 	log.Info().Msg("gateway exited completely")
+	return nil
 }

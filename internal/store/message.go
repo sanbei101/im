@@ -79,6 +79,16 @@ func decodeMessage(data []byte) (Message, error) {
 	return message, nil
 }
 
+// ownedMessage copies Message's variable-length fields out of a pebble-owned
+// buffer. decodeMessage aliases the Get/iterator value, which is invalid once
+// its closer is closed; callers that keep the Message beyond that (caches,
+// responses) must hold an owned copy.
+func ownedMessage(m Message) Message {
+	m.Payload = jsontext.Value(bytes.Clone(m.Payload))
+	m.Ext = jsontext.Value(bytes.Clone(m.Ext))
+	return m
+}
+
 func encodeDedup(value Dedup) []byte {
 	return appendDedup(nil, value)
 }
@@ -565,15 +575,18 @@ func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Messa
 	var msgKeyBuf [25]byte
 	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
 	message, err := s.getRecord(msgKey, decodeMessage)
-	if errors.Is(err, ErrNotFound) {
+	switch {
+	case errors.Is(err, ErrNotFound):
 		// The body may already be archived; the 'i' index survives archival
 		// precisely so cold messages stay resolvable by id.
 		message, err = s.remoteMessage(ctx, roomID, seq)
 		if err != nil {
 			return Message{}, err
 		}
-	} else if err != nil {
+	case err != nil:
 		return Message{}, err
+	default:
+		message = ownedMessage(message)
 	}
 	reactions, err := s.Reactions(ctx, roomID, msgID)
 	if err != nil {
@@ -660,6 +673,9 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
+	// The recalled message lands in the rooms LRU and the tail cache, so it
+	// must not alias the pebble buffer.
+	msg = ownedMessage(msg)
 
 	if msg.MsgType == MsgTypeRecall {
 		return msg, nil
