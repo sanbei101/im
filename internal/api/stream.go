@@ -10,24 +10,20 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/phuslu/lru"
+
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/proto/pb"
 )
 
 const (
-	sessionShardCount     = 64
-	memberCacheShardCount = 64
+	sessionShardCount = 64
 )
 
 type sessionShard struct {
 	mu       sync.RWMutex
 	sessions map[string]*apiConnection
-}
-
-type memberCacheShard struct {
-	mu      sync.RWMutex
-	entries map[uuid.UUID]*roomMemberCacheEntry
 }
 
 type StreamHandler struct {
@@ -38,12 +34,7 @@ type StreamHandler struct {
 	nodeCount int
 
 	sessionShards [sessionShardCount]sessionShard
-	memberShards  [memberCacheShardCount]memberCacheShard
-}
-
-type roomMemberCacheEntry struct {
-	members []cachedMember
-	expires time.Time
+	memberCache   *lru.TTLCache[uuid.UUID, []cachedMember]
 }
 
 type cachedMember struct {
@@ -61,41 +52,32 @@ func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
 	return &h.sessionShards[pkg.StringShard(userID, sessionShardCount)]
 }
 
-func (h *StreamHandler) getMemberShard(roomID uuid.UUID) *memberCacheShard {
-	return &h.memberShards[roomID[15]%memberCacheShardCount]
-}
-
 func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCount int) *StreamHandler {
 	handler := &StreamHandler{
-		store: data, nodeID: nodeID, slots: slots, nodeIndex: nodeIndex, nodeCount: nodeCount,
+		store:     data,
+		nodeID:    nodeID,
+		slots:     slots,
+		nodeIndex: nodeIndex,
+		nodeCount: nodeCount,
+		memberCache: lru.NewTTLCache[uuid.UUID, []cachedMember](
+			4096,
+			lru.WithShards[uuid.UUID, []cachedMember](64),
+		),
 	}
 	for i := range handler.sessionShards {
 		handler.sessionShards[i].sessions = make(map[string]*apiConnection)
-	}
-	for i := range handler.memberShards {
-		handler.memberShards[i].entries = make(map[uuid.UUID]*roomMemberCacheEntry)
 	}
 	return handler
 }
 
 func (h *StreamHandler) InvalidateRoomMembers(roomID uuid.UUID) {
-	shard := h.getMemberShard(roomID)
-	shard.mu.Lock()
-	delete(shard.entries, roomID)
-	shard.mu.Unlock()
+	h.memberCache.Delete(roomID)
 }
 
 func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([]cachedMember, error) {
-	now := time.Now()
-	shard := h.getMemberShard(roomID)
-	shard.mu.RLock()
-	entry, ok := shard.entries[roomID]
-	if ok && now.Before(entry.expires) {
-		members := entry.members
-		shard.mu.RUnlock()
-		return members, nil
+	if cached, ok := h.memberCache.Get(roomID); ok {
+		return cached, nil
 	}
-	shard.mu.RUnlock()
 
 	rawMembers, err := h.store.Members(ctx, roomID)
 	if err != nil {
@@ -108,12 +90,7 @@ func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([
 			userIDStr: m.UserID.String(),
 		}
 	}
-	shard.mu.Lock()
-	shard.entries[roomID] = &roomMemberCacheEntry{
-		members: cached,
-		expires: now.Add(30 * time.Second),
-	}
-	shard.mu.Unlock()
+	h.memberCache.Set(roomID, cached, 30*time.Second)
 	return cached, nil
 }
 

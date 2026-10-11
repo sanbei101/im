@@ -55,9 +55,10 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 ### 1. 内存层
 - **高性能分片 LRU 缓存 (`phuslu/lru`)**:
   - `messageCache` (`roomTail`):4096 房间的分片 LRU 环形缓冲区,每个活跃房间保留最新 128 条(至多 64KB)已提交消息。最新一页(`before=0`)历史读取 100% 命中内存,单次读取仅 ~790ns,0 Pebble I/O。
-  - `roomShards`:64 分片 LRU 缓存热点房间元数据(反范式化嵌入 `LastMsg` 与 `LastSeq`),消除会话列表渲染时的逐房间消息回表。
-  - `userShards` & `usernameCache`:64 分片 LRU 缓存热点用户资料与用户名反查,批量用户解析(`UsersByIDs`)优先走内存,吞吐提升 10 倍以上且 0 堆内存分配。
-  - `dedupCache`:缓存近期 32K 条消息的幂等键(`room_id + sender_id + client_msg_id`),秒级拦截网络重发,消除写前读取 Pebble 的 LSM 读放大。
+  - `roomShards`: 64 分片 LRU 缓存热点房间元数据与成员名单(`members`),反范式化嵌入 `LastMsg` 与 `LastSeq`
+  - `userShards` & `usernameCache`: 64 分片 LRU 缓存热点用户资料与用户名反查,批量用户解析(`UsersByIDs`)优先走内存
+  - `dedupCache`: 缓存近期 32K 条消息的幂等键(`room_id + sender_id + client_msg_id`),秒级拦截网络重发,消除写前读取 Pebble 的 LSM 读放大。
+  - `StreamHandler.memberCache`: API 广播网关使用 `phuslu/lru.TTLCache` 缓存 4096 房间活跃成员,30s TTL,杜绝长连接无界 map 内存泄漏。
 - **写聚合缓冲管道**:客户端发送请求通过 `messageQueue`(4096 容量)由单写协程在 1ms 或 128 条批大小窗口内合并,变随机小写为顺序批写。
 
 ### 2. 文件存储层

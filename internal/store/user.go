@@ -307,7 +307,8 @@ func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	}
 
 	users := make(map[uuid.UUID]User, len(ids))
-	var missing []uuid.UUID
+	var missingBuf [32]uuid.UUID
+	missing := missingBuf[:0]
 	for _, id := range ids {
 		if _, ok := users[id]; ok {
 			continue
@@ -331,15 +332,8 @@ func (s *Store) UsersByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 		return users, nil
 	}
 
-	var stackBuf [32]uuid.UUID
-	var sorted []uuid.UUID
-	if len(missing) <= len(stackBuf) {
-		sorted = append(stackBuf[:0], missing...)
-	} else {
-		sorted = slices.Clone(missing)
-	}
-	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return a.Compare(b) })
-	sorted = slices.Compact(sorted)
+	slices.SortFunc(missing, func(a, b uuid.UUID) int { return a.Compare(b) })
+	sorted := slices.Compact(missing)
 
 	var buf [1]byte
 	prefix := appendUserPrefix(buf[:0])

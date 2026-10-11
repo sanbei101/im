@@ -71,7 +71,8 @@ const roomShardCount = 64
 const roomCachePerShard = 256
 
 type roomShard struct {
-	rooms *lru.LRUCache[uuid.UUID, Room]
+	rooms   *lru.LRUCache[uuid.UUID, Room]
+	members *lru.LRUCache[uuid.UUID, []Member]
 }
 
 const (
@@ -344,6 +345,7 @@ func Open(path string) (*Store, error) {
 	}
 	for i := range store.roomShards {
 		store.roomShards[i].rooms = lru.NewLRUCache[uuid.UUID, Room](roomCachePerShard)
+		store.roomShards[i].members = lru.NewLRUCache[uuid.UUID, []Member](roomCachePerShard)
 	}
 	for i := range store.userShards {
 		store.userShards[i].users = lru.NewLRUCache[uuid.UUID, User](userCachePerShard)
@@ -567,6 +569,10 @@ func (s *Store) getRecord[T any](key []byte, decode func([]byte) (T, error)) (T,
 
 // scanPrefix scans all keys with the given prefix and decodes values into []T.
 func (s *Store) scanPrefix[T any](prefix []byte, decode func([]byte) (T, error)) ([]T, error) {
+	return s.scanPrefixCap(prefix, 16, decode)
+}
+
+func (s *Store) scanPrefixCap[T any](prefix []byte, initialCap int, decode func([]byte) (T, error)) ([]T, error) {
 	var upBuf [64]byte
 	upper := prefixUpperBoundBuf(upBuf[:0], prefix)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
@@ -575,7 +581,10 @@ func (s *Store) scanPrefix[T any](prefix []byte, decode func([]byte) (T, error))
 	}
 	defer iter.Close()
 
-	result := make([]T, 0, 16)
+	if initialCap <= 0 {
+		initialCap = 16
+	}
+	result := make([]T, 0, initialCap)
 	for iter.First(); iter.Valid(); iter.Next() {
 		item, err := decode(iter.Value())
 		if err != nil {

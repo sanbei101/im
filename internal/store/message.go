@@ -326,19 +326,27 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 		return MessagePage{}, err
 	}
 
-	ascending := make([]Message, 0, len(warm)+len(cold))
-	ascending = append(ascending, cold...)
-	ascending = append(ascending, warm...)
-	messages := make([]Message, len(ascending))
-	for i := range ascending {
-		messages[len(ascending)-1-i] = ascending[i]
-	}
-	hasMore := len(messages) > limit
+	total := len(warm) + len(cold)
+	hasMore := total > limit
+	n := total
 	if hasMore {
-		messages = messages[:limit]
+		n = limit
+	}
+	messages := make([]Message, n)
+	idx := 0
+	for i := len(warm) - 1; i >= 0 && idx < n; i-- {
+		messages[idx] = warm[i]
+		idx++
+	}
+	for i := len(cold) - 1; i >= 0 && idx < n; i-- {
+		messages[idx] = cold[i]
+		idx++
 	}
 
-	if before == 0 {
+	if before == 0 && total > 0 {
+		ascending := make([]Message, 0, total)
+		ascending = append(ascending, cold...)
+		ascending = append(ascending, warm...)
 		s.cache.put(roomID, ascending, hi-1)
 	}
 	if err := s.populateReactions(ctx, roomID, messages); err != nil {
@@ -415,9 +423,10 @@ func (s *Store) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
 	}
 	defer iter.Close()
 
-	var messages []Message
+	capacity := min(int(hi-lo), 128)
+	messages := make([]Message, 0, capacity)
 	for iter.First(); iter.Valid(); iter.Next() {
-		value := append([]byte(nil), iter.Value()...)
+		value := bytes.Clone(iter.Value())
 		message, err := decodeMessage(value)
 		if err != nil {
 			return nil, err
@@ -434,14 +443,14 @@ func min64(a, b uint64) uint64 {
 	return b
 }
 
-func messageUpperBound(prefix []byte, before uint64) []byte {
+func messageUpperBoundBuf(buf, prefix []byte, before uint64) []byte {
 	if before == 0 {
-		return prefixUpperBound(prefix)
+		return prefixUpperBoundBuf(buf, prefix)
 	}
-	upperBound := make([]byte, len(prefix)+8)
-	copy(upperBound, prefix)
-	binary.BigEndian.PutUint64(upperBound[len(prefix):], before)
-	return upperBound
+	buf = append(buf[:0], prefix...)
+	var seq [8]byte
+	binary.BigEndian.PutUint64(seq[:], before)
+	return append(buf, seq[:]...)
 }
 
 func (s *Store) SearchRoomMessages(
@@ -464,7 +473,8 @@ func (s *Store) SearchRoomMessages(
 
 	var prefixBuf [32]byte
 	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
-	upperBound := messageUpperBound(prefix, before)
+	var upBuf [40]byte
+	upperBound := messageUpperBoundBuf(upBuf[:0], prefix, before)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
 		return nil, err
@@ -761,17 +771,24 @@ func (s *Store) roomReactions(ctx context.Context, roomID uuid.UUID) (map[uuid.U
 		return nil, err
 	}
 
-	prefix := appendReactionRoomPrefix(nil, roomID)
-	upperBound := prefixUpperBound(prefix)
+	var pBuf [17]byte
+	prefix := appendReactionRoomPrefix(pBuf[:0], roomID)
+	var upBuf [18]byte
+	upperBound := prefixUpperBoundBuf(upBuf[:0], prefix)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
 
+	iter.First()
+	if !iter.Valid() {
+		return nil, iter.Error()
+	}
+
 	const minKeyLen = 1 + 16 + 16 + 16 // 49
 	grouped := make(map[uuid.UUID]map[string][]uuid.UUID)
-	for iter.First(); iter.Valid(); iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()
 		if len(key) <= minKeyLen {
 			continue

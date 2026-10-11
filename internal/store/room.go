@@ -254,6 +254,7 @@ func (s *Store) CreateRoom(ctx context.Context, room Room, members []Member) err
 		return err
 	}
 	s.getRoomShard(room.RoomID).rooms.Set(room.RoomID, room)
+	s.getRoomShard(room.RoomID).members.Set(room.RoomID, slices.Clone(members))
 	return nil
 }
 
@@ -291,8 +292,18 @@ func (s *Store) Members(ctx context.Context, roomID uuid.UUID) ([]Member, error)
 		return nil, err
 	}
 
+	shard := s.getRoomShard(roomID)
+	if cached, ok := shard.members.Get(roomID); ok {
+		return slices.Clone(cached), nil
+	}
+
 	var buf [17]byte
-	return s.scanPrefix(appendMemberPrefix(buf[:0], roomID), decodeMember)
+	members, err := s.scanPrefixCap(appendMemberPrefix(buf[:0], roomID), 64, decodeMember)
+	if err != nil {
+		return nil, err
+	}
+	shard.members.Set(roomID, members)
+	return slices.Clone(members), nil
 }
 
 func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, error) {
@@ -328,6 +339,14 @@ func (s *Store) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, 
 func (s *Store) Member(ctx context.Context, roomID, userID uuid.UUID) (Member, error) {
 	if err := contextErr(ctx); err != nil {
 		return Member{}, err
+	}
+
+	if cached, ok := s.getRoomShard(roomID).members.Get(roomID); ok {
+		for i := range cached {
+			if cached[i].UserID == userID {
+				return cached[i], nil
+			}
+		}
 	}
 
 	var mKeyBuf [64]byte
@@ -390,7 +409,11 @@ func (s *Store) AddMembers(ctx context.Context, roomID uuid.UUID, newMembers []M
 			return err
 		}
 	}
-	return commit(batch)
+	if err := commit(batch); err != nil {
+		return err
+	}
+	s.getRoomShard(roomID).members.Delete(roomID)
+	return nil
 }
 
 func (s *Store) RemoveMember(ctx context.Context, roomID, userID uuid.UUID) error {
@@ -417,7 +440,11 @@ func (s *Store) RemoveMember(ctx context.Context, roomID, userID uuid.UUID) erro
 	if err := batch.Delete(appendRoomReadSeqKey(qRoomBuf[:0], roomID, userID), nil); err != nil {
 		return err
 	}
-	return commit(batch)
+	if err := commit(batch); err != nil {
+		return err
+	}
+	s.getRoomShard(roomID).members.Delete(roomID)
+	return nil
 }
 
 func (s *Store) UpdateMemberRole(ctx context.Context, roomID, userID uuid.UUID, role string) error {
@@ -464,7 +491,11 @@ func (s *Store) TransferOwnership(ctx context.Context, roomID, from, to uuid.UUI
 	if err := s.setMemberBatch(batch, toMember); err != nil {
 		return err
 	}
-	return commit(batch)
+	if err := commit(batch); err != nil {
+		return err
+	}
+	s.getRoomShard(roomID).members.Delete(roomID)
+	return nil
 }
 
 // commitMember persists a member record and its user-room index copy in one batch.
@@ -474,7 +505,11 @@ func (s *Store) commitMember(member Member) error {
 	if err := s.setMemberBatch(batch, member); err != nil {
 		return err
 	}
-	return commit(batch)
+	if err := commit(batch); err != nil {
+		return err
+	}
+	s.getRoomShard(member.RoomID).members.Delete(member.RoomID)
+	return nil
 }
 
 func (s *Store) setMemberBatch(batch *pebble.Batch, member Member) error {
@@ -550,6 +585,7 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 		return err
 	}
 	s.getRoomShard(roomID).rooms.Delete(roomID)
+	s.getRoomShard(roomID).members.Delete(roomID)
 	return nil
 }
 
@@ -594,14 +630,21 @@ func (s *Store) ReadSeq(ctx context.Context, userID, roomID uuid.UUID) (uint64, 
 func (s *Store) userReadSeqs(userID uuid.UUID) (map[uuid.UUID]uint64, error) {
 	var buf [17]byte
 	prefix := appendReadSeqPrefix(buf[:0], userID)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	var upBuf [18]byte
+	iter, err := s.db.NewIter(
+		&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBoundBuf(upBuf[:0], prefix)},
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
 
+	iter.First()
+	if !iter.Valid() {
+		return nil, iter.Error()
+	}
 	seqs := make(map[uuid.UUID]uint64)
-	for iter.First(); iter.Valid(); iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		var room uuid.UUID
 		copy(room[:], iter.Key()[len(prefix):])
 		seqs[room] = binary.BigEndian.Uint64(iter.Value())
@@ -613,14 +656,21 @@ func (s *Store) userReadSeqs(userID uuid.UUID) (map[uuid.UUID]uint64, error) {
 func (s *Store) roomReadSeqs(roomID uuid.UUID) (map[uuid.UUID]uint64, error) {
 	var buf [17]byte
 	prefix := appendRoomReadSeqPrefix(buf[:0], roomID)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	var upBuf [18]byte
+	iter, err := s.db.NewIter(
+		&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBoundBuf(upBuf[:0], prefix)},
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
 
+	iter.First()
+	if !iter.Valid() {
+		return nil, iter.Error()
+	}
 	seqs := make(map[uuid.UUID]uint64)
-	for iter.First(); iter.Valid(); iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		var user uuid.UUID
 		copy(user[:], iter.Key()[len(prefix):])
 		seqs[user] = binary.BigEndian.Uint64(iter.Value())
@@ -632,34 +682,46 @@ func (s *Store) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversa
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	rooms, err := s.RoomsByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
 	readSeqs, err := s.userReadSeqs(userID)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]ConversationInfo, 0, len(rooms))
+	var pBuf [17]byte
+	prefix := appendUserRoomPrefix(pBuf[:0], userID)
+	var upBuf [17]byte
+	upper := prefixUpperBoundBuf(upBuf[:0], prefix)
+	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
 
-	for i := range rooms {
-		room := rooms[i].Room
-		member := rooms[i].Member
+	result := make([]ConversationInfo, 0, 16)
+	for iter.First(); iter.Valid(); iter.Next() {
+		member, err := decodeMember(iter.Value())
+		if err != nil {
+			return nil, err
+		}
+		room, err := s.Room(ctx, member.RoomID)
+		if err != nil {
+			return nil, err
+		}
 
 		var unread uint64
 		if readSeq := readSeqs[room.RoomID]; room.LastSeq > readSeq {
 			unread = room.LastSeq - readSeq
 		}
 
-		info := ConversationInfo{
+		result = append(result, ConversationInfo{
 			Room:        room,
 			Member:      member,
 			UnreadCount: unread,
 			LastMessage: room.LastMsg,
-		}
-
-		result = append(result, info)
+		})
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
 	}
 
 	slices.SortFunc(result, func(a, b ConversationInfo) int {
