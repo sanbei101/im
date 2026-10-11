@@ -31,18 +31,23 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	gatewayMux := http.NewServeMux()
 	gatewayMux.HandleFunc("/ws", g.HandleUserMessage)
 
 	srv := &http.Server{
-		Addr:    cfg.Gateway.Addr,
-		Handler: gatewayMux,
+		Addr:              cfg.Gateway.Addr,
+		Handler:           gatewayMux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       time.Minute,
 	}
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		if err := http.ListenAndServe(":6062", nil); err != nil {
+		debug := &http.Server{Addr: "127.0.0.1:6062", ReadHeaderTimeout: 10 * time.Second}
+		if err := debug.ListenAndServe(); err != nil {
 			log.Error().Err(err).Msg("pprof server stopped")
 		}
 	})
@@ -65,14 +70,16 @@ func run() error {
 		log.Info().Msg("shutting down gracefully...")
 	case err := <-serveErr:
 		serveFailure = err
+		cancel() // the background streams must not outlive a failed server
 		log.Error().Err(err).Msg("gateway server failed, shutting down")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("server forced to shutdown")
 	}
+	g.Stop(shutdownCtx)
 	wg.Wait()
 	if serveFailure != nil {
 		return serveFailure

@@ -66,12 +66,15 @@ func run() error {
 	kitexServer := gatewayservice.NewServer(streamHandler, server.WithServiceAddr(listenAddr))
 
 	srv := &http.Server{
-		Addr:    ":8801",
-		Handler: r,
+		Addr:              ":8801",
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       time.Minute,
 	}
 
 	go func() {
-		if err := http.ListenAndServe(":6061", nil); err != nil {
+		debug := &http.Server{Addr: "127.0.0.1:6061", ReadHeaderTimeout: 10 * time.Second}
+		if err := debug.ListenAndServe(); err != nil {
 			log.Error().Err(err).Msg("pprof server stopped")
 		}
 	}()

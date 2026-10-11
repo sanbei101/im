@@ -9,7 +9,6 @@ import (
 	"uuid"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/render"
@@ -100,14 +99,7 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 			data["from_avatar_url"] = myUser.AvatarURL
 		}
 		if payload, err := json.Marshal(data); err == nil {
-			if pushErr := a.streamHandler.PushNotification(
-				r.Context(),
-				targetID,
-				"friend_application",
-				payload,
-			); pushErr != nil {
-				log.Error().Err(pushErr).Msg("push friend_application notification failed")
-			}
+			a.streamHandler.PushNotification(targetID, "friend_application", payload)
 		}
 	}
 
@@ -152,14 +144,7 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 			data["avatar_url"] = myUser.AvatarURL
 		}
 		if payload, err := json.Marshal(data); err == nil {
-			if pushErr := a.streamHandler.PushNotification(
-				r.Context(),
-				fromID,
-				"friend_accepted",
-				payload,
-			); pushErr != nil {
-				log.Error().Err(pushErr).Msg("push friend_accepted notification failed")
-			}
+			a.streamHandler.PushNotification(fromID, "friend_accepted", payload)
 		}
 	}
 

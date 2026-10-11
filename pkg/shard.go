@@ -6,8 +6,12 @@ import (
 	"uuid"
 )
 
+// MaxSlots is the upper bound of shard slots: slot and node indexes stay in
+// uint16 and the static topology remains enumerable.
+const MaxSlots = 1 << 16
+
 func RoomSlot(roomID uuid.UUID, slots int) (uint16, error) {
-	if slots < 1 || slots > 1<<16 {
+	if slots < 1 || slots > MaxSlots {
 		return 0, errors.New("invalid shard slot count")
 	}
 	hash := roomID

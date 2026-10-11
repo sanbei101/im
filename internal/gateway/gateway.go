@@ -50,6 +50,9 @@ type Gateway struct {
 	pendingShards      [pendingShardCount]pendingShard
 	roomUserShards     [roomUserShardCount]roomUserShard
 	frames             *render.FrameWriter
+	// background tracks the api stream loops and the room-user sweeper so
+	// Stop can wait for them to unwind.
+	background sync.WaitGroup
 }
 
 type roomUserSet struct {
@@ -170,9 +173,27 @@ func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
 
 func (g *Gateway) Start(ctx context.Context) {
 	for _, stream := range g.streams {
-		go stream.run(ctx)
+		g.background.Go(func() { stream.run(ctx) })
 	}
-	go g.sweepRoomUsers(ctx)
+	g.background.Go(func() { g.sweepRoomUsers(ctx) })
+}
+
+// Stop tears the gateway down after its HTTP server stopped accepting: every
+// websocket session is closed so the client pumps exit through their normal
+// cleanup path, then the api streams finish their CloseSend before the
+// process leaves. The passed context bounds how long Stop waits.
+func (g *Gateway) Stop(ctx context.Context) {
+	g.UserSessionManager.CloseAll()
+	done := make(chan struct{})
+	go func() {
+		g.background.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		log.Warn().Msg("gateway stop timed out; background goroutines still running")
+	}
 }
 
 // sweepRoomUsers periodically evicts room-user entries idle past roomUserTTL

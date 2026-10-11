@@ -2,12 +2,15 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/phuslu/log"
 	"gopkg.in/yaml.v3"
+
+	"github.com/sanbei101/im/pkg"
 )
 
 const DefaultConfigPath = "config.yaml"
@@ -66,7 +69,9 @@ func New(path ...string) *Config {
 
 func NewTest() *Config {
 	cfg := &Config{}
-	cfg.Default()
+	if err := cfg.Default(); err != nil {
+		panic(err)
+	}
 	return cfg
 }
 
@@ -79,11 +84,13 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
-	cfg.Default()
+	if err := cfg.Default(); err != nil {
+		return nil, err
+	}
 	return cfg, cfg.Validate()
 }
 
-func (c *Config) Default() {
+func (c *Config) Default() error {
 	if value := os.Getenv("API_NODE_ID"); value != "" {
 		c.API.NodeID = value
 	}
@@ -139,9 +146,11 @@ func (c *Config) Default() {
 		c.Store.BackupPath = value
 	}
 	if value := os.Getenv("SHARD_SLOTS"); value != "" {
-		if slots, err := strconv.Atoi(value); err == nil {
-			c.Shard.Slots = slots
+		slots, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse SHARD_SLOTS %q: %w", value, err)
 		}
+		c.Shard.Slots = slots
 	}
 	if c.API.NodeCount == 0 {
 		c.API.NodeCount = len(c.Gateway.APIAddrs)
@@ -170,6 +179,7 @@ func (c *Config) Default() {
 	if value := os.Getenv("STORAGE_SECRET_ACCESS_KEY"); value != "" {
 		c.Storage.SecretAccessKey = value
 	}
+	return nil
 }
 
 func (c *Config) Validate() error {
@@ -179,11 +189,17 @@ func (c *Config) Validate() error {
 	if len(c.Gateway.APIAddrs) == 0 {
 		return errors.New("at least one api address is required")
 	}
-	if c.Shard.Slots < 1 {
-		return errors.New("shard slots must be positive")
+	if c.Shard.Slots < 1 || c.Shard.Slots > pkg.MaxSlots {
+		return fmt.Errorf("shard slots must be within [1, %d]", pkg.MaxSlots)
 	}
 	if c.API.NodeIndex < 0 || c.API.NodeIndex >= c.API.NodeCount {
 		return errors.New("api node_index is outside node_count")
+	}
+	// Slot ownership is computed as NodeIndex(slot, slots, node_count) on the
+	// API side and looked up in api_addrs[index] on the gateway side, so the
+	// two counts must agree or messages route to the wrong node.
+	if c.API.NodeCount != len(c.Gateway.APIAddrs) {
+		return errors.New("api node_count must match the number of gateway api_addrs")
 	}
 	return nil
 }

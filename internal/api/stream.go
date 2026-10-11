@@ -10,6 +10,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/phuslu/log"
 	"github.com/phuslu/lru"
 
 	"github.com/sanbei101/im/internal/store"
@@ -44,8 +45,61 @@ type cachedMember struct {
 
 type apiConnection struct {
 	stream pb.GatewayService_ConnectServer
-	mu     sync.Mutex
-	users  map[string]struct{}
+	// outbox decouples producers from the network: callers enqueue without
+	// blocking, and the connection's writer goroutine serializes every Send.
+	outbox chan *pb.APIFrame
+	// quit is closed when the Connect handler returns; it stops the writer.
+	quit chan struct{}
+
+	mu    sync.Mutex // guards users
+	users map[string]struct{}
+}
+
+// connectionOutboxSize bounds a gateway connection's queued frames; beyond it
+// the gateway is not draining fast enough and frames are dropped.
+const connectionOutboxSize = 1024
+
+var (
+	errConnectionClosed = errors.New("gateway connection closed")
+	errOutboxFull       = errors.New("gateway connection outbox is full")
+)
+
+func newAPIConnection(stream pb.GatewayService_ConnectServer) *apiConnection {
+	return &apiConnection{
+		stream: stream,
+		users:  make(map[string]struct{}),
+		outbox: make(chan *pb.APIFrame, connectionOutboxSize),
+		quit:   make(chan struct{}),
+	}
+}
+
+// enqueue hands a frame to the connection writer and returns immediately, so
+// a slow gateway can never stall another gateway's message loop or an HTTP
+// handler. Pushes are lossy by design — clients catch up via room_seq pull.
+func (c *apiConnection) enqueue(frame *pb.APIFrame) error {
+	select {
+	case c.outbox <- frame:
+		return nil
+	case <-c.quit:
+		return errConnectionClosed
+	default:
+		return errOutboxFull
+	}
+}
+
+// writeOutbox is the single sender of one gateway connection: it drains the
+// outbox onto the stream so no other goroutine touches stream.Send.
+func (c *apiConnection) writeOutbox(ctx context.Context) {
+	for {
+		select {
+		case <-c.quit:
+			return
+		case frame := <-c.outbox:
+			if err := c.stream.Send(ctx, frame); err != nil {
+				return // the stream is broken; Connect's Recv fails on it too
+			}
+		}
+	}
 }
 
 func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
@@ -95,8 +149,10 @@ func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([
 }
 
 func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_ConnectServer) error {
-	connection := &apiConnection{stream: stream, users: make(map[string]struct{})}
+	connection := newAPIConnection(stream)
 	defer h.removeConnection(connection)
+	defer close(connection.quit)
+	go connection.writeOutbox(ctx)
 
 	for {
 		frame, err := stream.Recv(ctx)
@@ -108,14 +164,11 @@ func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_Co
 		}
 		switch {
 		case frame.GetHello() != nil:
-			if err := connection.send(
-				ctx,
-				&pb.APIFrame{
-					Body: &pb.APIFrame_HelloAck{
-						HelloAck: &pb.HelloAck{NodeId: h.nodeID, TopologyVersion: strconv.Itoa(h.slots)},
-					},
+			if err := connection.enqueue(&pb.APIFrame{
+				Body: &pb.APIFrame_HelloAck{
+					HelloAck: &pb.HelloAck{NodeId: h.nodeID, TopologyVersion: strconv.Itoa(h.slots)},
 				},
-			); err != nil {
+			}); err != nil {
 				return fmt.Errorf("send hello ack: %w", err)
 			}
 		case frame.GetSessionBatch() != nil:
@@ -125,25 +178,18 @@ func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_Co
 			if err != nil {
 				return err
 			}
-			if err := connection.send(
-				ctx,
-				&pb.APIFrame{Body: &pb.APIFrame_SendResultBatch{SendResultBatch: result}},
-			); err != nil {
+			if err := connection.enqueue(&pb.APIFrame{
+				Body: &pb.APIFrame_SendResultBatch{SendResultBatch: result},
+			}); err != nil {
 				return fmt.Errorf("send result batch: %w", err)
 			}
 			for _, push := range pushes {
 				if err := h.push(ctx, push); err != nil {
-					return err
+					log.Error().Err(err).Msg("push room message failed")
 				}
 			}
 		}
 	}
-}
-
-func (c *apiConnection) send(ctx context.Context, frame *pb.APIFrame) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.stream.Send(ctx, frame)
 }
 
 func (h *StreamHandler) updateSessions(connection *apiConnection, batch *pb.SessionBatch) {
@@ -297,12 +343,15 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 			ReplyToMsgId: replyToMsgIDStr,
 			UserIds:      userIDs,
 		}
-		if err := connection.send(ctx, &pb.APIFrame{
+		if err := connection.enqueue(&pb.APIFrame{
 			Body: &pb.APIFrame_RoomPushBatch{
 				RoomPushBatch: &pb.RoomPushBatch{RoomPushes: []*pb.RoomPush{roomPush}},
 			},
 		}); err != nil {
-			return fmt.Errorf("push room message: %w", err)
+			// Drop only this gateway: a stalled peer must not cost the others,
+			// and clients recover the message through the room_seq pull path.
+			log.Error().Err(err).Str("room_id", roomIDStr).Msg("room push dropped")
+			continue
 		}
 	}
 	return nil
@@ -362,16 +411,19 @@ func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error 
 	return h.push(ctx, message)
 }
 
-func (h *StreamHandler) PushNotification(ctx context.Context, userID uuid.UUID, event string, data []byte) error {
+// PushNotification delivers one event to a user's gateway connection, if the
+// user is online on this node. Delivery is fire-and-forget: the frame lands
+// in the connection outbox, and a drop is logged and ends the delivery.
+func (h *StreamHandler) PushNotification(userID uuid.UUID, event string, data []byte) {
 	userIDStr := userID.String()
 	shard := h.getSessionShard(userIDStr)
 	shard.mu.RLock()
 	connection := shard.sessions[userIDStr]
 	shard.mu.RUnlock()
 	if connection == nil {
-		return nil
+		return
 	}
-	return connection.send(ctx, &pb.APIFrame{
+	if err := connection.enqueue(&pb.APIFrame{
 		Body: &pb.APIFrame_NotificationBatch{
 			NotificationBatch: &pb.NotificationBatch{
 				Notifications: []*pb.Notification{
@@ -383,15 +435,15 @@ func (h *StreamHandler) PushNotification(ctx context.Context, userID uuid.UUID, 
 				},
 			},
 		},
-	})
+	}); err != nil {
+		log.Error().Err(err).Str("event", event).Msg("push notification dropped")
+	}
 }
 
-func (h *StreamHandler) BroadcastNotification(
-	ctx context.Context,
-	userIDs []uuid.UUID,
-	event string,
-	data []byte,
-) error {
+// BroadcastNotification pushes one event to every online user, grouped per
+// gateway connection. Best effort per gateway: one stalled connection drops
+// its frame and the rest of the fan-out continues.
+func (h *StreamHandler) BroadcastNotification(userIDs []uuid.UUID, event string, data []byte) {
 	notifs := make(map[*apiConnection][]*pb.Notification)
 	for _, uid := range userIDs {
 		uidStr := uid.String()
@@ -408,26 +460,28 @@ func (h *StreamHandler) BroadcastNotification(
 		}
 	}
 	for conn, items := range notifs {
-		if err := conn.send(ctx, &pb.APIFrame{
+		if err := conn.enqueue(&pb.APIFrame{
 			Body: &pb.APIFrame_NotificationBatch{
 				NotificationBatch: &pb.NotificationBatch{Notifications: items},
 			},
 		}); err != nil {
-			return fmt.Errorf("broadcast notification: %w", err)
+			log.Error().Err(err).Str("event", event).Int("dropped", len(items)).Msg("broadcast notification dropped")
 		}
 	}
-	return nil
 }
 
+// BroadcastRoomNotification pushes one event to every online room member,
+// excluding one user. Best effort per gateway, like BroadcastNotification.
 func (h *StreamHandler) BroadcastRoomNotification(
 	ctx context.Context,
 	roomID, excludeUserID uuid.UUID,
 	event string,
 	data []byte,
-) error {
+) {
 	members, err := h.getRoomMembers(ctx, roomID)
 	if err != nil {
-		return fmt.Errorf("load room members: %w", err)
+		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load room members for broadcast failed")
+		return
 	}
 	notifs := make(map[*apiConnection][]*pb.Notification)
 	for _, member := range members {
@@ -447,15 +501,18 @@ func (h *StreamHandler) BroadcastRoomNotification(
 		}
 	}
 	for conn, items := range notifs {
-		if err := conn.send(ctx, &pb.APIFrame{
+		if err := conn.enqueue(&pb.APIFrame{
 			Body: &pb.APIFrame_NotificationBatch{
 				NotificationBatch: &pb.NotificationBatch{Notifications: items},
 			},
 		}); err != nil {
-			return fmt.Errorf("broadcast room notification: %w", err)
+			log.Error().
+				Err(err).
+				Str("event", event).
+				Int("dropped", len(items)).
+				Msg("broadcast room notification dropped")
 		}
 	}
-	return nil
 }
 
 var _ pb.GatewayService = (*StreamHandler)(nil)

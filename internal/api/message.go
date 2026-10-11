@@ -175,15 +175,7 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 				"msg_id":    msgID.String(),
 				"reactions": reactions,
 			}); err == nil {
-				if pushErr := a.streamHandler.BroadcastRoomNotification(
-					r.Context(),
-					roomID,
-					uuid.Nil(),
-					"reaction",
-					payload,
-				); pushErr != nil {
-					log.Error().Err(pushErr).Msg("broadcast reaction failed")
-				}
+				a.streamHandler.BroadcastRoomNotification(r.Context(), roomID, uuid.Nil(), "reaction", payload)
 			}
 		}
 	}
@@ -191,8 +183,7 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
-	msgIDStr := chi.URLParam(r, "id")
-	msgID, err := uuid.Parse(msgIDStr)
+	msgID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		render.Error(w, http.StatusBadRequest, "invalid message id")
 		return
@@ -202,22 +193,15 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
-	roomIDStr := r.URL.Query().Get("room_id")
-	emoji := r.URL.Query().Get("emoji")
-	if roomIDStr == "" || emoji == "" {
-		req, err := render.ReadBody[ReactionReq](w, r)
-		if err == nil {
-			roomIDStr = req.RoomID
-			emoji = req.Emoji
-		}
-	}
-	roomID, err := uuid.Parse(roomIDStr)
+	q := r.URL.Query()
+	roomID, err := uuid.Parse(q.Get("room_id"))
 	if err != nil {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
-	if len(emoji) > maxReactionEmojiLen {
-		render.Error(w, http.StatusBadRequest, "emoji too long")
+	emoji := q.Get("emoji")
+	if emoji == "" || len(emoji) > maxReactionEmojiLen {
+		render.Error(w, http.StatusBadRequest, "invalid emoji")
 		return
 	}
 	if !requireRoomMember(a.store, w, r, roomID) {
@@ -235,15 +219,7 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 				"msg_id":    msgID.String(),
 				"reactions": reactions,
 			}); err == nil {
-				if pushErr := a.streamHandler.BroadcastRoomNotification(
-					r.Context(),
-					roomID,
-					uuid.Nil(),
-					"reaction",
-					payload,
-				); pushErr != nil {
-					log.Error().Err(pushErr).Msg("broadcast reaction failed")
-				}
+				a.streamHandler.BroadcastRoomNotification(r.Context(), roomID, uuid.Nil(), "reaction", payload)
 			}
 		}
 	}

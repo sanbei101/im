@@ -31,6 +31,9 @@ func NewRouter(
 	r.Use(chimw.RequestID)
 	r.Use(chimw.Recoverer)
 
+	// JWT travels in the Authorization header rather than cookies, so the
+	// policy stays non-credentialed: wildcard origins and credentials are
+	// mutually exclusive per the fetch spec.
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{
@@ -42,10 +45,9 @@ func NewRouter(
 			http.MethodHead,
 			http.MethodOptions,
 		},
-		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"*"},
-		AllowCredentials: true,
-		MaxAge:           86400,
+		AllowedHeaders: []string{"*"},
+		ExposedHeaders: []string{"*"},
+		MaxAge:         86400,
 	}))
 	userAPI := &UserAPI{store: s, streamHandler: streamHandler}
 	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler}

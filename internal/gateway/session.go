@@ -224,6 +224,22 @@ func (manager *UserSessionManager) All() []uuid.UUID {
 	return result
 }
 
+// CloseAll closes every live websocket across all sessions, used at shutdown:
+// each read pump fails immediately and its handler unwinds through the
+// normal cleanup path (offline registration, session removal).
+func (manager *UserSessionManager) CloseAll() {
+	for i := range manager.shards {
+		shard := &manager.shards[i]
+		shard.mu.RLock()
+		for _, session := range shard.m {
+			session.ForEachClient(func(client *UserClient) {
+				client.Conn.Close(websocket.StatusGoingAway, "server shutting down")
+			})
+		}
+		shard.mu.RUnlock()
+	}
+}
+
 type UserSession struct {
 	mu      sync.RWMutex
 	clients map[*UserClient]struct{}
