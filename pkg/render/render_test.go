@@ -68,23 +68,23 @@ func TestRender(t *testing.T) {
 			{Type: "ack", RequestID: "r1", ClientMsgID: "c1", RoomSeq: 1, Code: 0},
 			{Type: "ack", RequestID: "r2", ClientMsgID: "c2", RoomSeq: 2, Code: 500, Error: "conflict"},
 		} {
-			var got AckFrame
-			if err := reader.ReadFrame(&got); err != nil {
+			got, err := reader.ReadFrame[AckFrame]()
+			if err != nil {
 				t.Fatalf("frame %d: %v", i, err)
 			}
 			if got != want {
 				t.Fatalf("frame %d mismatch: want %+v got %+v", i, want, got)
 			}
 		}
-		if err := reader.ReadFrame(&AckFrame{}); err == nil {
+		if _, err := reader.ReadFrame[AckFrame](); err == nil {
 			t.Fatal("expected error at end of stream")
 		}
 	})
 
 	t.Run("client frame decodes payload verbatim", func(t *testing.T) {
 		raw := `{"type":"message","request_id":"req-1","client_msg_id":"c-1","room_id":"r-1","msg_type":"text","payload":{"text":"你好"},"ext":{"k":1}}`
-		var frame ClientFrame
-		if err := NewFrameReader(bytes.NewBufferString(raw)).ReadFrame(&frame); err != nil {
+		frame, err := NewFrameReader(bytes.NewBufferString(raw)).ReadFrame[ClientFrame]()
+		if err != nil {
 			t.Fatal(err)
 		}
 		if frame.Type != "message" || frame.RequestID != "req-1" || frame.MsgType != "text" {

@@ -224,6 +224,9 @@ func (fr *FrameReader) Reset(r io.Reader) {
 	}
 }
 
-func (fr *FrameReader) ReadFrame(out any) error {
-	return json.UnmarshalDecode(fr.dec, out)
+// ReadFrame decodes one frame of type T from the reader.
+func (fr *FrameReader) ReadFrame[T any]() (T, error) {
+	var out T
+	err := json.UnmarshalDecode(fr.dec, &out)
+	return out, err
 }

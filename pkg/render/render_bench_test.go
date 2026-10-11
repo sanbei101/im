@@ -30,8 +30,7 @@ func BenchmarkRender(b *testing.B) {
 	b.Run("read-client-frame", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			var frame ClientFrame
-			if err := NewFrameReader(bytes.NewReader(raw)).ReadFrame(&frame); err != nil {
+			if _, err := NewFrameReader(bytes.NewReader(raw)).ReadFrame[ClientFrame](); err != nil {
 				b.Fatalf("read frame failed: %v", err)
 			}
 		}
@@ -43,8 +42,7 @@ func BenchmarkRender(b *testing.B) {
 		for b.Loop() {
 			br.Reset(raw)
 			reader.Reset(br)
-			var frame ClientFrame
-			if err := reader.ReadFrame(&frame); err != nil {
+			if _, err := reader.ReadFrame[ClientFrame](); err != nil {
 				b.Fatalf("read frame failed: %v", err)
 			}
 		}

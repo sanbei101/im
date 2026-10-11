@@ -39,6 +39,11 @@ type RoomInfo struct {
 	Notice    string `json:"notice"`
 }
 
+// RoomListResp wraps the room list payload.
+type RoomListResp struct {
+	Rooms []RoomInfo `json:"rooms"`
+}
+
 type RoomDetailResp struct {
 	RoomID    string `json:"room_id"`
 	ChatType  string `json:"chat_type"`
@@ -216,7 +221,7 @@ func (a *RoomAPI) ListRooms(w http.ResponseWriter, r *http.Request) {
 			AvatarURL: rooms[i].Room.AvatarURL,
 		}
 	}
-	render.Success(w, "获取房间列表成功", map[string]any{"rooms": result})
+	render.Success(w, "获取房间列表成功", RoomListResp{Rooms: result})
 }
 
 func singleHash(a, b uuid.UUID) [32]byte {

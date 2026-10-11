@@ -66,8 +66,8 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	} else {
 		c.reader.Reset(r)
 	}
-	var input render.ClientFrame
-	if err := c.reader.ReadFrame(&input); err != nil {
+	input, err := c.reader.ReadFrame[render.ClientFrame]()
+	if err != nil {
 		return fmt.Errorf("decode websocket message: %w", err)
 	}
 	if input.Type == "ping" {

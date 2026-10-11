@@ -32,6 +32,12 @@ type ReactionReq struct {
 // cannot stuff arbitrary bytes into the LSM.
 const maxReactionEmojiLen = 32
 
+// ReadUsersResp lists the members that have read up to a message.
+type ReadUsersResp struct {
+	ReadUserIDs []uuid.UUID `json:"read_user_ids"`
+	Count       int         `json:"count"`
+}
+
 func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	roomID, err := uuid.Parse(q.Get("room_id"))
@@ -259,9 +265,9 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	render.Success(w, "获取已读成员成功", map[string]any{
-		"read_user_ids": users,
-		"count":         len(users),
+	render.Success(w, "获取已读成员成功", ReadUsersResp{
+		ReadUserIDs: users,
+		Count:       len(users),
 	})
 }
 

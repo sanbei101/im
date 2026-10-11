@@ -24,6 +24,11 @@ type MuteConversationReq struct {
 	IsMuted bool `json:"is_muted"`
 }
 
+// ConversationListResp wraps the conversation list payload.
+type ConversationListResp struct {
+	Conversations []store.ConversationInfo `json:"conversations"`
+}
+
 func (a *ConversationAPI) ListConversations(w http.ResponseWriter, r *http.Request) {
 	myID, ok := requireUser(w, r)
 	if !ok {
@@ -36,7 +41,7 @@ func (a *ConversationAPI) ListConversations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	render.Success(w, "获取会话列表成功", map[string]any{"conversations": convs})
+	render.Success(w, "获取会话列表成功", ConversationListResp{Conversations: convs})
 }
 
 func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {

@@ -126,8 +126,8 @@ func TestGateway(t *testing.T) {
 		g.BroadcastTyping(sender, "room-1")
 		select {
 		case frame := <-peerClient.Send:
-			var typing render.TypingFrame
-			if err := render.NewFrameReader(bytes.NewReader(frame)).ReadFrame(&typing); err != nil {
+			typing, err := render.NewFrameReader(bytes.NewReader(frame)).ReadFrame[render.TypingFrame]()
+			if err != nil {
 				t.Fatalf("typing frame decode: %v", err)
 			}
 			if typing.Type != "typing" || typing.RoomID != "room-1" || typing.UserID != sender.String() {
@@ -183,8 +183,8 @@ func TestGateway(t *testing.T) {
 
 		select {
 		case frameBytes := <-client.Send:
-			var notif render.NotificationFrame
-			if err := render.NewFrameReader(bytes.NewReader(frameBytes)).ReadFrame(&notif); err != nil {
+			notif, err := render.NewFrameReader(bytes.NewReader(frameBytes)).ReadFrame[render.NotificationFrame]()
+			if err != nil {
 				t.Fatalf("notification frame decode: %v", err)
 			}
 			if notif.Type != "notification" || notif.Event != "reaction" {
