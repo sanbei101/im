@@ -71,13 +71,13 @@ func NewRouter(
 
 			r.Group(func(r chi.Router) {
 				r.Use(jwt.AuthMiddleware)
+				r.Post("/logout", userAPI.Logout)
 				r.Get("/search", userAPI.Search)
 				r.Get("/profile", userAPI.GetProfile)
 				r.Get("/{id}", userAPI.GetProfile)
 				r.Put("/profile", userAPI.UpdateProfile)
 				r.Put("/password", userAPI.UpdatePassword)
 				r.Post("/presence", userAPI.Presence)
-				r.Post("/logout", userAPI.Logout)
 			})
 		})
 
@@ -190,8 +190,13 @@ func requireRoomMember(s *store.Store, w http.ResponseWriter, r *http.Request, r
 	if !ok {
 		return false
 	}
-	if _, err := s.Member(r.Context(), roomID, userID); err != nil {
+	_, err := s.Member(r.Context(), roomID, userID)
+	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return false
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load room membership: "+err.Error())
 		return false
 	}
 	return true

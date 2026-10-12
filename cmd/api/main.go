@@ -9,6 +9,7 @@ import (
 	_ "net/http/pprof"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 	"uuid"
@@ -20,6 +21,7 @@ import (
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
 	"github.com/sanbei101/im/proto/pb/gatewayservice"
 )
@@ -33,15 +35,17 @@ func main() {
 
 func run() error {
 	cfg := config.New()
+	jwt.Init(cfg.JWTSecret)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	data, err := store.Open(cfg.Store.Path)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("open pebble store: %w", err)
 	}
 	defer data.Close()
+	defer cancel()
 
 	objects, err := store.NewMinioObjectStore(
 		cfg.Storage.Endpoint, cfg.Storage.Bucket,
@@ -63,8 +67,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)
 	}
-	kitexServer := gatewayservice.NewServer(streamHandler, server.WithServiceAddr(listenAddr))
-
+	kitexServer := gatewayservice.NewServer(streamHandler,
+		server.WithServiceAddr(listenAddr),
+		server.WithExitWaitTime(5*time.Second),
+	)
 	srv := &http.Server{
 		Addr:              ":8801",
 		Handler:           r,
@@ -72,13 +78,14 @@ func run() error {
 		IdleTimeout:       time.Minute,
 	}
 
+	var wg sync.WaitGroup
 	go func() {
 		debug := &http.Server{Addr: "127.0.0.1:6061", ReadHeaderTimeout: 10 * time.Second}
 		if err := debug.ListenAndServe(); err != nil {
 			log.Error().Err(err).Msg("pprof server stopped")
 		}
 	}()
-	go func() {
+	wg.Go(func() {
 		ticker := time.NewTicker(time.Duration(cfg.Store.BackupInterval) * time.Second)
 		defer ticker.Stop()
 		for {
@@ -92,9 +99,9 @@ func run() error {
 				}
 			}
 		}
-	}()
+	})
 
-	go func() {
+	wg.Go(func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		params := store.DefaultArchiveParams()
@@ -116,7 +123,7 @@ func run() error {
 				}
 			}
 		}
-	}()
+	})
 
 	serveErr := make(chan error, 2)
 	go func() {
@@ -141,14 +148,15 @@ func run() error {
 		log.Info().Msg("shutting down gracefully...")
 	case err := <-serveErr:
 		serveFailure = err
+		cancel()
 		log.Error().Err(err).Msg("api server failed, shutting down")
 	}
-
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("API server forced to shutdown")
 	}
+	wg.Wait()
 	if err := kitexServer.Stop(); err != nil {
 		log.Error().Err(err).Msg("api stream server shutdown failed")
 	}

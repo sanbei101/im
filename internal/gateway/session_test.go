@@ -64,12 +64,23 @@ func TestGateway(t *testing.T) {
 		if !ok || found != first {
 			t.Fatalf("load after create: ok=%v session=%v", ok, found)
 		}
-		manager.Delete(user)
+
+		client := newTestClient(user, 1)
+		first.Add(client)
+		if manager.RemoveClient(user, newTestClient(user, 1)) {
+			t.Fatal("removing a non-member client must not delete the session")
+		}
+		if _, ok := manager.Load(user); !ok {
+			t.Fatal("session deleted while it still has clients")
+		}
+		if !manager.RemoveClient(user, client) {
+			t.Fatal("removing the last client must report an empty session")
+		}
 		if _, ok := manager.Load(user); ok {
-			t.Fatal("session survived delete")
+			t.Fatal("session survived removal of its last client")
 		}
 		if ids := manager.All(); len(ids) != 0 {
-			t.Fatalf("all after delete: %v", ids)
+			t.Fatalf("all after removal: %v", ids)
 		}
 	})
 

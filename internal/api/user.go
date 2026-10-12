@@ -220,12 +220,17 @@ func (a *UserAPI) Presence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := make(map[string]bool, len(req.UserIDs))
-	for _, uid := range req.UserIDs {
+	for _, raw := range req.UserIDs {
+		uid, err := uuid.Parse(raw)
+		if err != nil {
+			render.Error(w, http.StatusBadRequest, "invalid user_id: "+raw)
+			return
+		}
 		online := false
 		if a.streamHandler != nil {
-			online = a.streamHandler.IsOnline(uid)
+			online = a.streamHandler.IsOnline(uid.String())
 		}
-		result[uid] = online
+		result[uid.String()] = online
 	}
 	render.Success(w, "获取在线状态成功", PresenceResp{Presence: result})
 }
@@ -255,8 +260,8 @@ func (a *UserAPI) SaveDeviceToken(w http.ResponseWriter, r *http.Request) {
 	render.SuccessNoData(w, http.StatusOK, "保存设备Token成功")
 }
 
+// Logout must succeed even with a bad token; the device token is best-effort.
 func (a *UserAPI) Logout(w http.ResponseWriter, r *http.Request) {
-	// Logout must succeed even with a bad token; the device token is best-effort.
 	if userID, err := getContextUserID(r); err == nil {
 		if delErr := a.store.DeleteDeviceToken(
 			r.Context(),

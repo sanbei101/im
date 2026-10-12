@@ -3,12 +3,18 @@ package jwt
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cristalhq/jwt/v5"
 )
+
+func TestMain(m *testing.M) {
+	Init("test-secret")
+	os.Exit(m.Run())
+}
 
 func TestJWT(t *testing.T) {
 	t.Run("generate and parse round trip", func(t *testing.T) {

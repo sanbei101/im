@@ -16,11 +16,12 @@ import (
 const DefaultConfigPath = "config.yaml"
 
 type Config struct {
-	API     APIConfig     `yaml:"api"`
-	Gateway GatewayConfig `yaml:"gateway"`
-	Store   StoreConfig   `yaml:"store"`
-	Shard   ShardConfig   `yaml:"shard"`
-	Storage StorageConfig `yaml:"storage"`
+	API       APIConfig     `yaml:"api"`
+	Gateway   GatewayConfig `yaml:"gateway"`
+	Store     StoreConfig   `yaml:"store"`
+	Shard     ShardConfig   `yaml:"shard"`
+	Storage   StorageConfig `yaml:"storage"`
+	JWTSecret string        `yaml:"jwt_secret"`
 }
 
 type StorageConfig struct {

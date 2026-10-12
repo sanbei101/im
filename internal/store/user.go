@@ -107,6 +107,14 @@ func (s *Store) CreateUser(ctx context.Context, username, password string) (User
 	if err := commit(batch); err != nil {
 		return User{}, fmt.Errorf("commit user: %w", err)
 	}
+	// The exists check and commit race with concurrent creates of the same
+	// username; the index key decides ownership. If it points elsewhere we
+	// lost and the record we wrote is invisible (no index entry).
+	if winner, err := s.getRecord(unameKey, getUUID); err == nil && winner != user.UserID {
+		return User{}, ErrAlreadyExists
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return User{}, err
+	}
 	s.usernameCache.Set(username, user.UserID)
 	s.getUserShard(user.UserID).users.Set(user.UserID, user)
 	return user, nil

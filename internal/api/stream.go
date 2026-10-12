@@ -185,7 +185,7 @@ func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_Co
 				return fmt.Errorf("send result batch: %w", err)
 			}
 			for _, push := range pushes {
-				if err := h.push(ctx, push); err != nil {
+				if err := h.Push(ctx, push); err != nil {
 					log.Error().Err(err).Msg("push room message failed")
 				}
 			}
@@ -300,7 +300,7 @@ func (h *StreamHandler) checkRoomOwned(roomID uuid.UUID) error {
 	return nil
 }
 
-func (h *StreamHandler) push(ctx context.Context, message *store.Message) error {
+func (h *StreamHandler) push(ctx context.Context, message *store.Message, exclude uuid.UUID) error {
 	members, err := h.getRoomMembers(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
@@ -318,7 +318,7 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message) error 
 	// Group online recipients per gateway connection; payload is sent once per gateway.
 	targets := make(map[*apiConnection][]string)
 	for _, member := range members {
-		if member.userID == message.SenderID {
+		if exclude != uuid.Nil() && member.userID == exclude {
 			continue
 		}
 		if connection := h.onlineConnection(member.userIDStr); connection != nil {
@@ -410,7 +410,14 @@ func (h *StreamHandler) IsOnline(userID string) bool {
 }
 
 func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error {
-	return h.push(ctx, message)
+	return h.push(ctx, message, message.SenderID)
+}
+
+// PushExcluding pushes a message to every online room member except the given
+// operator, who produced the event but is not the original sender (e.g. an
+// admin recalling another user's message).
+func (h *StreamHandler) PushExcluding(ctx context.Context, message *store.Message, operatorID uuid.UUID) error {
+	return h.push(ctx, message, operatorID)
 }
 
 // Notification is the typed payload of one push event. Each implementation

@@ -28,7 +28,7 @@ const (
 var (
 	jwtSigner   jwt.Signer
 	jwtVerifier jwt.Verifier
-	jwtSecret   = []byte("blue-book-secret-key")
+	jwtSecret   []byte
 )
 
 type userClaims struct {
@@ -36,7 +36,14 @@ type userClaims struct {
 	jwt.RegisteredClaims
 }
 
-func init() {
+// Init sets the HMAC secret and builds the signer/verifier. It must be called
+// once at startup before any token is generated or parsed; an empty secret is
+// a configuration error and aborts the process.
+func Init(secret string) {
+	if strings.TrimSpace(secret) == "" {
+		log.Fatal().Msg("jwt secret is empty: set jwt_secret in config.yaml")
+	}
+	jwtSecret = []byte(secret)
 	var err error
 	jwtSigner, err = jwt.NewSignerHS(jwt.HS256, jwtSecret)
 	if err != nil {

@@ -553,6 +553,10 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
+	room, err := s.Room(ctx, roomID)
+	if err != nil {
+		return err
+	}
 	members, err := s.Members(ctx, roomID)
 	if err != nil {
 		return err
@@ -584,6 +588,12 @@ func (s *Store) DissolveRoom(ctx context.Context, roomID uuid.UUID) error {
 			return err
 		}
 	}
+	if len(room.SingleChatHash) > 0 {
+		var sKeyBuf [64]byte
+		if err := batch.Delete(appendSingleRoomKey(sKeyBuf[:0], room.SingleChatHash), nil); err != nil {
+			return err
+		}
+	}
 	if err := commit(batch); err != nil {
 		return err
 	}
@@ -604,6 +614,13 @@ func (s *Store) MarkRoomRead(ctx context.Context, userID, roomID uuid.UUID, read
 	var roomBuf [33]byte
 	userKey := appendReadSeqKey(userBuf[:0], userID, roomID)
 	roomKey := appendRoomReadSeqKey(roomBuf[:0], roomID, userID)
+	if existing, err := s.getRecord(userKey, getU64); err == nil {
+		if existing >= readSeq {
+			return nil
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
 	var val [8]byte
 	putU64(val[:], readSeq)
 

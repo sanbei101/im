@@ -140,6 +140,9 @@ func (s *Store) AuditFriend(ctx context.Context, toID, fromID uuid.UUID, accept 
 	if err != nil {
 		return err
 	}
+	if app.Status != FriendStatusPending {
+		return fmt.Errorf("audit application: %w", ErrConflict)
+	}
 
 	batch := s.db.NewBatch()
 	defer batch.Close()

@@ -195,13 +195,6 @@ func (manager *UserSessionManager) LoadOrCreate(id uuid.UUID, create func() *Use
 	return session
 }
 
-func (manager *UserSessionManager) Delete(id uuid.UUID) {
-	shard := manager.shard(id)
-	shard.mu.Lock()
-	delete(shard.m, id)
-	shard.mu.Unlock()
-}
-
 func (manager *UserSessionManager) Load(id uuid.UUID) (*UserSession, bool) {
 	shard := manager.shard(id)
 	shard.mu.RLock()
@@ -239,6 +232,24 @@ func (manager *UserSessionManager) CloseAll() {
 	}
 }
 
+func (manager *UserSessionManager) RemoveClient(id uuid.UUID, client *UserClient) bool {
+	shard := manager.shard(id)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	session, ok := shard.m[id]
+	if !ok {
+		return false
+	}
+	session.mu.Lock()
+	delete(session.clients, client)
+	empty := len(session.clients) == 0
+	session.mu.Unlock()
+	if empty {
+		delete(shard.m, id)
+	}
+	return empty
+}
+
 type UserSession struct {
 	mu      sync.RWMutex
 	clients map[*UserClient]struct{}
@@ -249,13 +260,6 @@ func (s *UserSession) Add(client *UserClient) {
 	s.mu.Lock()
 	s.clients[client] = struct{}{}
 	s.mu.Unlock()
-}
-
-func (s *UserSession) Remove(client *UserClient) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.clients, client)
-	return len(s.clients) == 0
 }
 
 // ForEachClient traverses all clients in the session without allocating a slice.

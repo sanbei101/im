@@ -177,7 +177,7 @@ func prefixUpperBoundBuf(buf, prefix []byte) []byte {
 			return buf[:i+1]
 		}
 	}
-	return nil
+	return append(buf, 0)
 }
 
 func prefixUpperBound(prefix []byte) []byte {

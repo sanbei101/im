@@ -15,6 +15,7 @@ import (
 
 	"github.com/sanbei101/im/internal/gateway"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
 )
 
@@ -27,6 +28,7 @@ func main() {
 
 func run() error {
 	cfg := config.New()
+	jwt.Init(cfg.JWTSecret)
 	g := gateway.NewGateway(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -47,7 +49,13 @@ func run() error {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		debug := &http.Server{Addr: "127.0.0.1:6062", ReadHeaderTimeout: 10 * time.Second}
-		if err := debug.ListenAndServe(); err != nil {
+		go func() {
+			<-ctx.Done()
+			if err := debug.Shutdown(context.Background()); err != nil {
+				log.Error().Err(err).Msg("pprof server forced to shutdown")
+			}
+		}()
+		if err := debug.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error().Err(err).Msg("pprof server stopped")
 		}
 	})
@@ -80,7 +88,18 @@ func run() error {
 		log.Error().Err(err).Msg("server forced to shutdown")
 	}
 	g.Stop(shutdownCtx)
-	wg.Wait()
+
+	waitDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+	case <-shutdownCtx.Done():
+		log.Error().Msg("gateway shutdown timed out, giving up")
+		return errors.New("gateway shutdown timed out")
+	}
 	if serveFailure != nil {
 		return serveFailure
 	}

@@ -200,6 +200,7 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 	if err := commit(batch); err != nil {
 		return fmt.Errorf("commit archive manifest: %w", err)
 	}
+	s.forgetDedup(room.RoomID, messages)
 	return nil
 }
 

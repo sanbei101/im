@@ -25,3 +25,5 @@ storage:
   secret_access_key: "rustfsadmin"
   use_ssl: false
   public_url_prefix: ""
+
+jwt_secret: ""

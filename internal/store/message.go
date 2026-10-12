@@ -139,6 +139,14 @@ type dedupLookupKey struct {
 	client uuid.UUID
 }
 
+// dedupEntry is a dedup record staged for the in-memory cache; entries are
+// cached only after the batch commit succeeds, so a cached entry is always
+// covered by a successful ACK.
+type dedupEntry struct {
+	lookup dedupLookupKey
+	dedup  Dedup
+}
+
 func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResult) {
 	batch := s.db.NewBatch()
 	defer batch.Close()
@@ -146,6 +154,8 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 	digests := make([][32]byte, len(messages))
 	pending := make(map[dedupLookupKey]int, len(messages))
 	var allocated []int
+	var dedupEntries []dedupEntry
+	failedRooms := make(map[uuid.UUID]struct{})
 
 	var keyBuf [64]byte
 	var msgKeyBuf [25]byte
@@ -244,23 +254,34 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
 		if err := s.setBytes(batch, indexKey, seqBytes[:]); err != nil {
 			results[index].Err = err
+			if delErr := batch.Delete(msgKey, nil); delErr != nil {
+				results[index].Err = errors.New("stage message index: " + err.Error() + "; rollback: " + delErr.Error())
+			}
 			continue
 		}
 		dedup := Dedup{
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
 		}
-		s.dedupCache.Set(lookup, dedup)
 		if err := s.setBytes(batch, dedupKeyBytes, appendDedup(s.dedupScratch[:0], dedup)); err != nil {
 			results[index].Err = err
+			if delErr := batch.Delete(msgKey, nil); delErr != nil {
+				results[index].Err = errors.New("stage dedup: " + err.Error() + "; rollback: " + delErr.Error())
+				continue
+			}
+			if delErr := batch.Delete(indexKey, nil); delErr != nil {
+				results[index].Err = errors.New("stage dedup: " + err.Error() + "; rollback: " + delErr.Error())
+			}
+			continue
 		}
+		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: dedup})
 	}
 	for roomID := range rooms {
 		room := rooms[roomID]
-		s.getRoomShard(roomID).rooms.Set(roomID, room)
 		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
 		roomBuf = appendRoom(roomBuf[:0], room)
 		if err := s.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
+			failedRooms[roomID] = struct{}{}
 			for index := range results {
 				if results[index].Message.RoomID == roomID && results[index].Err == nil {
 					results[index].Err = err
@@ -277,6 +298,17 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		return
 	}
 	s.recordScratch, s.roomScratch, s.digestScratch = recBuf, roomBuf, digestInput
+	// Caches are filled only after the commit succeeded: a failed commit must
+	// not leave in-memory state ahead of disk.
+	for roomID := range rooms {
+		if _, ok := failedRooms[roomID]; ok {
+			continue
+		}
+		s.getRoomShard(roomID).rooms.Set(roomID, rooms[roomID])
+	}
+	for _, entry := range dedupEntries {
+		s.dedupCache.Set(entry.lookup, entry.dedup)
+	}
 	// The cache is filled only after the commit succeeded, so a message in the
 	// tail cache is always covered by a successful ACK.
 	for _, index := range allocated {
@@ -322,6 +354,13 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	watermark, err := s.archiveWatermark(roomID)
 	if err != nil {
 		return MessagePage{}, err
+	}
+	if s.remote == nil && lo <= watermark {
+		return MessagePage{}, fmt.Errorf(
+			"messages %d..%d are archived but no remote object store is configured",
+			lo,
+			min64(hi, watermark+1),
+		)
 	}
 	warmLo := lo
 	if watermark >= warmLo {
@@ -399,6 +438,13 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 	watermark, err := s.archiveWatermark(roomID)
 	if err != nil {
 		return MessagePage{}, err
+	}
+	if s.remote == nil && lo <= watermark {
+		return MessagePage{}, fmt.Errorf(
+			"messages %d..%d are archived but no remote object store is configured",
+			lo,
+			min64(hi, watermark+1),
+		)
 	}
 	warmLo := lo
 	if watermark >= warmLo {
@@ -637,6 +683,12 @@ func (s *Store) execRecall(request *recallRequest) {
 	request.result <- result
 }
 
+func (s *Store) forgetDedup(roomID uuid.UUID, messages []Message) {
+	for i := range messages {
+		s.dedupCache.Delete(dedupLookupKey{room: roomID, sender: messages[i].SenderID, client: messages[i].ClientMsgID})
+	}
+}
+
 // recallWindow bounds how long after ServerTime a non-admin may recall a message.
 const recallWindow = 2 * time.Minute
 
@@ -709,10 +761,12 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 		if err := s.setBytes(batch, appendRoomKey(rKeyBuf[:0], roomID), encodeRoom(room)); err != nil {
 			return Message{}, err
 		}
-		s.getRoomShard(roomID).rooms.Set(roomID, room)
 	}
 	if err := commit(batch); err != nil {
 		return Message{}, err
+	}
+	if room.LastSeq == msg.RoomSeq {
+		s.getRoomShard(roomID).rooms.Set(roomID, room)
 	}
 	// A message inside the recall window is always in the tail cache; keep the
 	// cached copy in sync so reads do not serve stale content.
@@ -985,7 +1039,7 @@ func (s *Store) PinnedMessages(ctx context.Context, roomID uuid.UUID) ([]Message
 		if err != nil {
 			continue
 		}
-		messages = append(messages, msg)
+		messages = append(messages, ownedMessage(msg))
 	}
 	return messages, nil
 }

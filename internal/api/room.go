@@ -396,8 +396,31 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.store.Member(r.Context(), roomID, myID); err != nil {
+	room, err := a.store.Room(r.Context(), roomID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusNotFound, "room not found")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load room: "+err.Error())
+		return
+	}
+	if room.ChatType == store.ChatTypeSingle {
+		render.Error(w, http.StatusBadRequest, "cannot add members to a single chat")
+		return
+	}
+
+	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+		return
+	}
+	if !isManager(myMember.Role) {
+		render.Error(w, http.StatusForbidden, "only owner or admin can add members")
 		return
 	}
 
@@ -608,7 +631,15 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	myMember, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || myMember.Role != store.RoleOwner {
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+		return
+	}
+	if myMember.Role != store.RoleOwner {
 		render.Error(w, http.StatusForbidden, "only owner can transfer ownership")
 		return
 	}
@@ -654,7 +685,15 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	member, err := a.store.Member(r.Context(), roomID, myID)
-	if err != nil || member.Role != store.RoleOwner {
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+		return
+	}
+	if member.Role != store.RoleOwner {
 		render.Error(w, http.StatusForbidden, "only owner can dissolve room")
 		return
 	}

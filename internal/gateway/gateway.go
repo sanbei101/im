@@ -138,7 +138,7 @@ func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
 	}
 	set.mu.RLock()
 	var targets []uuid.UUID
-	cutoff := time.Now().Add(-24 * time.Hour)
+	cutoff := time.Now().Add(-roomUserTTL)
 	for uid, lastSeen := range set.users {
 		if uid != senderID && lastSeen.After(cutoff) {
 			targets = append(targets, uid)
@@ -284,6 +284,7 @@ func newAPIStream(g *Gateway, id, address string) *apiStream {
 }
 
 func (s *apiStream) run(ctx context.Context) {
+	defer s.flushQueue()
 	for ctx.Err() == nil {
 		if err := s.ensureClient(); err != nil {
 			log.Error().Err(err).Str("api", s.address).Msg("create api client failed")
@@ -435,6 +436,9 @@ func (s *apiStream) loop(ctx context.Context) error {
 				if err := stream.Send(ctx, &pb.GatewayFrame{Body: &pb.GatewayFrame_SendBatch{
 					SendBatch: &pb.SendBatch{BatchId: uuid.NewV7().String(), Messages: batch},
 				}}); err != nil {
+					for _, message := range batch {
+						s.failPending(message)
+					}
 					done <- err
 					return
 				}
@@ -465,6 +469,11 @@ func (s *apiStream) loop(ctx context.Context) error {
 				s.handleRoomPush(frame.GetRoomPushBatch())
 			case frame.GetNotificationBatch() != nil:
 				s.handleNotification(frame.GetNotificationBatch())
+			default:
+				log.Error().
+					Str("api", s.address).
+					Str("body", fmt.Sprintf("%T", frame.GetBody())).
+					Msg("api stream received unknown frame")
 			}
 		}
 	}()
@@ -478,7 +487,31 @@ func (s *apiStream) loop(ctx context.Context) error {
 		err = closeErr
 	}
 	wg.Wait()
+	s.flushQueue()
 	return err
+}
+
+func (s *apiStream) failPending(message *pb.SendMessage) {
+	uc := s.gateway.LoadAndDeletePending(message.GetRequestId())
+	if uc == nil {
+		return
+	}
+	if err := uc.encodeFrame(
+		render.ErrorFrame{Type: "error", Error: "api stream disconnected before the message was delivered"},
+	); err != nil {
+		log.Error().Err(err).Str("user_id", uc.UserID.String()).Msg("send error frame for dropped message failed")
+	}
+}
+
+func (s *apiStream) flushQueue() {
+	for {
+		select {
+		case message := <-s.queue:
+			s.failPending(message)
+		default:
+			return
+		}
+	}
 }
 
 func (s *apiStream) close() {

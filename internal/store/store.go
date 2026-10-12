@@ -451,22 +451,52 @@ func (s *Store) runMessageWriter() {
 	for {
 		select {
 		case request := <-s.messageQueue:
-			s.commitMessageRequests(s.collectMessageRequests(request))
+			s.writeRequests(s.collectMessageRequests(request))
 		case request := <-s.recallQueue:
-			s.execRecall(request)
+			s.runRecall(request)
 		case <-s.closeSignal:
 			for {
 				select {
 				case request := <-s.messageQueue:
-					s.commitMessageRequests(s.collectMessageRequests(request))
+					s.writeRequests(s.collectMessageRequests(request))
 				case request := <-s.recallQueue:
-					s.execRecall(request)
+					s.runRecall(request)
 				default:
 					return
 				}
 			}
 		}
 	}
+}
+
+// writeRequests commits a collected batch. A panic in the commit path must
+// not wedge in-flight callers forever, so every request still queued in the
+// batch is answered with an error result.
+func (s *Store) writeRequests(requests []messageWriteRequest) {
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("message write failed: %v", r)
+			for i := range requests {
+				results := make([]MessageWriteResult, len(requests[i].messages))
+				for j := range results {
+					results[j] = MessageWriteResult{Message: requests[i].messages[j], Err: err}
+				}
+				requests[i].result <- results
+			}
+		}
+	}()
+	s.commitMessageRequests(requests)
+}
+
+// runRecall wraps execRecall with the same panic guarantee: the caller is
+// answered with an error instead of blocking forever.
+func (s *Store) runRecall(request *recallRequest) {
+	defer func() {
+		if r := recover(); r != nil {
+			request.result <- RecallResult{Err: fmt.Errorf("recall failed: %v", r)}
+		}
+	}()
+	s.execRecall(request)
 }
 
 // collectMessageRequests gathers queued requests into one write batch, bounded

@@ -62,6 +62,11 @@ func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if after > 0 && before > 0 {
+		render.Error(w, http.StatusBadRequest, "after_seq and before_seq cannot be combined")
+		return
+	}
+
 	if after > 0 {
 		page, err := a.store.MessagesAfter(r.Context(), roomID, after, limit)
 		if err != nil {
@@ -131,7 +136,7 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.streamHandler != nil {
-		if pushErr := a.streamHandler.Push(r.Context(), &recalled); pushErr != nil {
+		if pushErr := a.streamHandler.PushExcluding(r.Context(), &recalled, userID); pushErr != nil {
 			log.Error().Err(pushErr).Msg("push recalled message failed")
 		}
 	}
