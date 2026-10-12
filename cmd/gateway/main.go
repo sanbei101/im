@@ -31,9 +31,7 @@ func run() error {
 	jwt.Init(cfg.JWTSecret)
 	g := gateway.NewGateway(cfg)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	gatewayMux := http.NewServeMux()

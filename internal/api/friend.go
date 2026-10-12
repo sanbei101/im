@@ -88,11 +88,7 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 
 	if a.streamHandler != nil {
 		application := FriendApplication{FromUserID: myID, Greeting: req.Greeting}
-		if myUser, err := a.store.UserByID(r.Context(), myID); err == nil {
-			application.FromUsername = myUser.Username
-			application.FromNickname = myUser.Nickname
-			application.FromAvatarURL = myUser.AvatarURL
-		}
+		application.FromUsername, application.FromNickname, application.FromAvatarURL = a.myProfile(r, myID)
 		a.streamHandler.NotifyUser(targetID, application)
 	}
 
@@ -128,11 +124,7 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 
 	if accept && a.streamHandler != nil {
 		accepted := FriendAccepted{UserID: myID}
-		if myUser, err := a.store.UserByID(r.Context(), myID); err == nil {
-			accepted.Username = myUser.Username
-			accepted.Nickname = myUser.Nickname
-			accepted.AvatarURL = myUser.AvatarURL
-		}
+		accepted.Username, accepted.Nickname, accepted.AvatarURL = a.myProfile(r, myID)
 		a.streamHandler.NotifyUser(fromID, accepted)
 	}
 
@@ -141,6 +133,13 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 		msg = "已拒绝好友申请"
 	}
 	render.SuccessNoData(w, http.StatusOK, msg)
+}
+
+func (a *FriendAPI) myProfile(r *http.Request, userID uuid.UUID) (username, nickname, avatar string) {
+	if u, err := a.store.UserByID(r.Context(), userID); err == nil {
+		return u.Username, u.Nickname, u.AvatarURL
+	}
+	return "", "", ""
 }
 
 func (a *FriendAPI) ListApplications(w http.ResponseWriter, r *http.Request) {

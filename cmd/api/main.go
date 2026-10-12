@@ -33,6 +33,20 @@ func main() {
 	}
 }
 
+// every runs fn on each tick of interval until ctx is cancelled.
+func every(ctx context.Context, interval time.Duration, fn func(ctx context.Context, now time.Time)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			fn(ctx, now)
+		}
+	}
+}
+
 func run() error {
 	cfg := config.New()
 	jwt.Init(cfg.JWTSecret)
@@ -79,31 +93,28 @@ func run() error {
 	}
 
 	var wg sync.WaitGroup
-	go func() {
+	wg.Go(func() {
 		debug := &http.Server{Addr: "127.0.0.1:6061", ReadHeaderTimeout: 10 * time.Second}
-		if err := debug.ListenAndServe(); err != nil {
+		go func() {
+			<-ctx.Done()
+			if err := debug.Shutdown(context.Background()); err != nil {
+				log.Error().Err(err).Msg("pprof server forced to shutdown")
+			}
+		}()
+		if err := debug.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error().Err(err).Msg("pprof server stopped")
 		}
-	}()
+	})
 	wg.Go(func() {
-		ticker := time.NewTicker(time.Duration(cfg.Store.BackupInterval) * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
-				if err := data.Checkpoint(ctx, dir); err != nil {
-					log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
-				}
+		every(ctx, time.Duration(cfg.Store.BackupInterval)*time.Second, func(ctx context.Context, now time.Time) {
+			dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
+			if err := data.Checkpoint(ctx, dir); err != nil {
+				log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
 			}
-		}
+		})
 	})
 
 	wg.Go(func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
 		params := store.DefaultArchiveParams()
 		params.Owns = func(roomID uuid.UUID) bool {
 			slot, err := pkg.RoomSlot(roomID, cfg.Shard.Slots)
@@ -113,16 +124,11 @@ func run() error {
 			index, err := pkg.NodeIndex(slot, cfg.Shard.Slots, cfg.API.NodeCount)
 			return err == nil && index == cfg.API.NodeIndex
 		}
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := data.ArchiveOnce(ctx, objects, params); err != nil {
-					log.Error().Err(err).Msg("message archive failed")
-				}
+		every(ctx, time.Minute, func(ctx context.Context, _ time.Time) {
+			if err := data.ArchiveOnce(ctx, objects, params); err != nil {
+				log.Error().Err(err).Msg("message archive failed")
 			}
-		}
+		})
 	})
 
 	serveErr := make(chan error, 2)
