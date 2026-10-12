@@ -27,38 +27,18 @@ func encodeUser(user User) []byte {
 
 func decodeUser(data []byte) (User, error) {
 	d := decoder{data: data}
-	id, err := d.uuid()
-	if err != nil {
+	user := User{
+		UserID:    d.uuid(),
+		CreatedAt: time.UnixMicro(d.i64()),
+		Username:  d.string(),
+		Password:  d.string(),
+		Nickname:  d.string(),
+		AvatarURL: d.string(),
+	}
+	if err := d.check("user"); err != nil {
 		return User{}, err
 	}
-	micros, err := d.i64()
-	if err != nil {
-		return User{}, err
-	}
-	username, err := d.string()
-	if err != nil {
-		return User{}, err
-	}
-	password, err := d.string()
-	if err != nil {
-		return User{}, err
-	}
-	nickname, err := d.string()
-	if err != nil {
-		return User{}, err
-	}
-	avatar, err := d.string()
-	if err != nil || !d.done() {
-		return User{}, errors.New("invalid user record")
-	}
-	return User{
-		UserID:    id,
-		Username:  username,
-		Password:  password,
-		Nickname:  nickname,
-		AvatarURL: avatar,
-		CreatedAt: time.UnixMicro(micros),
-	}, nil
+	return user, nil
 }
 
 func (s *Store) CreateUser(ctx context.Context, username, password string) (User, error) {

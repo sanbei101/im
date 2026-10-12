@@ -60,6 +60,7 @@ func getRespBuf() *bytes.Buffer {
 	}
 	return new(bytes.Buffer)
 }
+
 func putRespBuf(buf *bytes.Buffer) {
 	if buf.Cap() <= maxRespBufBytes {
 		buf.Reset()

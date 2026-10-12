@@ -42,27 +42,15 @@ func encodeManifest(manifest ArchiveManifest) []byte {
 
 func decodeManifest(data []byte) (ArchiveManifest, error) {
 	d := decoder{data: data}
-	manifest := ArchiveManifest{}
-	var err error
-	if manifest.EndSeq, err = d.u64(); err != nil {
+	manifest := ArchiveManifest{
+		EndSeq:   d.u64(),
+		MsgCount: d.u32(),
+		MinTime:  d.i64(),
+		MaxTime:  d.i64(),
+		S3Key:    d.string(),
+	}
+	if err := d.check("manifest"); err != nil {
 		return ArchiveManifest{}, err
-	}
-	if d.pos+4 > len(d.data) {
-		return ArchiveManifest{}, errors.New("invalid manifest record")
-	}
-	manifest.MsgCount = binary.BigEndian.Uint32(d.data[d.pos:])
-	d.pos += 4
-	if manifest.MinTime, err = d.i64(); err != nil {
-		return ArchiveManifest{}, err
-	}
-	if manifest.MaxTime, err = d.i64(); err != nil {
-		return ArchiveManifest{}, err
-	}
-	if manifest.S3Key, err = d.string(); err != nil {
-		return ArchiveManifest{}, err
-	}
-	if !d.done() {
-		return ArchiveManifest{}, errors.New("invalid manifest record")
 	}
 	return manifest, nil
 }

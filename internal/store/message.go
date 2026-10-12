@@ -44,37 +44,22 @@ func appendMessage(data []byte, message Message) []byte {
 
 func decodeMessage(data []byte) (Message, error) {
 	d := decoder{data: data}
-	message := Message{}
-	var err error
-	if message.MsgID, err = d.uuid(); err != nil {
-		return Message{}, err
-	}
-	if message.ClientMsgID, err = d.uuid(); err != nil {
-		return Message{}, err
-	}
-	if message.SenderID, err = d.uuid(); err != nil {
-		return Message{}, err
-	}
-	if message.RoomID, err = d.uuid(); err != nil {
-		return Message{}, err
-	}
-	if message.RoomSeq, err = d.u64(); err != nil {
-		return Message{}, err
-	}
-	if message.ServerTime, err = d.i64(); err != nil {
-		return Message{}, err
+	message := Message{
+		MsgID:       d.uuid(),
+		ClientMsgID: d.uuid(),
+		SenderID:    d.uuid(),
+		RoomID:      d.uuid(),
+		RoomSeq:     d.u64(),
+		ServerTime:  d.i64(),
 	}
 	if d.byte() == 1 {
-		if message.ReplyToMsgID, err = d.uuid(); err != nil {
-			return Message{}, err
-		}
+		message.ReplyToMsgID = d.uuid()
 	}
 	message.MsgType = MsgType(d.byte())
-	if message.Payload, err = d.bytes(); err != nil {
+	message.Payload = d.bytes()
+	message.Ext = d.bytes()
+	if err := d.check("message"); err != nil {
 		return Message{}, err
-	}
-	if message.Ext, err = d.bytes(); err != nil || !d.done() {
-		return Message{}, errors.New("invalid message record")
 	}
 	return message, nil
 }
@@ -106,22 +91,16 @@ func appendDedup(data []byte, value Dedup) []byte {
 }
 
 func decodeDedup(data []byte) (Dedup, error) {
-	if len(data) != 16+8+8+32 {
-		return Dedup{}, errors.New("invalid dedup record")
-	}
 	d := decoder{data: data}
-	value := Dedup{}
-	var err error
-	if value.MsgID, err = d.uuid(); err != nil {
+	value := Dedup{
+		MsgID:      d.uuid(),
+		RoomSeq:    d.u64(),
+		ServerTime: d.i64(),
+	}
+	copy(value.PayloadSum[:], d.fixed(len(value.PayloadSum)))
+	if err := d.check("dedup"); err != nil {
 		return Dedup{}, err
 	}
-	if value.RoomSeq, err = d.u64(); err != nil {
-		return Dedup{}, err
-	}
-	if value.ServerTime, err = d.i64(); err != nil {
-		return Dedup{}, err
-	}
-	copy(value.PayloadSum[:], d.data[d.pos:])
 	return value, nil
 }
 

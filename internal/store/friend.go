@@ -28,28 +28,16 @@ func encodeFriend(f Friend) []byte {
 
 func decodeFriend(data []byte) (Friend, error) {
 	d := decoder{data: data}
-	userID, err := d.uuid()
-	if err != nil {
+	friend := Friend{
+		UserID:    d.uuid(),
+		FriendID:  d.uuid(),
+		CreatedAt: time.UnixMicro(d.i64()),
+		Remark:    d.string(),
+	}
+	if err := d.check("friend"); err != nil {
 		return Friend{}, err
 	}
-	friendID, err := d.uuid()
-	if err != nil {
-		return Friend{}, err
-	}
-	micros, err := d.i64()
-	if err != nil {
-		return Friend{}, err
-	}
-	remark, err := d.string()
-	if err != nil || !d.done() {
-		return Friend{}, errors.New("invalid friend record")
-	}
-	return Friend{
-		UserID:    userID,
-		FriendID:  friendID,
-		Remark:    remark,
-		CreatedAt: time.UnixMicro(micros),
-	}, nil
+	return friend, nil
 }
 
 func encodeApplication(a FriendApplication) []byte {
@@ -64,34 +52,19 @@ func encodeApplication(a FriendApplication) []byte {
 }
 
 func decodeApplication(data []byte) (FriendApplication, error) {
+	// 字段赋值顺序即编码顺序,不可调换。
 	d := decoder{data: data}
-	from, err := d.uuid()
-	if err != nil {
+	application := FriendApplication{
+		FromUserID: d.uuid(),
+		ToUserID:   d.uuid(),
+		CreatedAt:  time.UnixMicro(d.i64()),
+		Greeting:   d.string(),
+		Status:     d.string(),
+	}
+	if err := d.check("application"); err != nil {
 		return FriendApplication{}, err
 	}
-	to, err := d.uuid()
-	if err != nil {
-		return FriendApplication{}, err
-	}
-	micros, err := d.i64()
-	if err != nil {
-		return FriendApplication{}, err
-	}
-	greeting, err := d.string()
-	if err != nil {
-		return FriendApplication{}, err
-	}
-	status, err := d.string()
-	if err != nil || !d.done() {
-		return FriendApplication{}, errors.New("invalid application record")
-	}
-	return FriendApplication{
-		FromUserID: from,
-		ToUserID:   to,
-		Greeting:   greeting,
-		Status:     status,
-		CreatedAt:  time.UnixMicro(micros),
-	}, nil
+	return application, nil
 }
 
 func (s *Store) ApplyFriend(ctx context.Context, fromID, toID uuid.UUID, greeting string) error {

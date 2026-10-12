@@ -714,61 +714,103 @@ func boolByte(v bool) byte {
 	return 0
 }
 
+// decoder reads a record field by field. A truncated read parks pos at -1 and
+// keeps returning zero values, so a decode function can assign every field up
+// front and check the result once with check. Folding the failure into pos
+// keeps the decoder two words wide and every read small enough to inline.
 type decoder struct {
 	data []byte
 	pos  int
 }
 
-func (d *decoder) bytes() ([]byte, error) {
-	if d.pos+4 > len(d.data) {
-		return nil, errors.New("invalid length")
+// failed reports whether an earlier read ran past the end of the record.
+func (d *decoder) failed() bool { return d.pos < 0 }
+
+func (d *decoder) fail() { d.pos = -1 }
+
+func (d *decoder) bytes() []byte {
+	if d.failed() || d.pos+4 > len(d.data) {
+		d.fail()
+		return nil
 	}
 	size := int(binary.BigEndian.Uint32(d.data[d.pos:]))
 	d.pos += 4
 	if d.pos+size > len(d.data) {
-		return nil, errors.New("invalid value length")
+		d.fail()
+		return nil
 	}
 	value := d.data[d.pos : d.pos+size]
 	d.pos += size
-	return value, nil
+	return value
 }
 
-func (d *decoder) string() (string, error) {
-	value, err := d.bytes()
-	return string(value), err
-}
+func (d *decoder) string() string { return string(d.bytes()) }
 
-func (d *decoder) uuid() (uuid.UUID, error) {
-	if d.pos+16 > len(d.data) {
-		return uuid.Nil(), errors.New("invalid uuid")
+func (d *decoder) uuid() uuid.UUID {
+	if d.failed() || d.pos+16 > len(d.data) {
+		d.fail()
+		return uuid.Nil()
 	}
-	value, err := getUUID(d.data[d.pos : d.pos+16])
+	var value uuid.UUID
+	copy(value[:], d.data[d.pos:])
 	d.pos += 16
-	return value, err
+	return value
 }
 
-func (d *decoder) u64() (uint64, error) {
-	if d.pos+8 > len(d.data) {
-		return 0, errors.New("invalid uint64")
+func (d *decoder) u64() uint64 {
+	if d.failed() || d.pos+8 > len(d.data) {
+		d.fail()
+		return 0
 	}
-	value, err := getU64(d.data[d.pos : d.pos+8])
+	value := binary.BigEndian.Uint64(d.data[d.pos:])
 	d.pos += 8
-	return value, err
+	return value
 }
 
-func (d *decoder) i64() (int64, error) {
-	value, err := d.u64()
-	return int64(value), err
+func (d *decoder) u32() uint32 {
+	if d.failed() || d.pos+4 > len(d.data) {
+		d.fail()
+		return 0
+	}
+	value := binary.BigEndian.Uint32(d.data[d.pos:])
+	d.pos += 4
+	return value
 }
 
-func (d *decoder) done() bool { return d.pos == len(d.data) }
+func (d *decoder) i64() int64 { return int64(d.u64()) }
 
-// byte consumes one trailing byte, returning 0 when the record is exhausted.
+// fixed consumes exactly n bytes, aliasing them into the record buffer.
+func (d *decoder) fixed(n int) []byte {
+	if d.failed() || d.pos+n > len(d.data) {
+		d.fail()
+		return nil
+	}
+	value := d.data[d.pos : d.pos+n]
+	d.pos += n
+	return value
+}
+
+// skip consumes one length-prefixed slice without copying it.
+func (d *decoder) skip() { d.bytes() }
+
+// byte consumes one trailing byte, returning 0 without failing when the record
+// is exhausted; check reports the truncation.
 func (d *decoder) byte() byte {
-	if d.pos >= len(d.data) {
+	if d.failed() || d.pos >= len(d.data) {
 		return 0
 	}
 	value := d.data[d.pos]
 	d.pos++
 	return value
+}
+
+func (d *decoder) done() bool { return d.pos == len(d.data) }
+
+// check is the single error gate at the end of a decode function: a truncated
+// read, or a record that has trailing bytes.
+func (d *decoder) check(name string) error {
+	if d.failed() || !d.done() {
+		return errors.New("invalid " + name + " record")
+	}
+	return nil
 }

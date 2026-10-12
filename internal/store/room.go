@@ -44,115 +44,55 @@ func appendRoom(data []byte, room Room) []byte {
 
 func decodeRoom(data []byte) (Room, error) {
 	d := decoder{data: data}
-	id, err := d.uuid()
-	if err != nil {
-		return Room{}, err
+	room := Room{
+		RoomID:         d.uuid(),
+		ChatType:       internEnum(d.bytes()),
+		Name:           d.string(),
+		AvatarURL:      d.string(),
+		Notice:         d.string(),
+		SingleChatHash: bytes.Clone(d.bytes()),
+		LastSeq:        d.u64(),
+		CreatedAt:      time.UnixMicro(d.i64()),
+		UpdatedAt:      time.UnixMicro(d.i64()),
 	}
-	chatType, err := d.bytes()
-	if err != nil {
-		return Room{}, err
-	}
-	name, err := d.string()
-	if err != nil {
-		return Room{}, err
-	}
-	avatar, err := d.string()
-	if err != nil {
-		return Room{}, err
-	}
-	notice, err := d.string()
-	if err != nil {
-		return Room{}, err
-	}
-	hash, err := d.bytes()
-	if err != nil {
-		return Room{}, err
-	}
-	seq, err := d.u64()
-	if err != nil {
-		return Room{}, err
-	}
-	created, err := d.i64()
-	if err != nil {
-		return Room{}, err
-	}
-	updated, err := d.i64()
-	if err != nil {
-		return Room{}, err
-	}
-	var lastMsg *Message
 	if d.byte() == 1 {
-		record, err := d.bytes()
-		if err != nil {
-			return Room{}, err
-		}
-		msg, err := decodeMessage(record)
+		msg, err := decodeMessage(d.bytes())
 		if err != nil {
 			return Room{}, err
 		}
 		// The room outlives the Get closer inside the rooms LRU: its embedded
 		// last message must not alias the pebble buffer.
 		msg = ownedMessage(msg)
-		lastMsg = &msg
+		room.LastMsg = &msg
 	}
-	if !d.done() {
-		return Room{}, errors.New("invalid room record")
+	if err := d.check("room"); err != nil {
+		return Room{}, err
 	}
-	return Room{
-		RoomID:         id,
-		ChatType:       internEnum(chatType),
-		Name:           name,
-		AvatarURL:      avatar,
-		Notice:         notice,
-		SingleChatHash: bytes.Clone(hash),
-		LastSeq:        seq,
-		LastMsg:        lastMsg,
-		CreatedAt:      time.UnixMicro(created),
-		UpdatedAt:      time.UnixMicro(updated),
-	}, nil
+	return room, nil
 }
 
 // decodeRoomHead parses only the leading fields of a room record, without
 // materializing strings or decoding the embedded last message. It serves
 // scans that need just the room id and LastSeq, such as the archiver.
 func decodeRoomHead(data []byte) (Room, error) {
+	// 字段读取顺序即编码顺序,不可调换。
 	d := decoder{data: data}
-	id, err := d.uuid()
-	if err != nil {
-		return Room{}, err
-	}
+	id := d.uuid()
 	// chatType, name, avatarURL, notice, singleChatHash: length-prefixed,
 	// skipped without copying.
 	for range 5 {
-		if err := skipBytes(&d); err != nil {
-			return Room{}, err
-		}
+		d.skip()
 	}
-	seq, err := d.u64()
-	if err != nil {
-		return Room{}, err
-	}
-	if _, err = d.i64(); err != nil {
-		return Room{}, err
-	}
-	if _, err = d.i64(); err != nil {
-		return Room{}, err
-	}
+	seq := d.u64()
+	d.i64() // createdAt
+	d.i64() // updatedAt
 	if d.byte() == 1 {
-		if err := skipBytes(&d); err != nil {
-			return Room{}, err
-		}
+		d.skip() // embedded last message record
 	}
-	if !d.done() {
-		return Room{}, errors.New("invalid room record")
+	if err := d.check("room"); err != nil {
+		return Room{}, err
 	}
 	return Room{RoomID: id, LastSeq: seq}, nil
-}
-
-// skipBytes consumes one length-prefixed byte slice without copying it.
-func skipBytes(d *decoder) error {
-	_, err := d.bytes()
-	return err
 }
 
 func encodeMember(member Member) []byte {
@@ -165,29 +105,18 @@ func encodeMember(member Member) []byte {
 }
 
 func decodeMember(data []byte) (Member, error) {
+	// 字段赋值顺序即编码顺序,不可调换。
 	d := decoder{data: data}
-	roomID, err := d.uuid()
-	if err != nil {
-		return Member{}, err
-	}
-	userID, err := d.uuid()
-	if err != nil {
-		return Member{}, err
-	}
-	role, err := d.bytes()
-	if err != nil {
-		return Member{}, errors.New("invalid member record")
-	}
 	member := Member{
-		RoomID:   roomID,
-		UserID:   userID,
-		Role:     internEnum(role),
-		IsHidden: d.byte() != 0,
-		IsMuted:  d.byte() != 0,
-		IsPinned: d.byte() != 0,
+		RoomID: d.uuid(),
+		UserID: d.uuid(),
+		Role:   internEnum(d.bytes()),
 	}
-	if !d.done() {
-		return Member{}, errors.New("invalid member record")
+	member.IsHidden = d.byte() != 0
+	member.IsMuted = d.byte() != 0
+	member.IsPinned = d.byte() != 0
+	if err := d.check("member"); err != nil {
+		return Member{}, err
 	}
 	return member, nil
 }
