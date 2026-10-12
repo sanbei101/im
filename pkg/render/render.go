@@ -35,49 +35,69 @@ type errorResponse struct {
 	Msg  string `json:"msg"`
 }
 
-func Success[T any](w http.ResponseWriter, msg string, data T) {
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	buf := getRespBuf()
+	if err := json.MarshalWrite(buf, v); err != nil {
+		putRespBuf(buf)
+		log.Error().Err(err).Msg("marshal response")
+		if code == http.StatusOK {
+			code = http.StatusInternalServerError
+		}
+		Error(w, code, "internal error")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err := json.MarshalWrite(w, Response[T]{
+	w.WriteHeader(code)
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		log.Error().Err(err).Msg("write response")
+	}
+	putRespBuf(buf)
+}
+
+func getRespBuf() *bytes.Buffer {
+	if buf, ok := respBufPool.Get().(*bytes.Buffer); ok {
+		return buf
+	}
+	return new(bytes.Buffer)
+}
+func putRespBuf(buf *bytes.Buffer) {
+	if buf.Cap() <= maxRespBufBytes {
+		buf.Reset()
+		respBufPool.Put(buf)
+	}
+}
+
+var respBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+const maxRespBufBytes = 64 << 10 // 64 KiB
+
+func Success[T any](w http.ResponseWriter, msg string, data T) {
+	writeJSON(w, http.StatusOK, Response[T]{
 		Code: http.StatusOK,
 		Msg:  msg,
 		Data: data,
 	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to write success response")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
 }
 
 func SuccessNoData(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	err := json.MarshalWrite(w, ResponseWithoutData{
+	writeJSON(w, code, ResponseWithoutData{
 		Code: code,
 		Msg:  msg,
 	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to write success response without data")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
 }
 
 func Error(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	err := json.MarshalWrite(w, errorResponse{
+	writeJSON(w, code, errorResponse{
 		Code: code,
 		Msg:  msg,
 	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to write error response")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
 }
+
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
 
 func ReadBody[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	var body T
-
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := json.UnmarshalRead(r.Body, &body); err != nil {
 		log.Error().Err(err).Msg("Failed to read request body")
 		Error(w, http.StatusBadRequest, "JSON 格式非法")
