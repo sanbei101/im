@@ -45,6 +45,21 @@ type Router struct {
 	proxies []*httputil.ReverseProxy
 }
 
+// EdgeConfig describes the public HTTP edge. Every room-scoped request is
+// forwarded to the owning API node; all other requests go to next.
+type EdgeConfig struct {
+	Slots     int
+	HTTPAddrs []string
+}
+
+// Edge is the public HTTP entry used by the gateway. Unlike Router, it never
+// handles room requests locally.
+type Edge struct {
+	slots   int
+	next    http.Handler
+	proxies []*httputil.ReverseProxy
+}
+
 func New(cfg Config, next http.Handler) (*Router, error) {
 	if next == nil {
 		return nil, errors.New("room router next handler is nil")
@@ -61,22 +76,9 @@ func New(cfg Config, next http.Handler) (*Router, error) {
 
 	proxies := make([]*httputil.ReverseProxy, len(cfg.HTTPAddrs))
 	for i, address := range cfg.HTTPAddrs {
-		target, err := parseTarget(address)
+		proxy, err := newProxy(address)
 		if err != nil {
-			return nil, fmt.Errorf("parse api http address %q: %w", address, err)
-		}
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.Transport = &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   5 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConnsPerHost:   64,
-			IdleConnTimeout:       90 * time.Second,
-			ResponseHeaderTimeout: 10 * time.Second,
-		}
-		proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
-			render.Error(w, http.StatusBadGateway, "room owner unavailable: "+err.Error())
+			return nil, fmt.Errorf("create api http proxy %q: %w", address, err)
 		}
 		proxies[i] = proxy
 	}
@@ -87,6 +89,52 @@ func New(cfg Config, next http.Handler) (*Router, error) {
 		next:    next,
 		proxies: proxies,
 	}, nil
+}
+
+func NewEdge(cfg EdgeConfig, next http.Handler) (*Edge, error) {
+	if next == nil {
+		return nil, errors.New("http edge next handler is nil")
+	}
+	if cfg.Slots < 1 || cfg.Slots > pkg.MaxSlots {
+		return nil, fmt.Errorf("http edge slots must be within [1, %d]", pkg.MaxSlots)
+	}
+	if len(cfg.HTTPAddrs) == 0 {
+		return nil, errors.New("http edge requires at least one api http address")
+	}
+	proxies := make([]*httputil.ReverseProxy, len(cfg.HTTPAddrs))
+	for i, address := range cfg.HTTPAddrs {
+		proxy, err := newProxy(address)
+		if err != nil {
+			return nil, fmt.Errorf("create api http proxy %q: %w", address, err)
+		}
+		proxies[i] = proxy
+	}
+	return &Edge{slots: cfg.Slots, next: next, proxies: proxies}, nil
+}
+
+func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get(routedHeader) != "" {
+		r.Header.Del(routedHeader)
+		e.next.ServeHTTP(w, r)
+		return
+	}
+	roomID, ok := roomIDFromRequest(r)
+	if !ok {
+		e.next.ServeHTTP(w, r)
+		return
+	}
+	slot, err := pkg.RoomSlot(roomID, e.slots)
+	if err != nil {
+		e.next.ServeHTTP(w, r)
+		return
+	}
+	owner, err := pkg.NodeIndex(slot, e.slots, len(e.proxies))
+	if err != nil || owner < 0 || owner >= len(e.proxies) {
+		e.next.ServeHTTP(w, r)
+		return
+	}
+	r.Header.Set(routedHeader, "1")
+	e.proxies[owner].ServeHTTP(w, r)
 }
 
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +284,33 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(token)
+}
+
+// NewProxy exposes the same reverse proxy configuration to callers that only
+// need a plain pass-through handler (for example the gateway's meta fallback).
+func NewProxy(address string) (http.Handler, error) {
+	return newProxy(address)
+}
+
+func newProxy(address string) (*httputil.ReverseProxy, error) {
+	target, err := parseTarget(address)
+	if err != nil {
+		return nil, err
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConnsPerHost:   64,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		render.Error(w, http.StatusBadGateway, "api node unavailable: "+err.Error())
+	}
+	return proxy, nil
 }
 
 func parseTarget(address string) (*url.URL, error) {

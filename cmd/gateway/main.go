@@ -14,6 +14,7 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/gateway"
+	"github.com/sanbei101/im/internal/router"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
@@ -36,8 +37,24 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	metaProxy, err := router.NewProxy(cfg.Gateway.MetaHTTPAddr)
+	if err != nil {
+		return fmt.Errorf("create meta http proxy: %w", err)
+	}
+	edge, err := router.NewEdge(router.EdgeConfig{
+		Slots:     cfg.Shard.Slots,
+		HTTPAddrs: cfg.Gateway.APIHTTPAddrs,
+	}, metaProxy)
+	if err != nil {
+		return fmt.Errorf("create http edge: %w", err)
+	}
+
 	gatewayMux := http.NewServeMux()
+	gatewayMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	gatewayMux.HandleFunc("/ws", g.HandleUserMessage)
+	gatewayMux.Handle("/api/", edge)
 
 	srv := &http.Server{
 		Addr:              cfg.Gateway.Addr,

@@ -240,6 +240,59 @@ func TestRouterRoutesSingleChatCreation(t *testing.T) {
 	}
 }
 
+func TestEdgeRoutesRoomRequests(t *testing.T) {
+	const slots, nodes = 1024, 2
+	roomID := roomForNode(t, slots, nodes, 1)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(routedHeader) != "1" {
+			t.Error("edge request is missing the routed header")
+		}
+		writeBody(t, w, "upstream")
+	}))
+	defer upstream.Close()
+
+	edge, err := NewEdge(EdgeConfig{
+		Slots:     slots,
+		HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
+	}, localHandler(t, "next"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	edge.ServeHTTP(recorder, httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/rooms/"+roomID.String()+"/members",
+		nil,
+	))
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "upstream" {
+		t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	edge.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil))
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "next" {
+		t.Fatalf("non-room response = %d %q", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestEdgeRejectsInvalidConfig(t *testing.T) {
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	for _, cfg := range []EdgeConfig{
+		{Slots: 0, HTTPAddrs: []string{"127.0.0.1:1"}},
+		{Slots: 1, HTTPAddrs: nil},
+		{Slots: 1, HTTPAddrs: []string{"://bad"}},
+	} {
+		if _, err := NewEdge(cfg, next); err == nil {
+			t.Fatalf("expected error for edge config %+v", cfg)
+		}
+	}
+	if _, err := NewEdge(EdgeConfig{Slots: 1, HTTPAddrs: []string{"127.0.0.1:1"}}, nil); err == nil {
+		t.Fatal("expected error for nil edge next handler")
+	}
+}
+
 func TestRouterRejectsInvalidConfig(t *testing.T) {
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	for _, cfg := range []Config{

@@ -46,8 +46,10 @@ type APIConfig struct {
 }
 
 type GatewayConfig struct {
-	Addr     string   `yaml:"addr"`
-	APIAddrs []string `yaml:"api_addrs"`
+	Addr         string   `yaml:"addr"`
+	APIAddrs     []string `yaml:"api_addrs"`
+	APIHTTPAddrs []string `yaml:"api_http_addrs"`
+	MetaHTTPAddr string   `yaml:"meta_http_addr"`
 }
 
 type StoreConfig struct {
@@ -77,9 +79,12 @@ func NewTest() *Config {
 			HTTPAddrs: []string{":8801"},
 			PProfAddr: "127.0.0.1:6061", NodeCount: 1,
 		},
-		Gateway: GatewayConfig{Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"}},
-		Store:   StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
-		Shard:   ShardConfig{Slots: 1024},
+		Gateway: GatewayConfig{
+			Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"},
+			APIHTTPAddrs: []string{"127.0.0.1:8801"}, MetaHTTPAddr: "127.0.0.1:8801",
+		},
+		Store: StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
+		Shard: ShardConfig{Slots: 1024},
 		Storage: StorageConfig{
 			Endpoint: "127.0.0.1:19901", Bucket: "im-media",
 			AccessKey: "rustfsadmin", SecretKey: "rustfsadmin",
@@ -130,6 +135,12 @@ func (c *Config) Default() error {
 	if len(c.Gateway.APIAddrs) == 0 {
 		c.Gateway.APIAddrs = []string{"127.0.0.1:9000"}
 	}
+	if len(c.Gateway.APIHTTPAddrs) == 0 {
+		c.Gateway.APIHTTPAddrs = []string{"127.0.0.1:8801"}
+	}
+	if c.Gateway.MetaHTTPAddr == "" {
+		c.Gateway.MetaHTTPAddr = c.Gateway.APIHTTPAddrs[0]
+	}
 	if c.Store.Path == "" {
 		c.Store.Path = "./data/" + c.API.NodeID
 	}
@@ -144,6 +155,8 @@ func (c *Config) Default() error {
 	}
 	envString("GATEWAY_ADDR", &c.Gateway.Addr)
 	envList("GATEWAY_API_ADDRS", &c.Gateway.APIAddrs)
+	envList("GATEWAY_API_HTTP_ADDRS", &c.Gateway.APIHTTPAddrs)
+	envString("GATEWAY_META_HTTP_ADDR", &c.Gateway.MetaHTTPAddr)
 	envString("STORE_PATH", &c.Store.Path)
 	envString("BACKUP_PATH", &c.Store.BackupPath)
 	if value := os.Getenv("SHARD_SLOTS"); value != "" {
@@ -241,9 +254,20 @@ func (c *Config) Validate() error {
 	if c.API.NodeCount != len(c.API.HTTPAddrs) {
 		return errors.New("api node_count must match the number of api http_addrs")
 	}
+	if c.API.NodeCount != len(c.Gateway.APIHTTPAddrs) {
+		return errors.New("api node_count must match the number of gateway api_http_addrs")
+	}
+	if strings.TrimSpace(c.Gateway.MetaHTTPAddr) == "" {
+		return errors.New("gateway meta_http_addr is required")
+	}
 	for _, address := range c.API.HTTPAddrs {
 		if strings.TrimSpace(address) == "" {
 			return errors.New("api http_addrs must not contain empty addresses")
+		}
+	}
+	for _, address := range c.Gateway.APIHTTPAddrs {
+		if strings.TrimSpace(address) == "" {
+			return errors.New("gateway api_http_addrs must not contain empty addresses")
 		}
 	}
 	return nil

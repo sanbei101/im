@@ -14,6 +14,11 @@ gateway:
   addr: ":8800"
   api_addrs:
     - "127.0.0.1:9000"
+  # HTTP addresses of the API nodes, in node_index order.
+  api_http_addrs:
+    - "127.0.0.1:8801"
+  # HTTP fallback for non-room requests (users, friends, files).
+  meta_http_addr: "127.0.0.1:8801"
 
 store:
   path: "./data/api-1"
