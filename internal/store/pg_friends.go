@@ -11,6 +11,12 @@ import (
 	"github.com/phuslu/log"
 )
 
+const (
+	FriendStatusPending  = "pending"
+	FriendStatusAccepted = "accepted"
+	FriendStatusRejected = "rejected"
+)
+
 func (db *DB) ApplyFriend(ctx context.Context, fromID, toID uuid.UUID, greeting string) error {
 	if fromID == toID {
 		return errors.New("cannot apply to add yourself as friend")

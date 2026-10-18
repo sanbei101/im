@@ -912,33 +912,6 @@ func (s *Store) populateReactions(ctx context.Context, roomID uuid.UUID, message
 	return nil
 }
 
-func (s *Store) ReadUsers(
-	ctx context.Context,
-	roomID, msgID uuid.UUID,
-	members []Member,
-) ([]uuid.UUID, error) {
-	if err := contextErr(ctx); err != nil {
-		return nil, err
-	}
-	msg, err := s.MessageByID(ctx, roomID, msgID)
-	if err != nil {
-		return nil, err
-	}
-
-	readSeqs, err := s.roomReadSeqs(roomID)
-	if err != nil {
-		return nil, err
-	}
-
-	var readUsers []uuid.UUID
-	for _, m := range members {
-		if readSeqs[m.UserID] >= msg.RoomSeq {
-			readUsers = append(readUsers, m.UserID)
-		}
-	}
-	return readUsers, nil
-}
-
 func (s *Store) PinMessage(ctx context.Context, roomID, msgID, operatorID uuid.UUID) error {
 	if err := contextErr(ctx); err != nil {
 		return err

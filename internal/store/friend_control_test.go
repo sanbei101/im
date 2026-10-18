@@ -10,12 +10,6 @@ import (
 	"github.com/cockroachdb/pebble"
 )
 
-const (
-	FriendStatusPending  = "pending"
-	FriendStatusAccepted = "accepted"
-	FriendStatusRejected = "rejected"
-)
-
 func encodeFriend(f Friend) []byte {
 	var timestamp [8]byte
 	putI64(timestamp[:], f.CreatedAt.UnixMicro())
