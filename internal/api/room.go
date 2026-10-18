@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
 	"errors"
 	"math/rand/v2"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/render"
 )
 
@@ -23,6 +23,7 @@ type CreateSingleRoomReq struct {
 }
 
 type CreateGroupRoomReq struct {
+	RoomID    string   `json:"room_id"    validate:"required,uuid"`
 	Name      string   `json:"name"`
 	MemberIDs []string `json:"member_ids" validate:"required,min=2"`
 }
@@ -96,7 +97,7 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	hash := singleHash(user1, user2)
+	hash := pkg.SingleChatHash(user1, user2)
 	if room, err := a.store.RoomBySingleHash(r.Context(), hash[:]); err == nil {
 		render.Success(w, "获取或创建单聊房间成功", RoomResp{RoomID: room.RoomID.String()})
 		return
@@ -105,7 +106,7 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	roomID := uuid.NewV7()
+	roomID := pkg.SingleRoomID(user1, user2)
 	name, avatar := generateRoomInfo(roomID)
 	err = a.store.CreateRoom(
 		r.Context(),
@@ -170,7 +171,11 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roomID := uuid.NewV7()
+	roomID, err := uuid.Parse(req.RoomID)
+	if err != nil {
+		render.Error(w, http.StatusBadRequest, "invalid room_id")
+		return
+	}
 	name, avatar := generateRoomInfo(roomID)
 	if req.Name != "" {
 		name = req.Name
@@ -222,16 +227,6 @@ func (a *RoomAPI) ListRooms(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	render.Success(w, "获取房间列表成功", RoomListResp{Rooms: result})
-}
-
-func singleHash(a, b uuid.UUID) [32]byte {
-	if a.Compare(b) > 0 {
-		a, b = b, a
-	}
-	var data [32]byte
-	copy(data[:16], a[:])
-	copy(data[16:], b[:])
-	return sha256.Sum256(data[:])
 }
 
 var (

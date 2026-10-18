@@ -208,6 +208,14 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("missing http addrs", func(t *testing.T) {
+		cfg := config.NewTest()
+		cfg.API.HTTPAddrs = nil
+		if err := run(cfg); err == nil {
+			t.Fatal("run accepted an empty api.http_addrs")
+		}
+	})
+
 	t.Run("missing jwt secret", func(t *testing.T) {
 		cfg := config.NewTest()
 		cfg.JWTSecret = ""
@@ -230,6 +238,7 @@ func TestServeStartsAndStops(t *testing.T) {
 	cfg.Store.BackupPath = t.TempDir()
 	cfg.API.Addr = freeAddr(t)
 	cfg.API.HTTPAddr = freeAddr(t)
+	cfg.API.HTTPAddrs = []string{cfg.API.HTTPAddr}
 	cfg.API.PProfAddr = freeAddr(t)
 	cfg.Storage.Endpoint = strings.TrimPrefix(objectStore.URL, "http://")
 	cfg.Storage.UseSSL = false

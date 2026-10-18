@@ -120,17 +120,19 @@ func TestRoomHTTP(t *testing.T) {
 		bob, bobToken := env.addUser(t, "bob")
 		carol, _ := env.addUser(t, "carol")
 
+		wantRoomID := uuid.NewV7()
 		recorder := doRequest(t, env.handler, http.MethodPost, "/api/v1/rooms/group", aliceToken,
 			jsonBody(t, CreateGroupRoomReq{
+				RoomID:    wantRoomID.String(),
 				Name:      "team",
 				MemberIDs: []string{bob.UserID.String(), carol.UserID.String()},
 			}))
 		requireStatus(t, recorder, http.StatusOK)
 		roomResp := decodeResponse[RoomResp](t, recorder)
-		roomID, err := uuid.Parse(roomResp.Data.RoomID)
-		if err != nil {
-			t.Fatal(err)
+		if roomResp.Data.RoomID != wantRoomID.String() {
+			t.Fatalf("room id = %q, want %q", roomResp.Data.RoomID, wantRoomID)
 		}
+		roomID := wantRoomID
 
 		recorder = doRequest(t, env.handler, http.MethodPost, "/api/v1/rooms/list", aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)

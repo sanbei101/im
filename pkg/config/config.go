@@ -36,12 +36,13 @@ type StorageConfig struct {
 }
 
 type APIConfig struct {
-	NodeID    string `yaml:"node_id"`
-	Addr      string `yaml:"addr"`
-	HTTPAddr  string `yaml:"http_addr"`
-	PProfAddr string `yaml:"pprof_addr"`
-	NodeIndex int    `yaml:"node_index"`
-	NodeCount int    `yaml:"node_count"`
+	NodeID    string   `yaml:"node_id"`
+	Addr      string   `yaml:"addr"`
+	HTTPAddr  string   `yaml:"http_addr"`
+	HTTPAddrs []string `yaml:"http_addrs"`
+	PProfAddr string   `yaml:"pprof_addr"`
+	NodeIndex int      `yaml:"node_index"`
+	NodeCount int      `yaml:"node_count"`
 }
 
 type GatewayConfig struct {
@@ -73,6 +74,7 @@ func NewTest() *Config {
 	return &Config{
 		API: APIConfig{
 			NodeID: "api-1", Addr: ":9000", HTTPAddr: ":8801",
+			HTTPAddrs: []string{":8801"},
 			PProfAddr: "127.0.0.1:6061", NodeCount: 1,
 		},
 		Gateway: GatewayConfig{Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"}},
@@ -105,6 +107,7 @@ func (c *Config) Default() error {
 	envString("API_NODE_ID", &c.API.NodeID)
 	envString("API_ADDR", &c.API.Addr)
 	envString("API_HTTP_ADDR", &c.API.HTTPAddr)
+	envList("API_HTTP_ADDRS", &c.API.HTTPAddrs)
 	envString("API_PPROF_ADDR", &c.API.PProfAddr)
 	if c.API.NodeID == "" {
 		c.API.NodeID = "api-1"
@@ -114,6 +117,9 @@ func (c *Config) Default() error {
 	}
 	if c.API.HTTPAddr == "" {
 		c.API.HTTPAddr = ":8801"
+	}
+	if len(c.API.HTTPAddrs) == 0 {
+		c.API.HTTPAddrs = []string{c.API.HTTPAddr}
 	}
 	if c.API.PProfAddr == "" {
 		c.API.PProfAddr = "127.0.0.1:6061"
@@ -137,18 +143,7 @@ func (c *Config) Default() error {
 		c.Shard.Slots = 1024
 	}
 	envString("GATEWAY_ADDR", &c.Gateway.Addr)
-	if value := os.Getenv("GATEWAY_API_ADDRS"); value != "" {
-		addrs := strings.Split(value, ",")
-		trimmed := make([]string, 0, len(addrs))
-		for _, addr := range addrs {
-			if addr = strings.TrimSpace(addr); addr != "" {
-				trimmed = append(trimmed, addr)
-			}
-		}
-		if len(trimmed) > 0 {
-			c.Gateway.APIAddrs = trimmed
-		}
-	}
+	envList("GATEWAY_API_ADDRS", &c.Gateway.APIAddrs)
 	envString("STORE_PATH", &c.Store.Path)
 	envString("BACKUP_PATH", &c.Store.BackupPath)
 	if value := os.Getenv("SHARD_SLOTS"); value != "" {
@@ -182,6 +177,23 @@ func (c *Config) Default() error {
 func envString(key string, target *string) {
 	if value := os.Getenv(key); value != "" {
 		*target = value
+	}
+}
+
+func envList(key string, target *[]string) {
+	value := os.Getenv(key)
+	if value == "" {
+		return
+	}
+	parts := strings.Split(value, ",")
+	trimmed := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			trimmed = append(trimmed, part)
+		}
+	}
+	if len(trimmed) > 0 {
+		*target = trimmed
 	}
 }
 
@@ -225,6 +237,14 @@ func (c *Config) Validate() error {
 	// two counts must agree or messages route to the wrong node.
 	if c.API.NodeCount != len(c.Gateway.APIAddrs) {
 		return errors.New("api node_count must match the number of gateway api_addrs")
+	}
+	if c.API.NodeCount != len(c.API.HTTPAddrs) {
+		return errors.New("api node_count must match the number of api http_addrs")
+	}
+	for _, address := range c.API.HTTPAddrs {
+		if strings.TrimSpace(address) == "" {
+			return errors.New("api http_addrs must not contain empty addresses")
+		}
 	}
 	return nil
 }

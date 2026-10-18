@@ -5,7 +5,7 @@
 ## 架构
 
 - `gateway` 维护 WebSocket 长连接和用户会话,使用协议层 ping/pong 控制帧保活:每 30s 主动 ping,5s 未收到 pong 即断开并注销在线状态。
-- `api` 提供 HTTP 接口和房间分片存储。
+- `api` 提供 HTTP 接口和房间分片存储;带 `room_id` 的 HTTP 请求会按槽位转发给归属节点。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,协议由 Kitex 生成 fastpb 编解码代码。
 - 消息、房间、成员和幂等记录使用 Pebble 本地持久化。
 - 房间通过 `hash(room_id) % slots` 路由到 API 节点。
@@ -59,6 +59,25 @@ make stop
 ```
 
 默认端口:HTTP `8801`、WebSocket `8800`、API 内部流 `9000`、pprof `6061`。HTTP 与 pprof 监听地址可通过 `api.http_addr` / `api.pprof_addr` 或 `API_HTTP_ADDR` / `API_PPROF_ADDR` 覆盖。
+
+多 API 节点时,`api.http_addrs` 必须按 `node_index` 顺序列出每个节点的 HTTP 地址,并与 Gateway 的 `gateway.api_addrs` 顺序一致:
+
+```yaml
+api:
+  node_index: 1
+  node_count: 2
+  http_addr: ":8802"
+  http_addrs:
+    - "api-1:8801"
+    - "api-2:8802"
+
+gateway:
+  api_addrs:
+    - "api-1:9000"
+    - "api-2:9001"
+```
+
+房间相关 HTTP 请求(路径或 `room_id` 查询参数/JSON 字段)会转发到该房间的归属节点。单聊房间 ID 由双方用户 ID 确定性生成;群聊创建必须携带客户端生成的 `room_id`,以便在创建前完成路由。
 
 ## 数据写入约定
 

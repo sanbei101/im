@@ -2,6 +2,10 @@ api:
   node_id: api-1
   addr: ":9000"
   http_addr: ":8801"
+  # Indexed by node_index, in the same order as gateway.api_addrs.
+  # node_count must equal the number of entries.
+  http_addrs:
+    - "127.0.0.1:8801"
   pprof_addr: "127.0.0.1:6061"
   node_index: 0
   node_count: 1
