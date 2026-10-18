@@ -61,7 +61,7 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
   - `StreamHandler.memberCache`: API 广播网关使用 `phuslu/lru.TTLCache` 缓存 4096 房间活跃成员,30s TTL,杜绝长连接无界 map 内存泄漏。
 - **推拉结合与网关单包就地扇出 (RoomPush)**:
   - API 向 Gateway 发送 `RoomPushBatch` 单包广播,消息 Payload 仅在网络间传输 1 次,由 Gateway 在本地连接池就地扇出给所有目标 WebSocket 连接
-  - 客户端支持推拉结合:支持推送完整消息与轻量同步信号(`SyncNotice`),断线或检测到序号空洞时通过 `MessagesAfter` 批量拉取,极速内存闭环。
+  - 客户端支持推拉结合:推送完整消息,断线或检测到序号空洞时通过 `MessagesAfter` 批量拉取,极速内存闭环。
 - **写聚合缓冲管道**:客户端发送请求通过 `messageQueue`(4096 容量)由单写协程在 1ms 或 128 条批大小窗口内合并,变随机小写为顺序批写。
 
 ### 2. 文件存储层

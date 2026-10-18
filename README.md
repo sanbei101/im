@@ -4,7 +4,7 @@
 
 ## 架构
 
-- `gateway` 维护 WebSocket 长连接和用户会话。
+- `gateway` 维护 WebSocket 长连接和用户会话,使用协议层 ping/pong 控制帧保活:每 30s 主动 ping,5s 未收到 pong 即断开并注销在线状态。
 - `api` 提供 HTTP 接口和房间分片存储。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,协议由 Kitex 生成 fastpb 编解码代码。
 - 消息、房间、成员和幂等记录使用 Pebble 本地持久化。
@@ -38,6 +38,7 @@ make gen
 
 ```bash
 cp config.example.yaml config.yaml
+# 填写 jwt_secret 与 storage 凭据；对象存储是 API 启动的硬依赖
 go run ./cmd/api
 go run ./cmd/gateway
 ```
@@ -57,7 +58,7 @@ make dev
 make stop
 ```
 
-默认端口:HTTP `8801`、WebSocket `8800`、API 内部流 `9000`。
+默认端口:HTTP `8801`、WebSocket `8800`、API 内部流 `9000`、pprof `6061`。HTTP 与 pprof 监听地址可通过 `api.http_addr` / `api.pprof_addr` 或 `API_HTTP_ADDR` / `API_PPROF_ADDR` 覆盖。
 
 ## 数据写入约定
 
@@ -78,7 +79,7 @@ Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入
                      ▼
               ack 帧回客户端;Pebble 提交成功才发 ack
 
-推送:API 写盘后按房间成员推送 → PushFrame{batch} → Gateway 分发到成员 WS 连接
+推送:API 写盘后按房间成员推送 → RoomPushBatch → Gateway 分发到成员 WS 连接
 补拉:GET /api/v1/messages/history?room_id=&before_seq=&page_size=
 ```
 
@@ -91,15 +92,8 @@ Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入
 所有检查通过 `Makefile` 执行
 
 ```bash
-make verify       # gofmt、go vet、全部测试、race、benchmark
+make verify       # lint、全部测试(-race)、benchmark
 make bench        # 真实 Pebble 写入和历史读取 benchmark
 make pprof        # 真实批量写入并生成 CPU、heap、mutex、block profile
 make analyze      # 输出 pprof top 热点
-```
-
-SDK 集成测试(需先启动 `./cmd/api` 与 `./cmd/gateway`):
-
-```bash
-cd sdk && pnpm install
-API_BASE_URL=http://127.0.0.1:8801 WS_GATEWAY_URL=ws://127.0.0.1:8800/ws pnpm test
 ```
