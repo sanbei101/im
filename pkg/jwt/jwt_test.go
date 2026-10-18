@@ -12,7 +12,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	Init("test-secret")
+	if err := Init("test-secret"); err != nil {
+		panic(err)
+	}
 	os.Exit(m.Run())
 }
 

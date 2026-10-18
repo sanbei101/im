@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 	"unsafe"
 
 	"github.com/cristalhq/jwt/v5"
-	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/pkg/render"
 )
@@ -28,7 +28,6 @@ const (
 var (
 	jwtSigner   jwt.Signer
 	jwtVerifier jwt.Verifier
-	jwtSecret   []byte
 )
 
 type userClaims struct {
@@ -37,22 +36,22 @@ type userClaims struct {
 }
 
 // Init sets the HMAC secret and builds the signer/verifier. It must be called
-// once at startup before any token is generated or parsed; an empty secret is
-// a configuration error and aborts the process.
-func Init(secret string) {
+// once at startup before any token is generated or parsed.
+func Init(secret string) error {
 	if strings.TrimSpace(secret) == "" {
-		log.Fatal().Msg("jwt secret is empty: set jwt_secret in config.yaml")
+		return errors.New("jwt secret is empty")
 	}
-	jwtSecret = []byte(secret)
-	var err error
-	jwtSigner, err = jwt.NewSignerHS(jwt.HS256, jwtSecret)
+	signer, err := jwt.NewSignerHS(jwt.HS256, []byte(secret))
 	if err != nil {
-		log.Fatal().Err(err).Msg("初始化 JWT 签名器失败")
+		return fmt.Errorf("create jwt signer: %w", err)
 	}
-	jwtVerifier, err = jwt.NewVerifierHS(jwt.HS256, jwtSecret)
+	verifier, err := jwt.NewVerifierHS(jwt.HS256, []byte(secret))
 	if err != nil {
-		log.Fatal().Err(err).Msg("初始化 JWT 验证器失败")
+		return fmt.Errorf("create jwt verifier: %w", err)
 	}
+	jwtSigner = signer
+	jwtVerifier = verifier
+	return nil
 }
 
 func GenerateToken(userID string) (string, error) {

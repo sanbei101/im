@@ -38,6 +38,8 @@ type StorageConfig struct {
 type APIConfig struct {
 	NodeID    string `yaml:"node_id"`
 	Addr      string `yaml:"addr"`
+	HTTPAddr  string `yaml:"http_addr"`
+	PProfAddr string `yaml:"pprof_addr"`
 	NodeIndex int    `yaml:"node_index"`
 	NodeCount int    `yaml:"node_count"`
 }
@@ -69,7 +71,10 @@ func New() *Config {
 // environment or the filesystem.
 func NewTest() *Config {
 	return &Config{
-		API:     APIConfig{NodeID: "api-1", Addr: ":9000", NodeCount: 1},
+		API: APIConfig{
+			NodeID: "api-1", Addr: ":9000", HTTPAddr: ":8801",
+			PProfAddr: "127.0.0.1:6061", NodeCount: 1,
+		},
 		Gateway: GatewayConfig{Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"}},
 		Store:   StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
 		Shard:   ShardConfig{Slots: 1024},
@@ -99,11 +104,19 @@ func Load(path string) (*Config, error) {
 func (c *Config) Default() error {
 	envString("API_NODE_ID", &c.API.NodeID)
 	envString("API_ADDR", &c.API.Addr)
+	envString("API_HTTP_ADDR", &c.API.HTTPAddr)
+	envString("API_PPROF_ADDR", &c.API.PProfAddr)
 	if c.API.NodeID == "" {
 		c.API.NodeID = "api-1"
 	}
 	if c.API.Addr == "" {
 		c.API.Addr = ":9000"
+	}
+	if c.API.HTTPAddr == "" {
+		c.API.HTTPAddr = ":8801"
+	}
+	if c.API.PProfAddr == "" {
+		c.API.PProfAddr = "127.0.0.1:6061"
 	}
 	if c.Gateway.Addr == "" {
 		c.Gateway.Addr = ":8800"
@@ -188,6 +201,9 @@ func envBool(key string, target *bool) error {
 func (c *Config) Validate() error {
 	if strings.TrimSpace(c.API.NodeID) == "" || strings.TrimSpace(c.API.Addr) == "" {
 		return errors.New("api node_id and addr are required")
+	}
+	if strings.TrimSpace(c.API.HTTPAddr) == "" || strings.TrimSpace(c.API.PProfAddr) == "" {
+		return errors.New("api http_addr and pprof_addr are required")
 	}
 	if len(c.Gateway.APIAddrs) == 0 {
 		return errors.New("at least one api address is required")

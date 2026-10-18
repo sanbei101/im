@@ -28,7 +28,9 @@ func main() {
 
 func run() error {
 	cfg := config.New()
-	jwt.Init(cfg.JWTSecret)
+	if err := jwt.Init(cfg.JWTSecret); err != nil {
+		return fmt.Errorf("init jwt: %w", err)
+	}
 	g := gateway.NewGateway(cfg)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -62,7 +64,7 @@ func run() error {
 
 	serveErr := make(chan error, 1)
 	wg.Go(func() {
-		log.Info().Msg("starting gateway server on :8800...")
+		log.Info().Str("addr", cfg.Gateway.Addr).Msg("starting gateway server")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- fmt.Errorf("start gateway server: %w", err)
 			return

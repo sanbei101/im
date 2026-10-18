@@ -1,6 +1,8 @@
 api:
   node_id: api-1
   addr: ":9000"
+  http_addr: ":8801"
+  pprof_addr: "127.0.0.1:6061"
   node_index: 0
   node_count: 1
 
@@ -30,9 +32,11 @@ storage:
   # true: <endpoint>/<bucket>/<key> (MinIO/rustfs/local)
   # false: <bucket>.<endpoint>/<key> (R2/AWS S3)
   path_style: false
-  # Optional public read base: CDN, r2.dev domain or a custom domain bound to
-  # the bucket. Download URLs become <public_base_url>/<key>; the bucket name
-  # is never appended. Leave empty to return presigned GET URLs instead.
+  # Public read base: CDN, r2.dev domain or a custom domain bound to the
+  # bucket. Download URLs become <public_base_url>/<key>; the bucket name is
+  # never appended. Required.
   public_base_url: "https://cdn.example.com"
 
+# Required. Use a long random value and keep it identical on every gateway and
+# API node.
 jwt_secret: ""

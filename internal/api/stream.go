@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"sync"
 	"time"
 	"uuid"
@@ -30,7 +29,6 @@ type sessionShard struct {
 
 type StreamHandler struct {
 	store     *store.Store
-	nodeID    string
 	slots     int
 	nodeIndex int
 	nodeCount int
@@ -107,10 +105,9 @@ func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
 	return &h.sessionShards[pkg.StringShard(userID, sessionShardCount)]
 }
 
-func NewStreamHandler(data *store.Store, nodeID string, slots, nodeIndex, nodeCount int) *StreamHandler {
+func NewStreamHandler(data *store.Store, slots, nodeIndex, nodeCount int) *StreamHandler {
 	handler := &StreamHandler{
 		store:     data,
-		nodeID:    nodeID,
 		slots:     slots,
 		nodeIndex: nodeIndex,
 		nodeCount: nodeCount,
@@ -164,14 +161,6 @@ func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_Co
 			return fmt.Errorf("receive gateway frame: %w", err)
 		}
 		switch {
-		case frame.GetHello() != nil:
-			if err := connection.enqueue(&pb.APIFrame{
-				Body: &pb.APIFrame_HelloAck{
-					HelloAck: &pb.HelloAck{NodeId: h.nodeID, TopologyVersion: strconv.Itoa(h.slots)},
-				},
-			}); err != nil {
-				return fmt.Errorf("send hello ack: %w", err)
-			}
 		case frame.GetSessionBatch() != nil:
 			h.updateSessions(connection, frame.GetSessionBatch())
 		case frame.GetSendBatch() != nil:
@@ -189,6 +178,8 @@ func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_Co
 					log.Error().Err(err).Msg("push room message failed")
 				}
 			}
+		default:
+			return fmt.Errorf("gateway stream received unknown frame: %T", frame.GetBody())
 		}
 	}
 }

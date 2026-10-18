@@ -26,11 +26,161 @@ import (
 	"github.com/sanbei101/im/proto/pb/gatewayservice"
 )
 
+const (
+	httpReadHeaderTimeout = 10 * time.Second
+	httpIdleTimeout       = time.Minute
+	shutdownTimeout       = 5 * time.Second
+)
+
 func main() {
 	logger.InitLogger()
-	if err := run(); err != nil {
+	if err := run(config.New()); err != nil {
 		log.Fatal().Err(err).Msg("api server failed")
 	}
+}
+
+// run validates the configuration and serves until the process receives
+// SIGINT/SIGTERM. It takes the config explicitly so tests can exercise the
+// startup path without touching the working directory.
+func run(cfg *config.Config) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
+	if err := jwt.Init(cfg.JWTSecret); err != nil {
+		return fmt.Errorf("init jwt: %w", err)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return serve(ctx, cfg)
+}
+
+// serve owns every long-lived component. All loops derive from ctx, so a
+// failure in one component shuts the rest down before serve returns.
+func serve(ctx context.Context, cfg *config.Config) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	data, err := store.Open(cfg.Store.Path)
+	if err != nil {
+		return fmt.Errorf("open pebble store: %w", err)
+	}
+	defer data.Close()
+
+	objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
+		Endpoint:  cfg.Storage.Endpoint,
+		Bucket:    cfg.Storage.Bucket,
+		AccessKey: cfg.Storage.AccessKey,
+		SecretKey: cfg.Storage.SecretKey,
+		Region:    cfg.Storage.Region,
+		UseSSL:    cfg.Storage.UseSSL,
+		PathStyle: cfg.Storage.PathStyle,
+	})
+	if err != nil {
+		return fmt.Errorf("create object store: %w", err)
+	}
+	if err := objects.EnsureBucket(runCtx); err != nil {
+		return fmt.Errorf("ensure archive bucket: %w", err)
+	}
+	if err := data.AttachRemote(objects, filepath.Join(cfg.Store.Path, "archive-cache"), 512<<20); err != nil {
+		return fmt.Errorf("attach remote archive: %w", err)
+	}
+
+	streamHandler := api.NewStreamHandler(data, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
+	handler := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicBaseURL)
+	streamAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
+	if err != nil {
+		return fmt.Errorf("resolve api stream address: %w", err)
+	}
+	kitexServer := gatewayservice.NewServer(streamHandler,
+		server.WithServiceAddr(streamAddr),
+		server.WithExitWaitTime(shutdownTimeout),
+	)
+
+	httpListener, err := net.Listen("tcp", cfg.API.HTTPAddr)
+	if err != nil {
+		return fmt.Errorf("listen api http: %w", err)
+	}
+	pprofListener, err := net.Listen("tcp", cfg.API.PProfAddr)
+	if err != nil {
+		// The HTTP listener is not served yet, so close it before returning.
+		return errors.Join(fmt.Errorf("listen pprof: %w", err), httpListener.Close())
+	}
+
+	var tasks sync.WaitGroup
+	tasks.Go(func() {
+		every(runCtx, time.Duration(cfg.Store.BackupInterval)*time.Second, func(ctx context.Context, now time.Time) {
+			dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
+			if err := data.Checkpoint(ctx, dir); err != nil {
+				log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
+			}
+		})
+	})
+	tasks.Go(func() {
+		params := store.DefaultArchiveParams()
+		params.Owns = ownsRoom(cfg)
+		every(runCtx, time.Minute, func(ctx context.Context, _ time.Time) {
+			if err := data.ArchiveOnce(ctx, objects, params); err != nil {
+				log.Error().Err(err).Msg("message archive failed")
+			}
+		})
+	})
+
+	serveErr := make(chan error, 3)
+	var httpServers sync.WaitGroup
+	httpServers.Go(func() {
+		err := serveHTTP(runCtx, newHTTPServer(cfg.API.HTTPAddr, handler), httpListener)
+		if err == nil && runCtx.Err() == nil {
+			err = errors.New("api http server stopped unexpectedly")
+		}
+		if err != nil {
+			serveErr <- err
+		}
+	})
+	httpServers.Go(func() {
+		err := serveHTTP(runCtx, newPProfServer(cfg.API.PProfAddr), pprofListener)
+		if err == nil && runCtx.Err() == nil {
+			err = errors.New("pprof server stopped unexpectedly")
+		}
+		if err != nil {
+			serveErr <- err
+		}
+	})
+
+	kitexDone := make(chan struct{})
+	go func() {
+		defer close(kitexDone)
+		log.Info().Str("addr", cfg.API.Addr).Msg("starting api stream server")
+		err := kitexServer.Run()
+		if err == nil && runCtx.Err() == nil {
+			err = errors.New("api stream server stopped unexpectedly")
+		}
+		if err != nil {
+			serveErr <- fmt.Errorf("api stream server: %w", err)
+		}
+	}()
+
+	log.Info().Str("addr", httpListener.Addr().String()).Msg("starting API server")
+	var serveFailure error
+	select {
+	case <-runCtx.Done():
+		log.Info().Msg("shutting down gracefully...")
+	case serveFailure = <-serveErr:
+		log.Error().Err(serveFailure).Msg("api server failed, shutting down")
+		cancel()
+	}
+
+	httpServers.Wait()
+	tasks.Wait()
+	if err := kitexServer.Stop(); err != nil {
+		log.Error().Err(err).Msg("api stream server shutdown failed")
+	}
+	<-kitexDone
+	if serveFailure != nil {
+		return serveFailure
+	}
+	log.Info().Msg("API server exited")
+	return nil
 }
 
 // every runs fn on each tick of interval until ctx is cancelled.
@@ -47,133 +197,56 @@ func every(ctx context.Context, interval time.Duration, fn func(ctx context.Cont
 	}
 }
 
-func run() error {
-	cfg := config.New()
-	jwt.Init(cfg.JWTSecret)
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-
-	data, err := store.Open(cfg.Store.Path)
-	if err != nil {
-		cancel()
-		return fmt.Errorf("open pebble store: %w", err)
-	}
-	defer data.Close()
-	defer cancel()
-
-	objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
-		Endpoint:  cfg.Storage.Endpoint,
-		Bucket:    cfg.Storage.Bucket,
-		AccessKey: cfg.Storage.AccessKey,
-		SecretKey: cfg.Storage.SecretKey,
-		Region:    cfg.Storage.Region,
-		UseSSL:    cfg.Storage.UseSSL,
-		PathStyle: cfg.Storage.PathStyle,
-	})
-	if err != nil {
-		return fmt.Errorf("create object store: %w", err)
-	}
-	if err := objects.EnsureBucket(ctx); err != nil {
-		return fmt.Errorf("ensure archive bucket: %w", err)
-	}
-	if err := data.AttachRemote(objects, filepath.Join(cfg.Store.Path, "archive-cache"), 512<<20); err != nil {
-		return fmt.Errorf("attach remote archive: %w", err)
-	}
-
-	streamHandler := api.NewStreamHandler(data, cfg.API.NodeID, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
-	r := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicBaseURL)
-	listenAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
-	if err != nil {
-		return fmt.Errorf("resolve api stream address: %w", err)
-	}
-	kitexServer := gatewayservice.NewServer(streamHandler,
-		server.WithServiceAddr(listenAddr),
-		server.WithExitWaitTime(5*time.Second),
-	)
-	srv := &http.Server{
-		Addr:              ":8801",
-		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       time.Minute,
-	}
-
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		debug := &http.Server{Addr: "127.0.0.1:6061", ReadHeaderTimeout: 10 * time.Second}
-		go func() {
-			<-ctx.Done()
-			if err := debug.Shutdown(context.Background()); err != nil {
-				log.Error().Err(err).Msg("pprof server forced to shutdown")
-			}
-		}()
-		if err := debug.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error().Err(err).Msg("pprof server stopped")
+// ownsRoom reports whether this API node owns the room's shard slot. It is
+// used by the archiver so a node only deletes history it is responsible for.
+func ownsRoom(cfg *config.Config) func(uuid.UUID) bool {
+	return func(roomID uuid.UUID) bool {
+		slot, err := pkg.RoomSlot(roomID, cfg.Shard.Slots)
+		if err != nil {
+			return false
 		}
-	})
-	wg.Go(func() {
-		every(ctx, time.Duration(cfg.Store.BackupInterval)*time.Second, func(ctx context.Context, now time.Time) {
-			dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
-			if err := data.Checkpoint(ctx, dir); err != nil {
-				log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
-			}
-		})
-	})
+		index, err := pkg.NodeIndex(slot, cfg.Shard.Slots, cfg.API.NodeCount)
+		return err == nil && index == cfg.API.NodeIndex
+	}
+}
 
-	wg.Go(func() {
-		params := store.DefaultArchiveParams()
-		params.Owns = func(roomID uuid.UUID) bool {
-			slot, err := pkg.RoomSlot(roomID, cfg.Shard.Slots)
-			if err != nil {
-				return false
-			}
-			index, err := pkg.NodeIndex(slot, cfg.Shard.Slots, cfg.API.NodeCount)
-			return err == nil && index == cfg.API.NodeIndex
-		}
-		every(ctx, time.Minute, func(ctx context.Context, _ time.Time) {
-			if err := data.ArchiveOnce(ctx, objects, params); err != nil {
-				log.Error().Err(err).Msg("message archive failed")
-			}
-		})
-	})
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+	}
+}
 
-	serveErr := make(chan error, 2)
+func newPProfServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+	}
+}
+
+// serveHTTP runs srv on ln and shuts it down when ctx is cancelled. It returns
+// nil for a graceful shutdown and the serving error otherwise.
+func serveHTTP(ctx context.Context, srv *http.Server, ln net.Listener) error {
+	serveDone := make(chan error, 1)
 	go func() {
-		log.Info().Msg("starting API server on :8801")
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serveErr <- fmt.Errorf("start api server: %w", err)
-			return
-		}
-		log.Info().Msg("API server stopped")
-	}()
-	go func() {
-		log.Info().Str("addr", cfg.API.Addr).Msg("starting api stream server")
-		if err := kitexServer.Run(); err != nil {
-			serveErr <- fmt.Errorf("api stream server: %w", err)
-			return
-		}
+		serveDone <- srv.Serve(ln)
 	}()
 
-	var serveFailure error
 	select {
 	case <-ctx.Done():
-		log.Info().Msg("shutting down gracefully...")
-	case err := <-serveErr:
-		serveFailure = err
-		cancel()
-		log.Error().Err(err).Msg("api server failed, shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown http server %s: %w", srv.Addr, err)
+		}
+		return nil
+	case err := <-serveDone:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("http server %s: %w", srv.Addr, err)
 	}
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("API server forced to shutdown")
-	}
-	wg.Wait()
-	if err := kitexServer.Stop(); err != nil {
-		log.Error().Err(err).Msg("api stream server shutdown failed")
-	}
-	if serveFailure != nil {
-		return serveFailure
-	}
-	log.Info().Msg("API server exited")
-	return nil
 }
