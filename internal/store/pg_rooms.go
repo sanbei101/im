@@ -53,6 +53,71 @@ func scanMember(row pgx.Row) (Member, error) {
 	return member, nil
 }
 
+type rowQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// insertMembers writes the whole roster in one statement. ON CONFLICT DO
+// NOTHING plus RETURNING yields only members that were actually inserted.
+func insertMembers(
+	ctx context.Context,
+	q rowQuerier,
+	roomID uuid.UUID,
+	members []Member,
+) ([]Member, error) {
+	if len(members) == 0 {
+		return nil, nil
+	}
+	userIDs := make([]string, len(members))
+	roles := make([]string, len(members))
+	hidden := make([]bool, len(members))
+	muted := make([]bool, len(members))
+	pinned := make([]bool, len(members))
+	for i, member := range members {
+		userIDs[i] = member.UserID.String()
+		roles[i] = member.Role
+		hidden[i] = member.IsHidden
+		muted[i] = member.IsMuted
+		pinned[i] = member.IsPinned
+	}
+	rows, err := q.Query(ctx, `
+		INSERT INTO room_members (room_id, user_id, role, is_hidden, is_muted, is_pinned)
+		SELECT $1::uuid, u.user_id, u.role, u.is_hidden, u.is_muted, u.is_pinned
+		FROM unnest($2::uuid[], $3::text[], $4::bool[], $5::bool[], $6::bool[])
+		     AS u(user_id, role, is_hidden, is_muted, is_pinned)
+		ON CONFLICT DO NOTHING
+		RETURNING user_id::text, role, is_hidden, is_muted, is_pinned`,
+		roomID.String(), userIDs, roles, hidden, muted, pinned)
+	if err != nil {
+		if isForeignKeyViolation(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("insert room members: %w", err)
+	}
+	defer rows.Close()
+	added := make([]Member, 0, len(members))
+	for rows.Next() {
+		member := Member{RoomID: roomID}
+		var userID string
+		if err := rows.Scan(&userID, &member.Role, &member.IsHidden, &member.IsMuted, &member.IsPinned); err != nil {
+			return nil, fmt.Errorf("scan inserted room member: %w", err)
+		}
+		parsed, err := uuid.Parse(userID)
+		if err != nil {
+			return nil, fmt.Errorf("parse inserted member user_id: %w", err)
+		}
+		member.UserID = parsed
+		added = append(added, member)
+	}
+	if err := rows.Err(); err != nil {
+		if isForeignKeyViolation(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("iterate inserted room members: %w", err)
+	}
+	return added, nil
+}
+
 func (db *DB) CreateRoom(ctx context.Context, room Room, members []Member) error {
 	if room.RoomID == uuid.Nil() {
 		return errors.New("room id is required")
@@ -86,18 +151,8 @@ func (db *DB) CreateRoom(ctx context.Context, room Room, members []Member) error
 		}
 		return fmt.Errorf("insert room: %w", err)
 	}
-	for _, member := range members {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO room_members (room_id, user_id, role, is_hidden, is_muted, is_pinned)
-			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
-			ON CONFLICT DO NOTHING`,
-			room.RoomID.String(), member.UserID.String(), member.Role,
-			member.IsHidden, member.IsMuted, member.IsPinned); err != nil {
-			if isForeignKeyViolation(err) {
-				return ErrNotFound
-			}
-			return fmt.Errorf("insert room member: %w", err)
-		}
+	if _, err := insertMembers(ctx, tx, room.RoomID, members); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit create room: %w", err)
@@ -221,32 +276,7 @@ func (db *DB) AddMembers(
 	roomID uuid.UUID,
 	newMembers []Member,
 ) ([]Member, error) {
-	added := make([]Member, 0, len(newMembers))
-	for _, member := range newMembers {
-		var userID string
-		err := db.pool.QueryRow(ctx, `
-			INSERT INTO room_members (room_id, user_id, role, is_hidden, is_muted, is_pinned)
-			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
-			ON CONFLICT DO NOTHING
-			RETURNING user_id::text`,
-			roomID.String(), member.UserID.String(), member.Role,
-			member.IsHidden, member.IsMuted, member.IsPinned).Scan(&userID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if isForeignKeyViolation(err) {
-			return nil, ErrNotFound
-		}
-		if err != nil {
-			return nil, fmt.Errorf("add room member: %w", err)
-		}
-		parsed, err := uuid.Parse(userID)
-		if err != nil {
-			return nil, err
-		}
-		added = append(added, Member{RoomID: roomID, UserID: parsed, Role: member.Role})
-	}
-	return added, nil
+	return insertMembers(ctx, db.pool, roomID, newMembers)
 }
 
 func (db *DB) RemoveMember(ctx context.Context, roomID, userID uuid.UUID) error {

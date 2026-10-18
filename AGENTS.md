@@ -58,7 +58,9 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - 用户、设备 token、好友关系、好友申请、黑名单、房间、成员与成员设置、已读游标全部存 PostgreSQL。
 - 所有 API 节点共享同一 PostgreSQL;控制面请求不按房间分片,可以落到任意 API 节点。
 - 迁移文件位于 `internal/store/migrations`,API 启动时使用 advisory lock 串行执行。
-- 房间会话头 `room_heads` 由消息写入后投影,供跨节点会话列表使用。
+- 房间会话头 `room_heads` 由消息写入后投影,供跨节点会话列表使用;`last_msg_time` 让会话排序不解析 JSON。
+- 会话列表用一条 `room_members LEFT JOIN room_heads LEFT JOIN room_reads` 查询完成,禁止逐房间 N+1。
+- 高频查询必须有对应索引:用户搜索使用 `pg_trgm` GIN,已读回执使用 `(room_id, read_seq, user_id)`,好友/申请/黑名单按时间排序列建索引。
 
 ### 2. 消息面内存层
 - **高性能分片 LRU 缓存 (`phuslu/lru`)**:

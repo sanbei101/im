@@ -12,9 +12,10 @@ import (
 )
 
 type RoomHead struct {
-	LastSeq   uint64
-	LastMsg   *Message
-	UpdatedAt time.Time
+	LastSeq     uint64
+	LastMsg     *Message
+	LastMsgTime int64
+	UpdatedAt   time.Time
 }
 
 func (db *DB) RoomHead(ctx context.Context, roomID uuid.UUID) (RoomHead, error) {
@@ -22,8 +23,9 @@ func (db *DB) RoomHead(ctx context.Context, roomID uuid.UUID) (RoomHead, error) 
 	var seq int64
 	var lastMsg []byte
 	err := db.pool.QueryRow(ctx, `
-		SELECT last_seq, last_msg, updated_at FROM room_heads WHERE room_id = $1::uuid`,
-		roomID.String()).Scan(&seq, &lastMsg, &head.UpdatedAt)
+		SELECT last_seq, last_msg, last_msg_time, updated_at
+		FROM room_heads WHERE room_id = $1::uuid`,
+		roomID.String()).Scan(&seq, &lastMsg, &head.LastMsgTime, &head.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RoomHead{}, ErrNotFound
 	}
@@ -44,8 +46,12 @@ func (db *DB) RoomHead(ctx context.Context, roomID uuid.UUID) (RoomHead, error) 
 }
 
 func (db *DB) UpdateRoomHead(ctx context.Context, roomID uuid.UUID, seq uint64, message *Message) error {
-	var encoded []byte
+	var (
+		encoded []byte
+		msgTime int64
+	)
 	if message != nil {
+		msgTime = message.ServerTime
 		var err error
 		encoded, err = json.Marshal(message)
 		if err != nil {
@@ -53,16 +59,20 @@ func (db *DB) UpdateRoomHead(ctx context.Context, roomID uuid.UUID, seq uint64, 
 		}
 	}
 	if _, err := db.pool.Exec(ctx, `
-		INSERT INTO room_heads (room_id, last_seq, last_msg, updated_at)
-		VALUES ($1::uuid, $2, $3, now())
+		INSERT INTO room_heads (room_id, last_seq, last_msg, last_msg_time, updated_at)
+		VALUES ($1::uuid, $2, $3, $4, now())
 		ON CONFLICT (room_id) DO UPDATE
 		SET last_seq = GREATEST(room_heads.last_seq, excluded.last_seq),
 		    last_msg = CASE
 		        WHEN excluded.last_seq >= room_heads.last_seq THEN excluded.last_msg
 		        ELSE room_heads.last_msg
 		    END,
+		    last_msg_time = CASE
+		        WHEN excluded.last_seq >= room_heads.last_seq THEN excluded.last_msg_time
+		        ELSE room_heads.last_msg_time
+		    END,
 		    updated_at = now()`,
-		roomID.String(), int64(seq), encoded); err != nil {
+		roomID.String(), int64(seq), encoded, msgTime); err != nil {
 		return fmt.Errorf("update room head: %w", err)
 	}
 	return nil
@@ -79,20 +89,6 @@ func (db *DB) MarkRead(ctx context.Context, userID, roomID uuid.UUID, readSeq ui
 		return fmt.Errorf("mark room read: %w", err)
 	}
 	return nil
-}
-
-func (db *DB) ReadSeq(ctx context.Context, userID, roomID uuid.UUID) (uint64, error) {
-	var seq int64
-	err := db.pool.QueryRow(ctx, `
-		SELECT read_seq FROM room_reads WHERE user_id = $1::uuid AND room_id = $2::uuid`,
-		userID.String(), roomID.String()).Scan(&seq)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNotFound
-	}
-	if err != nil {
-		return 0, fmt.Errorf("load read seq: %w", err)
-	}
-	return uint64(seq), nil
 }
 
 func (db *DB) ReadUsers(

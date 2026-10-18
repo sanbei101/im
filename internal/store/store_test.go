@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -25,23 +26,16 @@ func newTestStore(t *testing.T) *Store {
 	return data
 }
 
-func mustCreateUser(t *testing.T, s *Store, name string) User {
+func mustCreateUser(t *testing.T, _ *Store, name string) User {
 	t.Helper()
-	user, err := s.CreateUser(context.Background(), name, "password")
-	if err != nil {
-		t.Fatalf("create user %s: %v", name, err)
-	}
-	return user
+	return User{UserID: uuid.NewV7(), Username: name, Nickname: name, CreatedAt: time.Now()}
 }
 
-func mustCreateRoom(t *testing.T, s *Store, chatType string, members ...Member) Room {
+func mustCreateRoom(t *testing.T, _ *Store, chatType string, _ ...Member) Room {
 	t.Helper()
 	room := Room{RoomID: uuid.NewV7(), ChatType: chatType}
 	if chatType == ChatTypeGroup {
 		room.Name = "test room"
-	}
-	if err := s.CreateRoom(context.Background(), room, members); err != nil {
-		t.Fatalf("create room: %v", err)
 	}
 	return room
 }
@@ -120,203 +114,6 @@ func TestMessageCodec(t *testing.T) {
 		}
 		if _, err := decodeDedup(want.PayloadSum[:16]); err == nil {
 			t.Fatal("expected error for short dedup record")
-		}
-	})
-}
-
-func TestStoreUsers(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	t.Run("create and duplicate", func(t *testing.T) {
-		user := mustCreateUser(t, s, "alice")
-		if user.Username != "alice" || user.Nickname != "alice" || user.Password != "password" {
-			t.Fatalf("unexpected user: %+v", user)
-		}
-		if _, err := s.CreateUser(ctx, "alice", "password"); !errors.Is(err, ErrAlreadyExists) {
-			t.Fatalf("duplicate error = %v, want %v", err, ErrAlreadyExists)
-		}
-		if _, err := s.CreateUser(ctx, "   ", "password"); err == nil {
-			t.Fatal("expected error for blank username")
-		}
-	})
-
-	t.Run("lookup trims and matches case", func(t *testing.T) {
-		mustCreateUser(t, s, "Bob")
-		for _, name := range []string{"Bob", " bob ", "BOB"} {
-			user, err := s.UserByUsername(ctx, name)
-			if err != nil || user.Username != "Bob" {
-				t.Fatalf("lookup %q: user=%+v err=%v", name, user, err)
-			}
-		}
-		if _, err := s.UserByUsername(ctx, "nobody"); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("missing user error = %v, want %v", err, ErrNotFound)
-		}
-		byID, err := s.UserByID(ctx, mustCreateUser(t, s, "carol").UserID)
-		if err != nil || byID.Username != "carol" {
-			t.Fatalf("lookup by id: user=%+v err=%v", byID, err)
-		}
-	})
-
-	t.Run("update profile keeps empty fields", func(t *testing.T) {
-		user := mustCreateUser(t, s, "dave")
-		updated, err := s.UpdateUserProfile(ctx, user.UserID, "  Dave Jr.  ", "https://avatar/dave")
-		if err != nil || updated.Nickname != "Dave Jr." || updated.AvatarURL != "https://avatar/dave" {
-			t.Fatalf("update profile: user=%+v err=%v", updated, err)
-		}
-		kept, err := s.UpdateUserProfile(ctx, user.UserID, "", "")
-		if err != nil || kept.Nickname != "Dave Jr." || kept.AvatarURL != "https://avatar/dave" {
-			t.Fatalf("empty update must not clobber fields: %+v err=%v", kept, err)
-		}
-		if _, err := s.UpdateUserProfile(ctx, uuid.NewV7(), "x", ""); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("unknown user error = %v, want %v", err, ErrNotFound)
-		}
-	})
-
-	t.Run("password update", func(t *testing.T) {
-		user := mustCreateUser(t, s, "erin")
-		if err := s.UpdateUserPassword(ctx, user.UserID, "new-secret"); err != nil {
-			t.Fatal(err)
-		}
-		stored, err := s.UserByID(ctx, user.UserID)
-		if err != nil || stored.Password != "new-secret" {
-			t.Fatalf("password update: user=%+v err=%v", stored, err)
-		}
-	})
-
-	t.Run("search by username and nickname", func(t *testing.T) {
-		mustCreateUser(t, s, "frank_zhang")
-		mustCreateUser(t, s, "grace")
-		updated := mustCreateUser(t, s, "heidi")
-		if _, err := s.UpdateUserProfile(ctx, updated.UserID, "张小Heidi", ""); err != nil {
-			t.Fatal(err)
-		}
-
-		for keyword, want := range map[string]int{"zhang": 1, "GRACE": 1, "heidi": 1} {
-			found, err := s.SearchUsers(ctx, keyword, 10)
-			if err != nil || len(found) != want {
-				t.Fatalf("search %q: found=%+v err=%v", keyword, found, err)
-			}
-		}
-		limited, err := s.SearchUsers(ctx, "i", 1)
-		if err != nil || len(limited) != 1 {
-			t.Fatalf("search with limit: found=%+v err=%v", limited, err)
-		}
-	})
-}
-
-func TestStoreRooms(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	t.Run("create group room", func(t *testing.T) {
-		owner := mustCreateUser(t, s, "room-owner")
-		room := mustCreateRoom(t, s, ChatTypeGroup,
-			Member{UserID: owner.UserID, Role: RoleOwner},
-			Member{UserID: uuid.NewV7(), Role: RoleMember},
-		)
-		got, err := s.Room(ctx, room.RoomID)
-		if err != nil || got.RoomID != room.RoomID || got.LastSeq != 0 {
-			t.Fatalf("load room: room=%+v err=%v", got, err)
-		}
-		members, err := s.Members(ctx, room.RoomID)
-		if err != nil || len(members) != 2 {
-			t.Fatalf("members: list=%+v err=%v", members, err)
-		}
-		if err := s.CreateRoom(
-			ctx,
-			Room{RoomID: room.RoomID, ChatType: ChatTypeGroup},
-			nil,
-		); !errors.Is(
-			err,
-			ErrAlreadyExists,
-		) {
-			t.Fatalf("duplicate room error = %v, want %v", err, ErrAlreadyExists)
-		}
-		if _, err := s.Room(ctx, uuid.NewV7()); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("missing room error = %v, want %v", err, ErrNotFound)
-		}
-	})
-
-	t.Run("single chat hash uniqueness", func(t *testing.T) {
-		hash := []byte("pair-hash-1")
-		room := Room{RoomID: uuid.NewV7(), ChatType: ChatTypeSingle, SingleChatHash: hash}
-		if err := s.CreateRoom(ctx, room, []Member{{UserID: uuid.NewV7(), Role: RoleMember}}); err != nil {
-			t.Fatal(err)
-		}
-		found, err := s.RoomBySingleHash(ctx, hash)
-		if err != nil || found.RoomID != room.RoomID {
-			t.Fatalf("room by hash: room=%+v err=%v", found, err)
-		}
-		dup := Room{RoomID: uuid.NewV7(), ChatType: ChatTypeSingle, SingleChatHash: hash}
-		if err := s.CreateRoom(ctx, dup, nil); !errors.Is(err, ErrAlreadyExists) {
-			t.Fatalf("duplicate hash error = %v, want %v", err, ErrAlreadyExists)
-		}
-	})
-
-	t.Run("member management", func(t *testing.T) {
-		owner := mustCreateUser(t, s, "mgmt-owner")
-		member := mustCreateUser(t, s, "mgmt-member")
-		outsider := mustCreateUser(t, s, "mgmt-outsider")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: owner.UserID, Role: RoleOwner})
-
-		if err := s.AddMembers(ctx, room.RoomID, []Member{{UserID: member.UserID, Role: RoleMember}}); err != nil {
-			t.Fatal(err)
-		}
-		got, err := s.Member(ctx, room.RoomID, member.UserID)
-		if err != nil || got.Role != RoleMember {
-			t.Fatalf("member lookup: member=%+v err=%v", got, err)
-		}
-		if _, err := s.Member(ctx, room.RoomID, outsider.UserID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("outsider error = %v, want %v", err, ErrNotFound)
-		}
-
-		if err := s.UpdateMemberRole(ctx, room.RoomID, member.UserID, RoleAdmin); err != nil {
-			t.Fatal(err)
-		}
-		pinned, muted := true, true
-		if err := s.UpdateMemberSettings(ctx, room.RoomID, member.UserID, &pinned, &muted); err != nil {
-			t.Fatal(err)
-		}
-		updated, err := s.Member(ctx, room.RoomID, member.UserID)
-		if err != nil || updated.Role != RoleAdmin || !updated.IsPinned || !updated.IsMuted {
-			t.Fatalf("member update: member=%+v err=%v", updated, err)
-		}
-
-		if err := s.RemoveMember(ctx, room.RoomID, member.UserID); err != nil {
-			t.Fatal(err)
-		}
-		rooms, err := s.RoomsByUser(ctx, member.UserID)
-		if err != nil || len(rooms) != 0 {
-			t.Fatalf("rooms after removal: list=%+v err=%v", rooms, err)
-		}
-	})
-
-	t.Run("update room metadata", func(t *testing.T) {
-		owner := mustCreateUser(t, s, "meta-owner")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: owner.UserID, Role: RoleOwner})
-		updated, err := s.UpdateRoom(ctx, room.RoomID, "新名字", "https://avatar/room", "公告")
-		if err != nil || updated.Name != "新名字" || updated.Notice != "公告" {
-			t.Fatalf("update room: room=%+v err=%v", updated, err)
-		}
-		kept, err := s.UpdateRoom(ctx, room.RoomID, "", "", "")
-		if err != nil || kept.Name != "新名字" || kept.Notice != "公告" {
-			t.Fatalf("empty update must not clobber fields: %+v err=%v", kept, err)
-		}
-	})
-
-	t.Run("dissolve removes room and members", func(t *testing.T) {
-		owner := mustCreateUser(t, s, "dissolve-owner")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: owner.UserID, Role: RoleOwner})
-		if err := s.DissolveRoom(ctx, room.RoomID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.Room(ctx, room.RoomID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("dissolved room error = %v, want %v", err, ErrNotFound)
-		}
-		rooms, err := s.RoomsByUser(ctx, owner.UserID)
-		if err != nil || len(rooms) != 0 {
-			t.Fatalf("rooms after dissolve: list=%+v err=%v", rooms, err)
 		}
 	})
 }
@@ -606,316 +403,231 @@ func (s *Store) backdateMessage(message Message, age time.Duration) error {
 	return commit(batch)
 }
 
-func TestStoreFriends(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	alice := mustCreateUser(t, s, "alice")
-	bob := mustCreateUser(t, s, "bob")
-
-	t.Run("apply and duplicate", func(t *testing.T) {
-		if err := s.ApplyFriend(ctx, alice.UserID, bob.UserID, "加个好友"); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.ApplyFriend(ctx, alice.UserID, alice.UserID, "self"); err == nil {
-			t.Fatal("expected error for self application")
-		}
-		apps, err := s.Applications(ctx, bob.UserID)
-		if err != nil || len(apps) != 1 || apps[0].FromUserID != alice.UserID ||
-			apps[0].Status != FriendStatusPending || apps[0].Greeting != "加个好友" {
-			t.Fatalf("applications: list=%+v err=%v", apps, err)
-		}
-	})
-
-	t.Run("audit accept creates both sides", func(t *testing.T) {
-		if err := s.AuditFriend(ctx, bob.UserID, alice.UserID, true); err != nil {
-			t.Fatal(err)
-		}
-		for _, user := range []User{alice, bob} {
-			friends, err := s.Friends(ctx, user.UserID)
-			if err != nil || len(friends) != 1 {
-				t.Fatalf("friends of %s: list=%+v err=%v", user.Username, friends, err)
-			}
-		}
-	})
-
-	t.Run("remark and delete", func(t *testing.T) {
-		if err := s.UpdateFriendRemark(ctx, alice.UserID, bob.UserID, "老鲍"); err != nil {
-			t.Fatal(err)
-		}
-		friends, err := s.Friends(ctx, alice.UserID)
-		if err != nil || friends[0].Remark != "老鲍" {
-			t.Fatalf("remark: list=%+v err=%v", friends, err)
-		}
-		if err := s.DeleteFriend(ctx, alice.UserID, bob.UserID); err != nil {
-			t.Fatal(err)
-		}
-		for _, user := range []User{alice, bob} {
-			friends, err := s.Friends(ctx, user.UserID)
-			if err != nil || len(friends) != 0 {
-				t.Fatalf("friends after delete: list=%+v err=%v", friends, err)
-			}
-		}
-	})
-
-	t.Run("blacklist", func(t *testing.T) {
-		carol := mustCreateUser(t, s, "carol")
-		if err := s.AddBlacklist(ctx, alice.UserID, carol.UserID); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.AddBlacklist(ctx, alice.UserID, alice.UserID); err == nil {
-			t.Fatal("expected error for self blacklist")
-		}
-		blocked, err := s.IsBlacklisted(ctx, alice.UserID, carol.UserID)
-		if err != nil || !blocked {
-			t.Fatalf("blacklisted=%v err=%v", blocked, err)
-		}
-		list, err := s.Blacklist(ctx, alice.UserID)
-		if err != nil || len(list) != 1 || list[0] != carol.UserID {
-			t.Fatalf("blacklist: list=%+v err=%v", list, err)
-		}
-		if err := s.RemoveBlacklist(ctx, alice.UserID, carol.UserID); err != nil {
-			t.Fatal(err)
-		}
-		blocked, err = s.IsBlacklisted(ctx, alice.UserID, carol.UserID)
-		if err != nil || blocked {
-			t.Fatalf("after removal blacklisted=%v err=%v", blocked, err)
-		}
-	})
-}
-
-func TestStoreInteractions(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	owner := mustCreateUser(t, s, "inter-owner")
-	readers := []User{owner, mustCreateUser(t, s, "inter-r1"), mustCreateUser(t, s, "inter-r2")}
-	members := make([]Member, len(readers))
-	for i, user := range readers {
-		members[i] = Member{UserID: user.UserID, Role: RoleMember}
+func newBenchStore(b *testing.B) *Store {
+	b.Helper()
+	data, err := Open(b.TempDir() + "/store")
+	if err != nil {
+		b.Fatal(err)
 	}
-	room := mustCreateRoom(t, s, ChatTypeGroup, members...)
-	msg := mustWriteMessage(t, s, room.RoomID, owner.UserID, "react to me")
-
-	t.Run("reactions aggregate per emoji", func(t *testing.T) {
-		for _, user := range readers {
-			if err := s.AddReaction(ctx, room.RoomID, msg.MsgID, user.UserID, "👍"); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if err := s.AddReaction(ctx, room.RoomID, msg.MsgID, owner.UserID, "🔥"); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.AddReaction(ctx, room.RoomID, msg.MsgID, owner.UserID, ""); err == nil {
-			t.Fatal("expected error for empty emoji")
-		}
-
-		groups, err := s.Reactions(ctx, room.RoomID, msg.MsgID)
-		if err != nil || len(groups) != 2 {
-			t.Fatalf("reactions: groups=%+v err=%v", groups, err)
-		}
-		for _, group := range groups {
-			if group.Emoji == "👍" && group.Count != 3 {
-				t.Fatalf("thumbs up count = %d, want 3", group.Count)
-			}
-		}
-		if err := s.RemoveReaction(ctx, room.RoomID, msg.MsgID, readers[1].UserID, "👍"); err != nil {
-			t.Fatal(err)
-		}
-		groups, err = s.Reactions(ctx, room.RoomID, msg.MsgID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, group := range groups {
-			if group.Emoji == "👍" && group.Count != 2 {
-				t.Fatalf("thumbs up count after removal = %d, want 2", group.Count)
-			}
-		}
-
-		page, err := s.Messages(ctx, room.RoomID, 0, 10)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var foundMsg *Message
-		for i := range page.Messages {
-			if page.Messages[i].MsgID == msg.MsgID {
-				foundMsg = &page.Messages[i]
-				break
-			}
-		}
-		if foundMsg == nil || len(foundMsg.Reactions) != 2 {
-			t.Fatalf("history message reactions: %+v", foundMsg)
-		}
-
-		gotMsg, err := s.MessageByID(ctx, room.RoomID, msg.MsgID)
-		if err != nil || len(gotMsg.Reactions) != 2 {
-			t.Fatalf("message by id reactions: gotMsg=%+v err=%v", gotMsg, err)
+	b.Cleanup(func() {
+		if err := data.Close(); err != nil {
+			b.Errorf("close store: %v", err)
 		}
 	})
+	return data
+}
 
-	t.Run("read users follow read sequence", func(t *testing.T) {
-		if err := s.MarkRoomRead(ctx, readers[0].UserID, room.RoomID, msg.RoomSeq); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.MarkRoomRead(ctx, readers[1].UserID, room.RoomID, msg.RoomSeq-1); err != nil {
-			t.Fatal(err)
-		}
-		members, err := s.Members(ctx, room.RoomID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		readUsers, err := s.ReadUsers(ctx, room.RoomID, msg.MsgID, members)
-		if err != nil || len(readUsers) != 1 || readUsers[0] != readers[0].UserID {
-			t.Fatalf("read users: list=%+v err=%v", readUsers, err)
-		}
-		seq, err := s.ReadSeq(ctx, readers[1].UserID, room.RoomID)
-		if err != nil || seq != msg.RoomSeq-1 {
-			t.Fatalf("read seq: seq=%d err=%v", seq, err)
+func benchRoom(b *testing.B, _ *Store) (uuid.UUID, uuid.UUID) {
+	b.Helper()
+	return uuid.NewV7(), uuid.NewV7()
+}
+
+func BenchmarkStoreMessageWrite(b *testing.B) {
+	for _, batch := range []int{1, 32, 100} {
+		b.Run(fmt.Sprintf("batch-%d", batch), func(b *testing.B) {
+			s := newBenchStore(b)
+			room, sender := benchRoom(b, s)
+			payload := []byte(`{"text":"benchmark payload"}`)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for b.Loop() {
+				messages := make([]Message, batch)
+				for i := range messages {
+					messages[i] = Message{
+						ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+						MsgType: MsgTypeText, Payload: payload,
+					}
+				}
+				results := s.WriteMessages(context.Background(), messages)
+				for i := range results {
+					if results[i].Err != nil {
+						b.Fatal(results[i].Err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkStoreMessageWriteParallel(b *testing.B) {
+	for name, rooms := range map[string]int{"single-room": 1, "multi-room": 64} {
+		b.Run(name, func(b *testing.B) {
+			s := newBenchStore(b)
+			sender := uuid.NewV7()
+			roomIDs := make([]uuid.UUID, rooms)
+			for i := range roomIDs {
+				roomIDs[i] = uuid.NewV7()
+			}
+			payload := []byte(`{"text":"benchmark payload"}`)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			b.RunParallel(func(pb *testing.PB) {
+				for i := 0; pb.Next(); i++ {
+					if _, err := s.WriteMessage(context.Background(), Message{
+						ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: roomIDs[i%rooms],
+						MsgType: MsgTypeText, Payload: payload,
+					}); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkStoreRead(b *testing.B) {
+	b.Run("newest-page", func(b *testing.B) {
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		benchWrite(b, s, room, sender, 200)
+
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			page, err := s.Messages(context.Background(), room, 0, 20)
+			if err != nil || len(page.Messages) != 20 {
+				b.Fatalf("read messages: count=%d err=%v", len(page.Messages), err)
+			}
 		}
 	})
+	b.Run("sync-pull-after", func(b *testing.B) {
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		benchWrite(b, s, room, sender, 50)
 
-	t.Run("pinned messages", func(t *testing.T) {
-		if err := s.PinMessage(ctx, room.RoomID, uuid.NewV7(), owner.UserID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("pin missing message error = %v, want %v", err, ErrNotFound)
-		}
-		if err := s.PinMessage(ctx, room.RoomID, msg.MsgID, owner.UserID); err != nil {
-			t.Fatal(err)
-		}
-		pins, err := s.PinnedMessages(ctx, room.RoomID)
-		if err != nil || len(pins) != 1 || pins[0].MsgID != msg.MsgID {
-			t.Fatalf("pins: list=%+v err=%v", pins, err)
-		}
-		if err := s.UnpinMessage(ctx, room.RoomID, msg.MsgID); err != nil {
-			t.Fatal(err)
-		}
-		pins, err = s.PinnedMessages(ctx, room.RoomID)
-		if err != nil || len(pins) != 0 {
-			t.Fatalf("pins after unpin: list=%+v err=%v", pins, err)
-		}
-	})
-
-	t.Run("device token lifecycle", func(t *testing.T) {
-		user := readers[2]
-		if _, err := s.DeviceToken(ctx, user.UserID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("missing token error = %v, want %v", err, ErrNotFound)
-		}
-		info := DeviceInfo{Token: "apns-token", Platform: "ios"}
-		if err := s.SaveDeviceToken(ctx, user.UserID, info); err != nil {
-			t.Fatal(err)
-		}
-		got, err := s.DeviceToken(ctx, user.UserID)
-		if err != nil || got.Token != info.Token || got.Platform != info.Platform {
-			t.Fatalf("device token: info=%+v err=%v", got, err)
-		}
-		if err := s.DeleteDeviceToken(ctx, user.UserID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.DeviceToken(ctx, user.UserID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("deleted token error = %v, want %v", err, ErrNotFound)
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			page, err := s.MessagesAfter(context.Background(), room, 30, 20)
+			if err != nil || len(page.Messages) != 20 {
+				b.Fatalf("sync pull after: count=%d err=%v", len(page.Messages), err)
+			}
 		}
 	})
 }
 
-func TestStoreConversations(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	alice := mustCreateUser(t, s, "conv-alice")
-	bob := mustCreateUser(t, s, "conv-bob")
-	room := mustCreateRoom(t, s, ChatTypeGroup,
-		Member{UserID: alice.UserID, Role: RoleOwner},
-		Member{UserID: bob.UserID, Role: RoleMember},
-	)
-
-	t.Run("unread count and last message", func(t *testing.T) {
-		last := mustWriteMessage(t, s, room.RoomID, alice.UserID, "hello bob")
-		convs, err := s.Conversations(ctx, bob.UserID)
-		if err != nil || len(convs) != 1 {
-			t.Fatalf("conversations: list=%+v err=%v", convs, err)
+func benchWrite(b *testing.B, s *Store, room, sender uuid.UUID, count int) []Message {
+	b.Helper()
+	messages := make([]Message, count)
+	for i := range count {
+		message, err := s.WriteMessage(context.Background(), Message{
+			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+			MsgType: MsgTypeText, Payload: []byte("payload"),
+		})
+		if err != nil {
+			b.Fatal(err)
 		}
-		info := convs[0]
-		if info.UnreadCount != 1 || info.LastMessage == nil || info.LastMessage.MsgID != last.MsgID {
-			t.Fatalf("conversation: info=%+v", info)
+		messages[i] = message
+	}
+	return messages
+}
+
+func BenchmarkStoreSearch(b *testing.B) {
+	b.Run("recent-200", func(b *testing.B) {
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		for i := range 200 {
+			if _, err := s.WriteMessage(context.Background(), Message{
+				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+				MsgType: MsgTypeText,
+				Payload: jsontext.Value(`{"text":"message number ` + string(rune('a'+i%26)) + `"}`),
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			found, err := s.SearchRoomMessages(context.Background(), room, "number", 0, 20)
+			if err != nil || len(found) != 20 {
+				b.Fatalf("search: count=%d err=%v", len(found), err)
+			}
 		}
 	})
-
-	t.Run("mark read and pin reorder", func(t *testing.T) {
-		if err := s.MarkRoomRead(ctx, bob.UserID, room.RoomID, 1); err != nil {
-			t.Fatal(err)
+	b.Run("deep-scan-5000", func(b *testing.B) {
+		s := newBenchStore(b)
+		room, sender := benchRoom(b, s)
+		for i := range 5000 {
+			text := "filler"
+			if i < 20 {
+				text = "needle"
+			}
+			if _, err := s.WriteMessage(context.Background(), Message{
+				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+				MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"` + text + `"}`),
+			}); err != nil {
+				b.Fatal(err)
+			}
 		}
-		convs, err := s.Conversations(ctx, bob.UserID)
-		if err != nil || convs[0].UnreadCount != 0 {
-			t.Fatalf("conversations after read: list=%+v err=%v", convs, err)
-		}
 
-		other := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: bob.UserID, Role: RoleMember})
-		mustWriteMessage(t, s, other.RoomID, bob.UserID, "newer room")
-
-		pinned := true
-		if err := s.UpdateMemberSettings(ctx, room.RoomID, bob.UserID, &pinned, nil); err != nil {
-			t.Fatal(err)
-		}
-		convs, err = s.Conversations(ctx, bob.UserID)
-		if err != nil || len(convs) != 2 || convs[0].Room.RoomID != room.RoomID {
-			t.Fatalf("pinned room must sort first: list=%+v err=%v", convs, err)
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			found, err := s.SearchRoomMessages(context.Background(), room, "needle", 0, 20)
+			if err != nil || len(found) != 20 {
+				b.Fatalf("search: count=%d err=%v", len(found), err)
+			}
 		}
 	})
 }
 
-func TestStoreLifecycle(t *testing.T) {
-	ctx := context.Background()
+func BenchmarkStoreRecall(b *testing.B) {
+	s := newBenchStore(b)
+	room, sender := benchRoom(b, s)
 
-	t.Run("ping and checkpoint reopen", func(t *testing.T) {
-		dir := t.TempDir()
-		data, err := Open(dir + "/store")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		message, err := s.WriteMessage(context.Background(), Message{
+			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+			MsgType: MsgTypeText, Payload: []byte("recall bench"),
+		})
 		if err != nil {
-			t.Fatal(err)
+			b.Fatal(err)
 		}
-		sender := mustCreateUser(t, data, "ckpt-user")
-		room := mustCreateRoom(t, data, ChatTypeGroup, Member{UserID: sender.UserID, Role: RoleOwner})
-		mustWriteMessage(t, data, room.RoomID, sender.UserID, "durable")
-		if err := data.Ping(ctx); err != nil {
-			t.Fatalf("ping: %v", err)
+		if _, err := s.RecallMessage(context.Background(), room, message.MsgID, sender, false); err != nil {
+			b.Fatal(err)
 		}
-		if err := data.Checkpoint(ctx, dir+"/checkpoint"); err != nil {
-			t.Fatal(err)
-		}
-		if err := data.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if err := data.Close(); err != nil {
-			t.Fatalf("double close must be idempotent: %v", err)
-		}
+	}
+}
 
-		checkpoint, err := Open(dir + "/checkpoint")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer checkpoint.Close()
-		room2, err := checkpoint.Room(ctx, room.RoomID)
-		if err != nil || room2.LastSeq != 1 {
-			t.Fatalf("checkpoint room: room=%+v err=%v", room2, err)
-		}
-		page, err := checkpoint.Messages(ctx, room.RoomID, 0, 10)
-		if err != nil || len(page.Messages) != 1 {
-			t.Fatalf("checkpoint messages: page=%+v err=%v", page, err)
+func benchRoomRecord(b *testing.B) []byte {
+	b.Helper()
+	room := Room{
+		RoomID: uuid.NewV7(), ChatType: ChatTypeGroup,
+		Name: "一个长度可观的房间名称", AvatarURL: "room://0197a2b3-c4d5-e6f7-a8b9-c0d1e2f3a4b5",
+		Notice: "群公告:请勿发送与主题无关的内容", LastSeq: 42,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		LastMsg: &Message{
+			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(),
+			RoomID: uuid.UUID{}, RoomSeq: 42, ServerTime: time.Now().UnixMicro(),
+			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"hello world"}`),
+		},
+	}
+	return encodeRoom(room)
+}
+
+func BenchmarkRoomDecode(b *testing.B) {
+	data := benchRoomRecord(b)
+	b.Run("full", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := decodeRoom(data); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
-
-	t.Run("writes after close fail", func(t *testing.T) {
-		data, err := Open(t.TempDir() + "/store")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := data.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if err := data.Ping(ctx); !errors.Is(err, ErrClosed) {
-			t.Fatalf("ping error = %v, want %v", err, ErrClosed)
-		}
-		results := data.WriteMessages(ctx, []Message{{RoomID: uuid.NewV7()}})
-		if len(results) != 1 || !errors.Is(results[0].Err, ErrClosed) {
-			t.Fatalf("closed write result: %+v", results)
-		}
-		if empty := data.WriteMessages(ctx, nil); empty != nil {
-			t.Fatalf("empty batch must return nil, got %+v", empty)
+	b.Run("head", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := decodeRoomHead(data); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }

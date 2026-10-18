@@ -149,24 +149,12 @@ func (db *DB) Friends(ctx context.Context, userID uuid.UUID) ([]Friend, error) {
 }
 
 func (db *DB) DeleteFriend(ctx context.Context, userID, friendID uuid.UUID) error {
-	tx, err := db.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin delete friend: %w", err)
-	}
-	defer func() {
-		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-			log.Error().Err(err).Msg("rollback friend audit failed")
-		}
-	}()
-	if _, err := tx.Exec(ctx, `
+	if _, err := db.pool.Exec(ctx, `
 		DELETE FROM friendships
 		WHERE (user_id = $1::uuid AND friend_id = $2::uuid)
 		   OR (user_id = $2::uuid AND friend_id = $1::uuid)`,
 		userID.String(), friendID.String()); err != nil {
 		return fmt.Errorf("delete friend: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit delete friend: %w", err)
 	}
 	return nil
 }

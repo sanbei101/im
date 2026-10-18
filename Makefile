@@ -51,11 +51,25 @@ test:
 		exit $$status
 
 bench:
-	go test -p 4 ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
+	@mkdir -p $(RUSTFS_DATA)
+	@if ! curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; then \
+		RUSTFS_CONSOLE_ENABLE=false rustfs server --address 127.0.0.1:$(RUSTFS_PORT) \
+			--access-key rustfsadmin --secret-key rustfsadmin $(RUSTFS_DATA) \
+			>.tmp/rustfs.log 2>&1 & echo $$! > .tmp/rustfs.pid; \
+	fi
+	@until curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; do sleep 0.2; done
+	@if test -z "$$TEST_POSTGRES_URL"; then \
+		psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='im_test'" | grep -q 1 || createdb im_test; \
+	fi
+	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
+		go test -p 4 ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1; status=$$?; \
+		if test -f .tmp/rustfs.pid; then kill $$(cat .tmp/rustfs.pid) 2>/dev/null; rm -f .tmp/rustfs.pid; fi; \
+		exit $$status
 
 pprof:
 	@mkdir -p $(PPROF_DIR)
-	go test -p 4 ./internal/store -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
+	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
+		go test -p 4 ./internal/store -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
 		-cpuprofile $(PPROF_DIR)/cpu.prof \
 		-memprofile $(PPROF_DIR)/mem.prof \
 		-mutexprofile $(PPROF_DIR)/mutex.prof \

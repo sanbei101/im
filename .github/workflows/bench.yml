@@ -68,6 +68,8 @@ jobs:
 
       - name: Benchmark
         shell: bash
+        env:
+          TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/im_test?sslmode=disable
         run: set -o pipefail; make bench 2>&1 | tee bench.txt
 
       - name: Publish benchmark summary

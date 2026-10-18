@@ -90,3 +90,64 @@ func TestShard(t *testing.T) {
 		}
 	})
 }
+
+func TestSingleRoomID(t *testing.T) {
+	a, b := uuid.NewV7(), uuid.NewV7()
+
+	first := SingleRoomID(a, b)
+	if again := SingleRoomID(a, b); again != first {
+		t.Fatalf("single room id is not deterministic: %s != %s", first, again)
+	}
+	if reversed := SingleRoomID(b, a); reversed != first {
+		t.Fatalf("single room id depends on user order: %s != %s", reversed, first)
+	}
+	if first == uuid.Nil() {
+		t.Fatal("single room id is nil")
+	}
+	if first == SingleRoomID(a, uuid.NewV7()) {
+		t.Fatal("different user pairs produced the same room id")
+	}
+
+	hash := SingleChatHash(a, b)
+	if hash != SingleChatHash(b, a) {
+		t.Fatal("single chat hash depends on user order")
+	}
+	var derived uuid.UUID
+	copy(derived[:], hash[:16])
+	derived[6] = (derived[6] & 0x0f) | 0x80
+	derived[8] = (derived[8] & 0x3f) | 0x80
+	if derived != first {
+		t.Fatalf("room id does not match the chat hash: %s != %s", first, derived)
+	}
+}
+
+var (
+	benchSlot uint16
+	benchNode int
+)
+
+func BenchmarkShard(b *testing.B) {
+	room := uuid.NewV7()
+	b.Run("room-slot", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			slot, err := RoomSlot(room, 1024)
+			if err != nil {
+				b.Fatal(err)
+			}
+			benchSlot = slot
+		}
+	})
+	b.Run("node-index", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			index, err := NodeIndex(512, 1024, 8)
+			if err != nil {
+				b.Fatal(err)
+			}
+			benchNode = index
+		}
+	})
+}

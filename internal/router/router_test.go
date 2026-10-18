@@ -20,7 +20,13 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestEdgeRoutesRoomRequests(t *testing.T) {
+func TestEdgeRouting(t *testing.T) {
+	t.Run("room request", testEdgeRoutesRoomRequests)
+	t.Run("single chat creation", testEdgeRoutesSingleChatCreation)
+	t.Run("invalid config", testEdgeRejectsInvalidConfig)
+}
+
+func testEdgeRoutesRoomRequests(t *testing.T) {
 	const slots, nodes = 1024, 2
 
 	t.Run("path", func(t *testing.T) {
@@ -101,7 +107,7 @@ func TestEdgeRoutesRoomRequests(t *testing.T) {
 	})
 }
 
-func TestEdgeRoutesSingleChatCreation(t *testing.T) {
+func testEdgeRoutesSingleChatCreation(t *testing.T) {
 	const slots, nodes = 1024, 2
 	user1, user2 := singleChatPairForNode(t, slots, nodes, 1)
 	token, err := jwt.GenerateToken(user1.String())
@@ -136,7 +142,7 @@ func TestEdgeRoutesSingleChatCreation(t *testing.T) {
 	}
 }
 
-func TestEdgeRejectsInvalidConfig(t *testing.T) {
+func testEdgeRejectsInvalidConfig(t *testing.T) {
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	for _, cfg := range []EdgeConfig{
 		{Slots: 0, HTTPAddrs: []string{"127.0.0.1:1"}},

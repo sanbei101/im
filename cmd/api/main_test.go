@@ -14,7 +14,17 @@ import (
 	"github.com/sanbei101/im/pkg/config"
 )
 
-func TestEvery(t *testing.T) {
+func TestAPIProcess(t *testing.T) {
+	t.Run("periodic task", testEvery)
+	t.Run("graceful shutdown", testServeHTTPGracefulShutdown)
+	t.Run("in-flight request", testServeHTTPWaitsForInFlightRequest)
+	t.Run("serve error", testServeHTTPReportsServeError)
+	t.Run("room ownership", testOwnsRoom)
+	t.Run("invalid config", testRunRejectsInvalidConfig)
+	t.Run("serve start and stop", testServeStartsAndStops)
+}
+
+func testEvery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -43,7 +53,7 @@ func TestEvery(t *testing.T) {
 	}
 }
 
-func TestServeHTTPGracefulShutdown(t *testing.T) {
+func testServeHTTPGracefulShutdown(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +92,7 @@ func TestServeHTTPGracefulShutdown(t *testing.T) {
 	}
 }
 
-func TestServeHTTPWaitsForInFlightRequest(t *testing.T) {
+func testServeHTTPWaitsForInFlightRequest(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +154,7 @@ func TestServeHTTPWaitsForInFlightRequest(t *testing.T) {
 	}
 }
 
-func TestServeHTTPReportsServeError(t *testing.T) {
+func testServeHTTPReportsServeError(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +169,7 @@ func TestServeHTTPReportsServeError(t *testing.T) {
 	}
 }
 
-func TestOwnsRoom(t *testing.T) {
+func testOwnsRoom(t *testing.T) {
 	cfg := config.NewTest()
 	cfg.Shard.Slots = 1024
 	cfg.API.NodeCount = 2
@@ -199,7 +209,7 @@ func TestOwnsRoom(t *testing.T) {
 	}
 }
 
-func TestRunRejectsInvalidConfig(t *testing.T) {
+func testRunRejectsInvalidConfig(t *testing.T) {
 	t.Run("missing http address", func(t *testing.T) {
 		cfg := config.NewTest()
 		cfg.API.HTTPAddr = ""
@@ -217,7 +227,7 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 	})
 }
 
-func TestServeStartsAndStops(t *testing.T) {
+func testServeStartsAndStops(t *testing.T) {
 	objectStore := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)

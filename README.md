@@ -122,7 +122,7 @@ Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入
 
 ```bash
 make verify       # lint、全部测试(-race)、benchmark
-make bench        # 真实 Pebble 写入和历史读取 benchmark
+make bench        # Pebble 写入/读取、PostgreSQL 查询和编解码 benchmark
 make pprof        # 真实批量写入并生成 CPU、heap、mutex、block profile
 make analyze      # 输出 pprof top 热点
 ```

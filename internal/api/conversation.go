@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"slices"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/render"
@@ -34,56 +33,12 @@ func (a *ConversationAPI) ListConversations(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	rooms, err := a.db.RoomsByUser(r.Context(), myID)
+	conversations, err := a.db.Conversations(r.Context(), myID)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	conversations := make([]store.ConversationInfo, 0, len(rooms))
-	for i := range rooms {
-		info := &rooms[i]
-		head, err := a.db.RoomHead(r.Context(), info.Room.RoomID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			render.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		var unread uint64
-		readSeq, err := a.db.ReadSeq(r.Context(), myID, info.Room.RoomID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			render.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if head.LastSeq > readSeq {
-			unread = head.LastSeq - readSeq
-		}
-		info.Room.LastSeq = head.LastSeq
-		if !head.UpdatedAt.IsZero() {
-			info.Room.UpdatedAt = head.UpdatedAt
-		}
-		conversations = append(conversations, store.ConversationInfo{
-			Room: info.Room, Member: info.Member,
-			UnreadCount: unread, LastMessage: head.LastMsg,
-		})
-	}
-	slices.SortFunc(conversations, func(a, b store.ConversationInfo) int {
-		at, bt := conversationTime(a), conversationTime(b)
-		switch {
-		case at > bt:
-			return -1
-		case at < bt:
-			return 1
-		default:
-			return 0
-		}
-	})
 	render.Success(w, "获取会话列表成功", ConversationListResp{Conversations: conversations})
-}
-
-func conversationTime(info store.ConversationInfo) int64 {
-	if info.LastMessage != nil {
-		return info.LastMessage.ServerTime
-	}
-	return info.Room.UpdatedAt.UnixMicro()
 }
 
 func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {

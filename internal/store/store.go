@@ -71,29 +71,17 @@ const roomShardCount = 64
 const roomCachePerShard = 256
 
 type roomShard struct {
-	rooms   *lru.LRUCache[uuid.UUID, Room]
-	members *lru.LRUCache[uuid.UUID, []Member]
-}
-
-const (
-	userShardCount    = 64
-	userCachePerShard = 256
-)
-
-type userShard struct {
-	users *lru.LRUCache[uuid.UUID, User]
+	rooms *lru.LRUCache[uuid.UUID, Room]
 }
 
 type Store struct {
 	db *pebble.DB
 	pg *DB
 
-	roomShards    [roomShardCount]roomShard
-	userShards    [userShardCount]userShard
-	usernameCache *lru.LRUCache[string, uuid.UUID]
-	dedupCache    *lru.LRUCache[dedupLookupKey, Dedup]
-	cache         *messageCache
-	remote        *remoteReader
+	roomShards [roomShardCount]roomShard
+	dedupCache *lru.LRUCache[dedupLookupKey, Dedup]
+	cache      *messageCache
+	remote     *remoteReader
 
 	messageQueue chan messageWriteRequest
 	recallQueue  chan *recallRequest
@@ -115,10 +103,6 @@ type Store struct {
 
 func (s *Store) getRoomShard(id uuid.UUID) *roomShard {
 	return &s.roomShards[id[15]%roomShardCount]
-}
-
-func (s *Store) getUserShard(id uuid.UUID) *userShard {
-	return &s.userShards[id[15]%userShardCount]
 }
 
 type User struct {
@@ -143,8 +127,8 @@ type Room struct {
 	Notice         string    `json:"notice"`
 	SingleChatHash []byte    `json:"-"`
 	LastSeq        uint64    `json:"last_seq"`
-	// LastMsg is the newest committed message, denormalized onto the room
-	// record so Conversations needs no per-room message lookups.
+	// LastMsg is the newest committed message, denormalized onto the Pebble
+	// room head for the newest-page read path.
 	LastMsg   *Message  `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -346,12 +330,7 @@ func Open(path string) (*Store, error) {
 	}
 	for i := range store.roomShards {
 		store.roomShards[i].rooms = lru.NewLRUCache[uuid.UUID, Room](roomCachePerShard)
-		store.roomShards[i].members = lru.NewLRUCache[uuid.UUID, []Member](roomCachePerShard)
 	}
-	for i := range store.userShards {
-		store.userShards[i].users = lru.NewLRUCache[uuid.UUID, User](userCachePerShard)
-	}
-	store.usernameCache = lru.NewLRUCache[string, uuid.UUID](16384)
 	store.dedupCache = lru.NewLRUCache[dedupLookupKey, Dedup](32768)
 	go store.runMessageWriter()
 	return store, nil
@@ -609,47 +588,6 @@ func (s *Store) getRecord[T any](key []byte, decode func([]byte) (T, error)) (T,
 	return decode(value)
 }
 
-// scanPrefix scans all keys with the given prefix and decodes values into []T.
-func (s *Store) scanPrefix[T any](prefix []byte, decode func([]byte) (T, error)) ([]T, error) {
-	return s.scanPrefixCap(prefix, 16, decode)
-}
-
-func (s *Store) scanPrefixCap[T any](prefix []byte, initialCap int, decode func([]byte) (T, error)) ([]T, error) {
-	var upBuf [64]byte
-	upper := prefixUpperBoundBuf(upBuf[:0], prefix)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
-	if err != nil {
-		return nil, err
-	}
-	defer iter.Close()
-
-	if initialCap <= 0 {
-		initialCap = 16
-	}
-	result := make([]T, 0, initialCap)
-	for iter.First(); iter.Valid(); iter.Next() {
-		item, err := decode(iter.Value())
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, item)
-	}
-	return result, iter.Error()
-}
-
-// exists reports whether key exists in the database.
-func (s *Store) exists(key []byte) (bool, error) {
-	_, closer, err := s.db.Get(key)
-	if errors.Is(err, pebble.ErrNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	closer.Close()
-	return true, nil
-}
-
 // internEnum reuses the canonical string for known enum values, so hot
 // decodes (member roles, chat types) do not allocate a fresh copy per record.
 // Unknown values fall back to a fresh string.
@@ -685,23 +623,7 @@ func contextErr(ctx context.Context) error {
 
 func putUUID(dst []byte, value uuid.UUID) []byte { return append(dst, value[:]...) }
 
-func getUUID(src []byte) (uuid.UUID, error) {
-	if len(src) < 16 {
-		return uuid.Nil(), errors.New("invalid uuid")
-	}
-	var value uuid.UUID
-	copy(value[:], src[:16])
-	return value, nil
-}
-
 func putU64(dst []byte, value uint64) { binary.BigEndian.PutUint64(dst, value) }
-
-func getU64(src []byte) (uint64, error) {
-	if len(src) < 8 {
-		return 0, errors.New("invalid uint64")
-	}
-	return binary.BigEndian.Uint64(src[:8]), nil
-}
 
 func putI64(dst []byte, value int64) { binary.BigEndian.PutUint64(dst, uint64(value)) }
 
@@ -713,13 +635,6 @@ func appendBytes(dst, value []byte) []byte {
 }
 
 func appendString(dst []byte, value string) []byte { return appendBytes(dst, []byte(value)) }
-
-func boolByte(v bool) byte {
-	if v {
-		return 1
-	}
-	return 0
-}
 
 // decoder reads a record field by field. A truncated read parks pos at -1 and
 // keeps returning zero values, so a decode function can assign every field up
