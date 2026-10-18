@@ -290,9 +290,6 @@ func (s *Store) writeMessageBatch(
 		}
 		room := rooms[roomID]
 		s.getRoomShard(roomID).rooms.Set(roomID, room)
-		if s.heads != nil {
-			s.heads.enqueue(RoomHeadUpdate{RoomID: roomID, Seq: room.LastSeq, Message: room.LastMsg})
-		}
 	}
 	for _, entry := range dedupEntries {
 		s.dedupCache.Set(entry.lookup, entry.dedup)

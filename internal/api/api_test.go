@@ -690,14 +690,15 @@ func TestRoomHTTP(t *testing.T) {
 		bob, _ := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		if _, err := env.data.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), store.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,
 			MsgType:     store.MsgTypeText,
 			Payload:     []byte(`{"text":"hello"}`),
 			Ext:         []byte(`{}`),
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
 
@@ -729,8 +730,8 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodGet, "/api/v1/conversations", token, nil)
 		requireStatus(t, recorder, http.StatusOK)
 		conversations = decodeResponse[ConversationListResp](t, recorder)
-		if conversations.Data.Conversations[0].UnreadCount != 0 {
-			t.Fatalf("unread count = %d", conversations.Data.Conversations[0].UnreadCount)
+		if conversations.Data.Conversations[0].ReadSeq != message.RoomSeq {
+			t.Fatalf("read seq = %d, want %d", conversations.Data.Conversations[0].ReadSeq, message.RoomSeq)
 		}
 	})
 

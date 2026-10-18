@@ -1,9 +1,3 @@
-ALTER TABLE room_heads ADD COLUMN last_msg_time bigint NOT NULL DEFAULT 0;
-
-UPDATE room_heads
-SET last_msg_time = COALESCE((last_msg->>'server_time')::bigint, 0)
-WHERE last_msg IS NOT NULL;
-
 CREATE INDEX friend_applications_to_created_idx
     ON friend_applications (to_user_id, created_at DESC);
 CREATE INDEX friendships_user_created_idx

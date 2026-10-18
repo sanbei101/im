@@ -1,10 +1,3 @@
-CREATE TABLE room_heads (
-    room_id uuid PRIMARY KEY REFERENCES rooms (room_id) ON DELETE CASCADE,
-    last_seq bigint NOT NULL DEFAULT 0,
-    last_msg jsonb,
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-
 CREATE TABLE room_reads (
     user_id uuid NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
     room_id uuid NOT NULL REFERENCES rooms (room_id) ON DELETE CASCADE,

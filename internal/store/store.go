@@ -75,9 +75,8 @@ type roomShard struct {
 }
 
 type Store struct {
-	db    *pebble.DB
-	pg    *DB
-	heads *roomHeadProjector
+	db *pebble.DB
+	pg *DB
 
 	roomShards [roomShardCount]roomShard
 	dedupCache *lru.LRUCache[dedupLookupKey, Dedup]
@@ -127,7 +126,7 @@ type Room struct {
 	AvatarURL      string    `json:"avatar_url"`
 	Notice         string    `json:"notice"`
 	SingleChatHash []byte    `json:"-"`
-	LastSeq        uint64    `json:"last_seq"`
+	LastSeq        uint64    `json:"last_seq,omitempty"`
 	// LastMsg is the newest committed message, denormalized onto the Pebble
 	// room head for the newest-page read path.
 	LastMsg   *Message  `json:"-"`
@@ -166,10 +165,9 @@ type FriendApplication struct {
 }
 
 type ConversationInfo struct {
-	Room        Room     `json:"room"`
-	Member      Member   `json:"member"`
-	UnreadCount uint64   `json:"unread_count"`
-	LastMessage *Message `json:"last_message,omitempty"`
+	Room    Room   `json:"room"`
+	Member  Member `json:"member"`
+	ReadSeq uint64 `json:"read_seq"`
 }
 
 type ReactionGroup struct {
@@ -338,11 +336,9 @@ func Open(path string) (*Store, error) {
 }
 
 // AttachDB connects the message plane to the control-plane database used for
-// conversation heads and read cursors. It must be called once at startup.
+// read cursors. It must be called once at startup.
 func (s *Store) AttachDB(db *DB) {
 	s.pg = db
-	s.heads = newRoomHeadProjector(db)
-	s.heads.start()
 }
 
 func (s *Store) Close() error {
@@ -355,9 +351,6 @@ func (s *Store) Close() error {
 		close(s.closeSignal)
 		s.stateMu.Unlock()
 		<-s.writerDone
-		if s.heads != nil {
-			s.heads.close()
-		}
 		s.closeErr = s.db.Close()
 		close(s.closeDone)
 	})
