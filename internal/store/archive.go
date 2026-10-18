@@ -89,8 +89,8 @@ func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params Arc
 	}
 
 	// Room scan is key-first: the room id comes straight from the key so the
-	// ownership filter runs before any decode, and only a lightweight header
-	// (no strings, no embedded message) is parsed for the surviving rooms.
+	// ownership filter runs before any decode, and only the last sequence is
+	// parsed for the surviving rooms.
 	var prefixBuf [1]byte
 	prefixBuf[0] = 'r'
 	prefix := appendRoomPrefix(prefixBuf[:0])
@@ -112,10 +112,11 @@ func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params Arc
 		if params.Owns != nil && !params.Owns(roomID) {
 			continue
 		}
-		room, err := decodeRoomHead(iter.Value())
+		room, err := decodeRoom(iter.Value())
 		if err != nil {
 			return fmt.Errorf("decode room %s: %w", roomID, err)
 		}
+		room.RoomID = roomID
 		if err := s.archiveRoom(ctx, objects, params, &room); err != nil {
 			log.Warn().Err(err).Str("room", roomID.String()).Msg("archive room failed")
 		}

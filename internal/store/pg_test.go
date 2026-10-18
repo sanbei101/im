@@ -73,47 +73,51 @@ func TestDBConversations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conversations, err := db.Conversations(ctx, alice.UserID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(conversations) != 3 {
-		t.Fatalf("conversations = %d, want 3", len(conversations))
-	}
-	if conversations[0].Room.RoomID != roomB || conversations[1].Room.RoomID != roomC ||
-		conversations[2].Room.RoomID != roomA {
-		t.Fatalf("conversation order = %s, %s, %s", conversations[0].Room.RoomID,
-			conversations[1].Room.RoomID, conversations[2].Room.RoomID)
-	}
-	if conversations[0].ReadSeq != 5 || conversations[1].ReadSeq != 0 || conversations[2].ReadSeq != 0 {
-		t.Fatalf("read cursors = %d, %d, %d", conversations[0].ReadSeq,
-			conversations[1].ReadSeq, conversations[2].ReadSeq)
-	}
+	t.Run("orders by room update and returns read cursor", func(t *testing.T) {
+		conversations, err := db.Conversations(ctx, alice.UserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(conversations) != 3 {
+			t.Fatalf("conversations = %d, want 3", len(conversations))
+		}
+		if conversations[0].Room.RoomID != roomB || conversations[1].Room.RoomID != roomC ||
+			conversations[2].Room.RoomID != roomA {
+			t.Fatalf("conversation order = %s, %s, %s", conversations[0].Room.RoomID,
+				conversations[1].Room.RoomID, conversations[2].Room.RoomID)
+		}
+		if conversations[0].ReadSeq != 5 || conversations[1].ReadSeq != 0 || conversations[2].ReadSeq != 0 {
+			t.Fatalf("read cursors = %d, %d, %d", conversations[0].ReadSeq,
+				conversations[1].ReadSeq, conversations[2].ReadSeq)
+		}
+	})
 
-	bobRooms, err := db.Conversations(ctx, bob.UserID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bobRooms) != 1 || bobRooms[0].Room.RoomID != roomA || bobRooms[0].ReadSeq != 0 {
-		t.Fatalf("bob conversations = %+v", bobRooms)
-	}
-	carolRooms, err := db.Conversations(ctx, carol.UserID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(carolRooms) != 0 {
-		t.Fatalf("carol conversations = %d, want 0", len(carolRooms))
-	}
+	t.Run("filters by membership", func(t *testing.T) {
+		bobRooms, err := db.Conversations(ctx, bob.UserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bobRooms) != 1 || bobRooms[0].Room.RoomID != roomA || bobRooms[0].ReadSeq != 0 {
+			t.Fatalf("bob conversations = %+v", bobRooms)
+		}
+		carolRooms, err := db.Conversations(ctx, carol.UserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(carolRooms) != 0 {
+			t.Fatalf("carol conversations = %d, want 0", len(carolRooms))
+		}
+	})
 }
 
-func BenchmarkDBConversationList(b *testing.B) {
+func benchConversationList(b *testing.B, rooms int, parallel bool) {
+	b.Helper()
 	db := newPGTestDB(b)
 	ctx := context.Background()
 	user, err := db.CreateUser(ctx, "bench-conversations", "hash")
 	if err != nil {
 		b.Fatal(err)
 	}
-	const rooms = 100
 	for range rooms {
 		if err := db.CreateRoom(ctx, Room{
 			RoomID: uuid.NewV7(), ChatType: ChatTypeGroup, Name: "bench-room",
@@ -124,6 +128,18 @@ func BenchmarkDBConversationList(b *testing.B) {
 
 	b.ResetTimer()
 	b.ReportAllocs()
+	if parallel {
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				conversations, err := db.Conversations(ctx, user.UserID)
+				if err != nil || len(conversations) != rooms {
+					b.Errorf("conversations=%d err=%v", len(conversations), err)
+					return
+				}
+			}
+		})
+		return
+	}
 	for b.Loop() {
 		conversations, err := db.Conversations(ctx, user.UserID)
 		if err != nil || len(conversations) != rooms {
@@ -132,69 +148,25 @@ func BenchmarkDBConversationList(b *testing.B) {
 	}
 }
 
-func BenchmarkDBConversationListParallel(b *testing.B) {
-	db := newPGTestDB(b)
-	ctx := context.Background()
-	user, err := db.CreateUser(ctx, "bench-conversations-parallel", "hash")
-	if err != nil {
-		b.Fatal(err)
-	}
-	const rooms = 100
-	for range rooms {
-		if err := db.CreateRoom(ctx, Room{
-			RoomID: uuid.NewV7(), ChatType: ChatTypeGroup, Name: "bench-room",
-		}, []Member{{UserID: user.UserID, Role: RoleOwner}}); err != nil {
-			b.Fatal(err)
-		}
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			conversations, err := db.Conversations(ctx, user.UserID)
-			if err != nil || len(conversations) != rooms {
-				b.Errorf("conversations=%d err=%v", len(conversations), err)
-				return
-			}
-		}
+func BenchmarkDBConversationList(b *testing.B) {
+	b.Run("serial", func(b *testing.B) {
+		benchConversationList(b, 100, false)
+	})
+	b.Run("parallel", func(b *testing.B) {
+		benchConversationList(b, 100, true)
 	})
 }
 
-func BenchmarkDBMarkRead(b *testing.B) {
-	db := newPGTestDB(b)
-	ctx := context.Background()
-	user, err := db.CreateUser(ctx, "bench-read", "hash")
-	if err != nil {
-		b.Fatal(err)
-	}
-	roomID := uuid.NewV7()
-	if err := db.CreateRoom(ctx, Room{RoomID: roomID, ChatType: ChatTypeGroup}, []Member{{
-		UserID: user.UserID, Role: RoleOwner,
-	}}); err != nil {
-		b.Fatal(err)
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for seq := uint64(1); b.Loop(); seq++ {
-		if err := db.MarkRead(ctx, user.UserID, roomID, seq); err != nil {
-			b.Fatal(err)
-		}
-	}
+type readTarget struct {
+	user uuid.UUID
+	room uuid.UUID
 }
 
-func BenchmarkDBMarkReadParallel(b *testing.B) {
-	db := newPGTestDB(b)
-	ctx := context.Background()
-	const users = 64
-	type target struct {
-		user uuid.UUID
-		room uuid.UUID
-	}
-	targets := make([]target, users)
+func newReadTargets(ctx context.Context, b *testing.B, db *DB, count int) []readTarget {
+	b.Helper()
+	targets := make([]readTarget, count)
 	for i := range targets {
-		user, err := db.CreateUser(ctx, "bench-read-parallel-"+strconv.Itoa(i), "hash")
+		user, err := db.CreateUser(ctx, "bench-read-"+strconv.Itoa(i), "hash")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -204,61 +176,87 @@ func BenchmarkDBMarkReadParallel(b *testing.B) {
 		}}); err != nil {
 			b.Fatal(err)
 		}
-		targets[i] = target{user: user.UserID, room: roomID}
+		targets[i] = readTarget{user: user.UserID, room: roomID}
 	}
+	return targets
+}
 
-	var next atomic.Uint64
-	b.ResetTimer()
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			target := targets[next.Add(1)%users]
-			if err := db.MarkRead(ctx, target.user, target.room, 1); err != nil {
-				b.Errorf("mark read: %v", err)
-				return
+func BenchmarkDBMarkRead(b *testing.B) {
+	b.Run("serial", func(b *testing.B) {
+		db := newPGTestDB(b)
+		ctx := context.Background()
+		target := newReadTargets(ctx, b, db, 1)[0]
+
+		b.ResetTimer()
+		b.ReportAllocs()
+		for seq := uint64(1); b.Loop(); seq++ {
+			if err := db.MarkRead(ctx, target.user, target.room, seq); err != nil {
+				b.Fatal(err)
 			}
 		}
 	})
+
+	b.Run("parallel", func(b *testing.B) {
+		db := newPGTestDB(b)
+		ctx := context.Background()
+		const users = 64
+		targets := newReadTargets(ctx, b, db, users)
+
+		var next atomic.Uint64
+		b.ResetTimer()
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				target := targets[next.Add(1)%users]
+				if err := db.MarkRead(ctx, target.user, target.room, 1); err != nil {
+					b.Errorf("mark read: %v", err)
+					return
+				}
+			}
+		})
+	})
 }
 
-func BenchmarkDBSearchUsers(b *testing.B) {
-	db := newPGTestDB(b)
-	ctx := context.Background()
-	const users = 1000
-	for i := range users {
-		if _, err := db.CreateUser(ctx, "search-user-"+strconv.Itoa(i), "hash"); err != nil {
-			b.Fatal(err)
+func BenchmarkDBUsers(b *testing.B) {
+	b.Run("search", func(b *testing.B) {
+		db := newPGTestDB(b)
+		ctx := context.Background()
+		const users = 1000
+		for i := range users {
+			if _, err := db.CreateUser(ctx, "search-user-"+strconv.Itoa(i), "hash"); err != nil {
+				b.Fatal(err)
+			}
 		}
-	}
 
-	b.ResetTimer()
-	b.ReportAllocs()
-	for b.Loop() {
-		found, err := db.SearchUsers(ctx, "user-5", 20)
-		if err != nil || len(found) == 0 {
-			b.Fatalf("search users: found=%d err=%v", len(found), err)
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			found, err := db.SearchUsers(ctx, "user-5", 20)
+			if err != nil || len(found) == 0 {
+				b.Fatalf("search users: found=%d err=%v", len(found), err)
+			}
 		}
-	}
-}
+	})
 
-func BenchmarkDBUsersByIDs(b *testing.B) {
-	db := newPGTestDB(b)
-	ctx := context.Background()
-	ids := make([]uuid.UUID, 200)
-	for i := range ids {
-		user, err := db.CreateUser(ctx, "lookup-user-"+strconv.Itoa(i), "hash")
-		if err != nil {
-			b.Fatal(err)
+	b.Run("by-ids", func(b *testing.B) {
+		db := newPGTestDB(b)
+		ctx := context.Background()
+		ids := make([]uuid.UUID, 200)
+		for i := range ids {
+			user, err := db.CreateUser(ctx, "lookup-user-"+strconv.Itoa(i), "hash")
+			if err != nil {
+				b.Fatal(err)
+			}
+			ids[i] = user.UserID
 		}
-		ids[i] = user.UserID
-	}
 
-	b.ResetTimer()
-	b.ReportAllocs()
-	for b.Loop() {
-		users, err := db.UsersByIDs(ctx, ids)
-		if err != nil || len(users) != len(ids) {
-			b.Fatalf("load users: count=%d err=%v", len(users), err)
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			users, err := db.UsersByIDs(ctx, ids)
+			if err != nil || len(users) != len(ids) {
+				b.Fatalf("load users: count=%d err=%v", len(users), err)
+			}
 		}
-	}
+	})
 }

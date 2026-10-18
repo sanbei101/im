@@ -213,132 +213,134 @@ func TestGateway(t *testing.T) {
 }
 
 func TestUserClientPingPump(t *testing.T) {
-	serverCtx, stopServer := context.WithCancel(t.Context())
-	defer stopServer()
+	t.Run("keeps the connection alive while the peer answers", func(t *testing.T) {
+		serverCtx, stopServer := context.WithCancel(t.Context())
+		defer stopServer()
 
-	started := make(chan struct{})
-	stopped := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			OriginPatterns: []string{"*"},
-		})
-		if err != nil {
-			return
-		}
-		defer conn.Close(websocket.StatusNormalClosure, "")
-
-		// Ping requires a concurrent reader to consume the pong.
-		go func() {
-			for {
-				if _, _, err := conn.Read(serverCtx); err != nil {
-					return
-				}
-			}
-		}()
-
-		client := &UserClient{Conn: conn, UserID: uuid.NewV7()}
-		close(started)
-		client.pingPump(serverCtx, 10*time.Millisecond, 50*time.Millisecond)
-		close(stopped)
-	}))
-	defer server.Close()
-
-	dialCtx, cancelDial := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancelDial()
-	conn, _, err := websocket.Dial( //nolint:bodyclose // Dial clears the body on success and closes it on error.
-		dialCtx,
-		server.URL,
-		nil,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
-
-	// The client read loop is what lets the WebSocket stack answer pings.
-	readCtx, stopRead := context.WithCancel(t.Context())
-	defer stopRead()
-	go func() {
-		for {
-			if _, _, err := conn.Read(readCtx); err != nil {
+		started := make(chan struct{})
+		stopped := make(chan struct{})
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+				OriginPatterns: []string{"*"},
+			})
+			if err != nil {
 				return
 			}
-		}
-	}()
+			defer conn.Close(websocket.StatusNormalClosure, "")
 
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("server did not accept the connection")
-	}
+			// Ping requires a concurrent reader to consume the pong.
+			go func() {
+				for {
+					if _, _, err := conn.Read(serverCtx); err != nil {
+						return
+					}
+				}
+			}()
 
-	// Several ping intervals pass; a working peer must keep the connection up.
-	time.Sleep(60 * time.Millisecond)
-	select {
-	case <-stopped:
-		t.Fatal("pingPump stopped while the peer was answering")
-	default:
-	}
+			client := &UserClient{Conn: conn, UserID: uuid.NewV7()}
+			close(started)
+			client.pingPump(serverCtx, 10*time.Millisecond, 50*time.Millisecond)
+			close(stopped)
+		}))
+		defer server.Close()
 
-	stopServer()
-	select {
-	case <-stopped:
-	case <-time.After(time.Second):
-		t.Fatal("pingPump did not stop after context cancellation")
-	}
-}
-
-func TestUserClientPingPumpTimeout(t *testing.T) {
-	serverCtx, stopServer := context.WithCancel(t.Context())
-	defer stopServer()
-
-	stopped := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			OriginPatterns: []string{"*"},
-		})
+		dialCtx, cancelDial := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancelDial()
+		conn, _, err := websocket.Dial( //nolint:bodyclose // Dial clears the body on success and closes it on error.
+			dialCtx,
+			server.URL,
+			nil,
+		)
 		if err != nil {
-			return
+			t.Fatal(err)
 		}
 		defer conn.Close(websocket.StatusNormalClosure, "")
 
+		// The client read loop is what lets the WebSocket stack answer pings.
+		readCtx, stopRead := context.WithCancel(t.Context())
+		defer stopRead()
 		go func() {
 			for {
-				if _, _, err := conn.Read(serverCtx); err != nil {
+				if _, _, err := conn.Read(readCtx); err != nil {
 					return
 				}
 			}
 		}()
 
-		client := &UserClient{Conn: conn, UserID: uuid.NewV7()}
-		client.pingPump(serverCtx, 10*time.Millisecond, 30*time.Millisecond)
-		close(stopped)
-	}))
-	defer server.Close()
-
-	dialCtx, cancelDial := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancelDial()
-	conn, _, err := websocket.Dial( //nolint:bodyclose // Dial clears the body on success and closes it on error.
-		dialCtx,
-		server.URL,
-		nil,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Deliberately never read: the pong is not processed, so pingPump must
-	// time out and close the connection.
-	defer func() {
-		if err := conn.CloseNow(); err != nil {
-			t.Logf("close websocket: %v", err)
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("server did not accept the connection")
 		}
-	}()
 
-	select {
-	case <-stopped:
-	case <-time.After(2 * time.Second):
-		t.Fatal("pingPump did not time out for a silent peer")
-	}
+		// Several ping intervals pass; a working peer must keep the connection up.
+		time.Sleep(60 * time.Millisecond)
+		select {
+		case <-stopped:
+			t.Fatal("pingPump stopped while the peer was answering")
+		default:
+		}
+
+		stopServer()
+		select {
+		case <-stopped:
+		case <-time.After(time.Second):
+			t.Fatal("pingPump did not stop after context cancellation")
+		}
+	})
+
+	t.Run("times out for a silent peer", func(t *testing.T) {
+		serverCtx, stopServer := context.WithCancel(t.Context())
+		defer stopServer()
+
+		stopped := make(chan struct{})
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+				OriginPatterns: []string{"*"},
+			})
+			if err != nil {
+				return
+			}
+			defer conn.Close(websocket.StatusNormalClosure, "")
+
+			go func() {
+				for {
+					if _, _, err := conn.Read(serverCtx); err != nil {
+						return
+					}
+				}
+			}()
+
+			client := &UserClient{Conn: conn, UserID: uuid.NewV7()}
+			client.pingPump(serverCtx, 10*time.Millisecond, 30*time.Millisecond)
+			close(stopped)
+		}))
+		defer server.Close()
+
+		dialCtx, cancelDial := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancelDial()
+		conn, _, err := websocket.Dial( //nolint:bodyclose // Dial clears the body on success and closes it on error.
+			dialCtx,
+			server.URL,
+			nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Deliberately never read: the pong is not processed, so pingPump must
+		// time out and close the connection.
+		defer func() {
+			if err := conn.CloseNow(); err != nil {
+				t.Logf("close websocket: %v", err)
+			}
+		}()
+
+		select {
+		case <-stopped:
+		case <-time.After(2 * time.Second):
+			t.Fatal("pingPump did not time out for a silent peer")
+		}
+	})
 }
 
 func BenchmarkGateway(b *testing.B) {
@@ -405,25 +407,21 @@ func BenchmarkGateway(b *testing.B) {
 			}
 		}
 	})
-}
+	b.Run("room-push-fanout", func(b *testing.B) {
+		stream := newAPIStream(g, "127.0.0.1:1")
 
-func BenchmarkGatewayHandleRoomPush(b *testing.B) {
-	g := NewGateway(config.NewTest())
-	stream := newAPIStream(g, "127.0.0.1:1")
+		const users = 50
+		peers := make([]*UserClient, users)
+		userIDs := make([]string, users)
+		for i := range peers {
+			id := uuid.NewV7()
+			userIDs[i] = id.String()
+			peers[i] = newTestClient(id, 1)
+			g.UserSessionManager.LoadOrCreate(id, NewUserSession).Add(peers[i])
+		}
 
-	const users = 50
-	peers := make([]*UserClient, users)
-	userIDs := make([]string, users)
-	for i := range peers {
-		id := uuid.NewV7()
-		userIDs[i] = id.String()
-		peers[i] = newTestClient(id, 1)
-		g.UserSessionManager.LoadOrCreate(id, NewUserSession).Add(peers[i])
-	}
-
-	roomBatch := &pb.RoomPushBatch{
-		RoomPushes: []*pb.RoomPush{
-			{
+		roomBatch := &pb.RoomPushBatch{
+			RoomPushes: []*pb.RoomPush{{
 				RoomId:      "bench-room",
 				RoomSeq:     1,
 				MsgId:       uuid.NewV7().String(),
@@ -433,19 +431,19 @@ func BenchmarkGatewayHandleRoomPush(b *testing.B) {
 				ServerTime:  1728000000000000,
 				ClientMsgId: uuid.NewV7().String(),
 				UserIds:     userIDs,
-			},
-		},
-	}
+			}},
+		}
 
-	b.ResetTimer()
-	b.ReportAllocs()
-	for b.Loop() {
-		stream.handleRoomPush(roomBatch)
-		for _, peer := range peers {
-			select {
-			case <-peer.Send:
-			default:
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			stream.handleRoomPush(roomBatch)
+			for _, peer := range peers {
+				select {
+				case <-peer.Send:
+				default:
+				}
 			}
 		}
-	}
+	})
 }

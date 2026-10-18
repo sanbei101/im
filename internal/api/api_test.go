@@ -1015,35 +1015,37 @@ func TestFriendHTTP(t *testing.T) {
 }
 
 func TestFileHTTP(t *testing.T) {
-	env := newTestEnv(t)
-	_, token := env.addUser(t, "alice")
+	t.Run("presign upload", func(t *testing.T) {
+		env := newTestEnv(t)
+		_, token := env.addUser(t, "alice")
 
-	objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
-		Endpoint:  "127.0.0.1:9000",
-		Bucket:    "im-media",
-		AccessKey: "access",
-		SecretKey: "secret",
-		Region:    "us-east-1",
-		PathStyle: true,
+		objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
+			Endpoint:  "127.0.0.1:9000",
+			Bucket:    "im-media",
+			AccessKey: "access",
+			SecretKey: "secret",
+			Region:    "us-east-1",
+			PathStyle: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler := NewRouter(env.db, env.data, env.stream, objects, "https://cdn.example.test", "test-node")
+
+		recorder := doRequest(t, handler, http.MethodPost, "/api/v1/files/presign", token,
+			jsonBody(t, PresignUploadReq{FileName: "photo.PNG", ContentType: "image/png"}))
+		requireStatus(t, recorder, http.StatusOK)
+		response := decodeResponse[PresignUploadResp](t, recorder)
+		if !strings.HasPrefix(response.Data.FileKey, "uploads/") ||
+			!strings.HasSuffix(response.Data.FileKey, ".png") {
+			t.Fatalf("file key = %q", response.Data.FileKey)
+		}
+		if !strings.Contains(response.Data.UploadURL, "im-media") {
+			t.Fatalf("upload url = %q", response.Data.UploadURL)
+		}
+		wantDownload := "https://cdn.example.test/" + response.Data.FileKey
+		if response.Data.DownloadURL != wantDownload {
+			t.Fatalf("download url = %q, want %q", response.Data.DownloadURL, wantDownload)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler := NewRouter(env.db, env.data, env.stream, objects, "https://cdn.example.test", "test-node")
-
-	recorder := doRequest(t, handler, http.MethodPost, "/api/v1/files/presign", token,
-		jsonBody(t, PresignUploadReq{FileName: "photo.PNG", ContentType: "image/png"}))
-	requireStatus(t, recorder, http.StatusOK)
-	response := decodeResponse[PresignUploadResp](t, recorder)
-	if !strings.HasPrefix(response.Data.FileKey, "uploads/") ||
-		!strings.HasSuffix(response.Data.FileKey, ".png") {
-		t.Fatalf("file key = %q", response.Data.FileKey)
-	}
-	if !strings.Contains(response.Data.UploadURL, "im-media") {
-		t.Fatalf("upload url = %q", response.Data.UploadURL)
-	}
-	wantDownload := "https://cdn.example.test/" + response.Data.FileKey
-	if response.Data.DownloadURL != wantDownload {
-		t.Fatalf("download url = %q, want %q", response.Data.DownloadURL, wantDownload)
-	}
 }

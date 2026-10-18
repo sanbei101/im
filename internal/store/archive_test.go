@@ -16,8 +16,8 @@ import (
 	"github.com/sanbei101/im/pkg/config"
 )
 
-func newTestObjectStore(t *testing.T) *MinioObjectStore {
-	t.Helper()
+func newTestObjectStore(tb testing.TB) *MinioObjectStore {
+	tb.Helper()
 	cfg := config.NewTest()
 	objects, err := NewMinioObjectStore(ObjectStoreConfig{
 		Endpoint:  cfg.Storage.Endpoint,
@@ -29,12 +29,12 @@ func newTestObjectStore(t *testing.T) *MinioObjectStore {
 		PathStyle: cfg.Storage.PathStyle,
 	})
 	if err != nil {
-		t.Fatalf("create minio client for %s: %v", cfg.Storage.Endpoint, err)
+		tb.Fatalf("create minio client for %s: %v", cfg.Storage.Endpoint, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := objects.EnsureBucket(ctx); err != nil {
-		t.Skipf("object store %s unreachable, start it with `make test-storage`: %v", cfg.Storage.Endpoint, err)
+		tb.Skipf("object store %s unreachable, start it with `make test-storage`: %v", cfg.Storage.Endpoint, err)
 	}
 	return objects
 }
@@ -44,13 +44,19 @@ func TestManifestCodec(t *testing.T) {
 		EndSeq: 42, MsgCount: 7, MinTime: -1000, MaxTime: 2000,
 		S3Key: "archives/rooms/abc/000001_000042.parquet",
 	}
-	got, err := decodeManifest(encodeManifest(want))
-	if err != nil || got != want {
-		t.Fatalf("manifest round trip: got=%+v err=%v", got, err)
-	}
-	if _, err := decodeManifest([]byte("short")); err == nil {
-		t.Fatal("expected error for corrupt manifest")
-	}
+
+	t.Run("round trip", func(t *testing.T) {
+		got, err := decodeManifest(encodeManifest(want))
+		if err != nil || got != want {
+			t.Fatalf("manifest round trip: got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("corrupt manifest rejected", func(t *testing.T) {
+		if _, err := decodeManifest([]byte("short")); err == nil {
+			t.Fatal("expected error for corrupt manifest")
+		}
+	})
 }
 
 func TestStoreArchive(t *testing.T) {
@@ -62,8 +68,8 @@ func TestStoreArchive(t *testing.T) {
 		if err := s.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
 			t.Fatal(err)
 		}
-		sender := mustCreateUser(t, s, "archive-sender")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: sender.UserID, Role: RoleOwner})
+		sender := testUser("archive-sender")
+		room := testRoom(ChatTypeGroup)
 		written := make([]Message, 10)
 		for i := range written {
 			written[i] = mustWriteMessage(t, s, room.RoomID, sender.UserID, fmt.Sprintf("m%d", i))
@@ -127,8 +133,8 @@ func TestStoreArchive(t *testing.T) {
 
 	t.Run("archived message is unresolvable without remote", func(t *testing.T) {
 		s := newTestStore(t)
-		sender := mustCreateUser(t, s, "cold-sender")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: sender.UserID, Role: RoleOwner})
+		sender := testUser("cold-sender")
+		room := testRoom(ChatTypeGroup)
 		msg := mustWriteMessage(t, s, room.RoomID, sender.UserID, "will go cold")
 		params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives"}
 		if err := s.ArchiveOnce(ctx, objects, params); err != nil {
@@ -159,8 +165,8 @@ func TestStoreArchive(t *testing.T) {
 			t.Fatalf("stale tmp file error = %v, want removed", err)
 		}
 
-		sender := mustCreateUser(t, s, "evict-sender")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: sender.UserID, Role: RoleOwner})
+		sender := testUser("evict-sender")
+		room := testRoom(ChatTypeGroup)
 		written := make([]Message, 3)
 		for i := range written {
 			written[i] = mustWriteMessage(t, s, room.RoomID, sender.UserID, "evict me")
@@ -186,8 +192,8 @@ func TestStoreArchive(t *testing.T) {
 		if err := s.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
 			t.Fatal(err)
 		}
-		sender := mustCreateUser(t, s, "foreign-sender")
-		room := mustCreateRoom(t, s, ChatTypeGroup, Member{UserID: sender.UserID, Role: RoleOwner})
+		sender := testUser("foreign-sender")
+		room := testRoom(ChatTypeGroup)
 		mustWriteMessage(t, s, room.RoomID, sender.UserID, "not mine")
 
 		params := ArchiveParams{
@@ -284,37 +290,14 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 	})
 }
 
-func newBenchObjectStore(b *testing.B) *MinioObjectStore {
-	b.Helper()
-	cfg := config.NewTest()
-	objects, err := NewMinioObjectStore(ObjectStoreConfig{
-		Endpoint:  cfg.Storage.Endpoint,
-		Bucket:    cfg.Storage.Bucket,
-		AccessKey: cfg.Storage.AccessKey,
-		SecretKey: cfg.Storage.SecretKey,
-		Region:    cfg.Storage.Region,
-		UseSSL:    cfg.Storage.UseSSL,
-		PathStyle: cfg.Storage.PathStyle,
-	})
-	if err != nil {
-		b.Fatalf("create minio client for %s: %v", cfg.Storage.Endpoint, err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := objects.EnsureBucket(ctx); err != nil {
-		b.Skipf("object store %s unreachable, start it with `make test`: %v", cfg.Storage.Endpoint, err)
-	}
-	return objects
-}
-
 func BenchmarkStoreArchivedRead(b *testing.B) {
-	objects := newBenchObjectStore(b)
+	objects := newTestObjectStore(b)
 	ctx := context.Background()
-	s := newBenchStore(b)
+	s := newTestStore(b)
 	if err := s.AttachRemote(objects, b.TempDir(), 64<<20); err != nil {
 		b.Fatal(err)
 	}
-	room, sender := benchRoom(b, s)
+	room, sender := benchIDs()
 	messages := benchWrite(b, s, room, sender, 2000)
 	params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 2000, MaxBytes: 32 << 20, Prefix: "archives"}
 	if err := s.ArchiveOnce(ctx, objects, params); err != nil {

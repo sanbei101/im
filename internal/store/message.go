@@ -155,14 +155,14 @@ func (s *Store) writeMessageBatch(
 			var err error
 			room, err = s.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom)
 			if errors.Is(err, ErrNotFound) {
-				// Room metadata lives in PostgreSQL. Work only keeps the
+				// Room metadata lives in PostgreSQL. The store only keeps the
 				// message head, created lazily on the first committed message.
-				now := time.Now()
-				room = Room{RoomID: message.RoomID, CreatedAt: now, UpdatedAt: now}
+				room = Room{RoomID: message.RoomID}
 			} else if err != nil {
 				results[index].Err = err
 				continue
 			}
+			room.RoomID = message.RoomID
 		}
 		rooms[message.RoomID] = room
 
@@ -219,10 +219,6 @@ func (s *Store) writeMessageBatch(
 		results[index].Message.MsgID = uuid.NewV7()
 		results[index].Message.ServerTime = time.Now().UnixMicro()
 		room.UpdatedAt = time.Now()
-		// Messages are processed in submission order, so the last allocated
-		// message of a room carries its highest seq.
-		lastMsg := results[index].Message
-		room.LastMsg = &lastMsg
 		rooms[message.RoomID] = room
 		allocated = append(allocated, index)
 
@@ -263,7 +259,7 @@ func (s *Store) writeMessageBatch(
 	for roomID := range rooms {
 		room := rooms[roomID]
 		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
-		roomBuf = appendRoom(roomBuf[:0], room)
+		roomBuf = appendRoomHead(roomBuf[:0], room.LastSeq)
 		if err := s.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
 			failedRooms[roomID] = struct{}{}
 			for index := range results {
@@ -727,24 +723,8 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 	if err := s.setBytes(batch, msgKey, encodeMessage(msg)); err != nil {
 		return Message{}, err
 	}
-	// The room record embeds its newest message: recall of that message must
-	// refresh the embedded copy in the same batch.
-	room, err := s.Room(request.ctx, roomID)
-	if err != nil {
-		return Message{}, fmt.Errorf("load room for recall: %w", err)
-	}
-	if room.LastSeq == msg.RoomSeq {
-		room.LastMsg = &msg
-		var rKeyBuf [32]byte
-		if err := s.setBytes(batch, appendRoomKey(rKeyBuf[:0], roomID), encodeRoom(room)); err != nil {
-			return Message{}, err
-		}
-	}
 	if err := commit(batch); err != nil {
 		return Message{}, err
-	}
-	if room.LastSeq == msg.RoomSeq {
-		s.getRoomShard(roomID).rooms.Set(roomID, room)
 	}
 	// A message inside the recall window is always in the tail cache; keep the
 	// cached copy in sync so reads do not serve stale content.

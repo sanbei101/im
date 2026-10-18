@@ -127,11 +127,8 @@ type Room struct {
 	Notice         string    `json:"notice"`
 	SingleChatHash []byte    `json:"-"`
 	LastSeq        uint64    `json:"last_seq,omitempty"`
-	// LastMsg is the newest committed message, denormalized onto the Pebble
-	// room head for the newest-page read path.
-	LastMsg   *Message  `json:"-"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 const (
@@ -587,26 +584,6 @@ func (s *Store) getRecord[T any](key []byte, decode func([]byte) (T, error)) (T,
 	return decode(value)
 }
 
-// internEnum reuses the canonical string for known enum values, so hot
-// decodes (member roles, chat types) do not allocate a fresh copy per record.
-// Unknown values fall back to a fresh string.
-func internEnum(value []byte) string {
-	switch string(value) {
-	case RoleOwner:
-		return RoleOwner
-	case RoleAdmin:
-		return RoleAdmin
-	case RoleMember:
-		return RoleMember
-	case ChatTypeSingle:
-		return ChatTypeSingle
-	case ChatTypeGroup:
-		return ChatTypeGroup
-	default:
-		return string(value)
-	}
-}
-
 func commit(batch *pebble.Batch) error {
 	return batch.Commit(&pebble.WriteOptions{Sync: true})
 }
@@ -710,9 +687,6 @@ func (d *decoder) fixed(n int) []byte {
 	d.pos += n
 	return value
 }
-
-// skip consumes one length-prefixed slice without copying it.
-func (d *decoder) skip() { d.bytes() }
 
 // byte consumes one trailing byte, returning 0 without failing when the record
 // is exhausted; check reports the truncation.
