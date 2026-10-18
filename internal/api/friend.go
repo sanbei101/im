@@ -16,6 +16,7 @@ import (
 type FriendAPI struct {
 	store         *store.Store
 	streamHandler *StreamHandler
+	users         UserDirectory
 }
 
 type ApplyFriendReq struct {
@@ -68,12 +69,13 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 检查目标用户是否存在
-	if _, err := a.store.UserByID(r.Context(), targetID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			render.Error(w, http.StatusNotFound, "target user not found")
-			return
-		}
+	targets, err := a.users.UsersByIDs(r.Context(), []uuid.UUID{targetID})
+	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, ok := targets[targetID]; !ok {
+		render.Error(w, http.StatusNotFound, "target user not found")
 		return
 	}
 
@@ -136,7 +138,11 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) myProfile(r *http.Request, userID uuid.UUID) (username, nickname, avatar string) {
-	if u, err := a.store.UserByID(r.Context(), userID); err == nil {
+	users, err := a.users.UsersByIDs(r.Context(), []uuid.UUID{userID})
+	if err != nil {
+		return "", "", ""
+	}
+	if u, ok := users[userID]; ok {
 		return u.Username, u.Nickname, u.AvatarURL
 	}
 	return "", "", ""
@@ -173,7 +179,7 @@ func (a *FriendAPI) ListFriends(w http.ResponseWriter, r *http.Request) {
 	for i, f := range friends {
 		ids[i] = f.FriendID
 	}
-	users, err := a.store.UsersByIDs(r.Context(), ids)
+	users, err := a.users.UsersByIDs(r.Context(), ids)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -304,7 +310,7 @@ func (a *FriendAPI) ListBlacklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users, err := a.store.UsersByIDs(r.Context(), targetIDs)
+	users, err := a.users.UsersByIDs(r.Context(), targetIDs)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return

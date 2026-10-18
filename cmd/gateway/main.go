@@ -7,6 +7,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,14 +38,26 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	metaProxy, err := router.NewProxy(cfg.Gateway.MetaHTTPAddr)
+	metaProxy, err := router.NewProxy(cfg.Meta.HTTPAddr)
 	if err != nil {
 		return fmt.Errorf("create meta http proxy: %w", err)
 	}
+	workProxy, err := router.NewProxy(cfg.Gateway.APIHTTPAddrs[0])
+	if err != nil {
+		return fmt.Errorf("create work http proxy: %w", err)
+	}
+	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if path == "/api/v1/users/presence" || strings.HasPrefix(path, "/api/v1/friends") {
+			workProxy.ServeHTTP(w, r)
+			return
+		}
+		metaProxy.ServeHTTP(w, r)
+	})
 	edge, err := router.NewEdge(router.EdgeConfig{
 		Slots:     cfg.Shard.Slots,
 		HTTPAddrs: cfg.Gateway.APIHTTPAddrs,
-	}, metaProxy)
+	}, fallback)
 	if err != nil {
 		return fmt.Errorf("create http edge: %w", err)
 	}

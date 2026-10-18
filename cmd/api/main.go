@@ -18,6 +18,7 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/api"
+	metaclient "github.com/sanbei101/im/internal/meta"
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
@@ -87,7 +88,11 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	}
 
 	streamHandler := api.NewStreamHandler(data, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
-	handler := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicBaseURL)
+	metaClient, err := metaclient.NewClient(cfg.Meta.HTTPAddr, cfg.JWTSecret)
+	if err != nil {
+		return fmt.Errorf("create meta client: %w", err)
+	}
+	handler := api.NewWorkRouter(data, streamHandler, metaClient, objects, cfg.Storage.PublicBaseURL)
 	streamAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)

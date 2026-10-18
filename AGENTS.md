@@ -12,15 +12,18 @@
 - 实时推送不是可靠存储,断线和推送失败统一通过房间消息序号补拉。
 - Pebble checkpoint 由 API 进程定期生成和保留;当前不实现 `imctl`。
 - 多 API 节点时,`gateway.api_addrs` 与 `gateway.api_http_addrs` 都按 `node_index` 排列;客户端只连接 Gateway,`/ws` 走长连接,带 `room_id` 的 `/api` 请求由 Gateway 转发到归属节点,API 不再自行转发。
+- Meta 拥有用户、设备 token 和内部用户查询;Work 通过 `meta.http_addr` 读取用户资料。
 
 ## 目录
 
 保持目录扁平,优先在现有包中增加文件,不为单一职责新建目录。
 
 ```text
-cmd/api          API 入口
+cmd/meta         Meta 入口
+cmd/api          Work API 入口
 cmd/gateway      Gateway 入口
 internal/api     HTTP Handler、Kitex Server 和 API 业务逻辑
+internal/meta    Meta HTTP 客户端
 internal/gateway WebSocket、Kitex Client、会话和批量发送
 internal/store   Pebble、Key 编码、用户、房间、消息和备份
 pkg              配置、分片、JWT、日志和通用工具

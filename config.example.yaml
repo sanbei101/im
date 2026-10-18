@@ -13,8 +13,13 @@ gateway:
   # HTTP addresses of the API nodes, in node_index order.
   api_http_addrs:
     - "127.0.0.1:8801"
-  # HTTP fallback for non-room requests (users, friends, files).
-  meta_http_addr: "127.0.0.1:8801"
+meta:
+  listen_addr: ":8802"
+  http_addr: "127.0.0.1:8802"
+  pprof_addr: "127.0.0.1:6063"
+  store_path: "./data/meta"
+  backup_path: "./backup/meta"
+  backup_interval_seconds: 3600
 
 store:
   path: "./data/api-1"

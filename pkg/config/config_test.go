@@ -15,8 +15,8 @@ func TestValidateHTTPTopology(t *testing.T) {
 	}
 
 	cfg = NewTest()
-	cfg.Gateway.MetaHTTPAddr = ""
+	cfg.Meta.HTTPAddr = ""
 	if err := cfg.Validate(); err == nil {
-		t.Fatal("config without gateway meta_http_addr was accepted")
+		t.Fatal("config without meta http_addr was accepted")
 	}
 }

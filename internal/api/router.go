@@ -18,19 +18,10 @@ type HealthResp struct {
 	Status string `json:"status"`
 }
 
-// NewRouter wires the HTTP handlers into a chi router. objects is the shared
-// S3 client owned by the store: media presigning and message archiving go
-// through the same client and bucket.
-func NewRouter(
-	s *store.Store,
-	streamHandler *StreamHandler,
-	objects *store.MinioObjectStore,
-	publicBaseURL string,
-) http.Handler {
+func newBaseRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.Recoverer)
-
 	// JWT travels in the Authorization header rather than cookies, so the
 	// policy stays non-credentialed: wildcard origins and credentials are
 	// mutually exclusive per the fetch spec.
@@ -49,13 +40,79 @@ func NewRouter(
 		ExposedHeaders: []string{"*"},
 		MaxAge:         86400,
 	}))
+	return r
+}
+
+// NewRouter wires every handler into one process. Tests and single-process
+// deployments use it; the split services use NewMetaRouter/NewWorkRouter.
+func NewRouter(
+	s *store.Store,
+	streamHandler *StreamHandler,
+	objects *store.MinioObjectStore,
+	publicBaseURL string,
+) http.Handler {
+	r := newBaseRouter()
 	userAPI := &UserAPI{store: s, streamHandler: streamHandler}
-	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler}
+	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler, users: s}
 	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
-	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler}
+	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler, users: s}
 	conversationAPI := &ConversationAPI{store: s}
 	fileAPI := NewFileAPI(objects, publicBaseURL)
 
+	registerHealth(r, s)
+	r.Route("/api/v1", func(r chi.Router) {
+		registerUsers(r, userAPI, true, true)
+		registerDevices(r, userAPI)
+		registerFriends(r, friendAPI)
+		registerWork(r, roomAPI, messageAPI, conversationAPI, fileAPI)
+	})
+	return r
+}
+
+// NewMetaRouter serves the authoritative identity/social control plane.
+func NewMetaRouter(s *store.Store, internalSecret string) http.Handler {
+	r := newBaseRouter()
+	userAPI := &UserAPI{store: s}
+
+	registerHealth(r, s)
+	r.Route("/api/v1", func(r chi.Router) {
+		registerUsers(r, userAPI, true, false)
+		registerDevices(r, userAPI)
+	})
+	r.Route("/internal", func(r chi.Router) {
+		r.Use(internalAuth(internalSecret))
+		r.Get("/users", userAPI.InternalUsers)
+	})
+	return r
+}
+
+// NewWorkRouter serves rooms, messages, files, friends, and presence. User
+// profiles are resolved through users (the Meta service in production).
+func NewWorkRouter(
+	s *store.Store,
+	streamHandler *StreamHandler,
+	users UserDirectory,
+	objects *store.MinioObjectStore,
+	publicBaseURL string,
+) http.Handler {
+	r := newBaseRouter()
+	presenceAPI := &UserAPI{streamHandler: streamHandler}
+	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler, users: users}
+	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
+	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler, users: users}
+	conversationAPI := &ConversationAPI{store: s}
+	fileAPI := NewFileAPI(objects, publicBaseURL)
+
+	registerHealth(r, s)
+	r.Route("/api/v1", func(r chi.Router) {
+		registerUsers(r, presenceAPI, false, true)
+		registerFriends(r, friendAPI)
+		registerWork(r, roomAPI, messageAPI, conversationAPI, fileAPI)
+	})
+	return r
+}
+
+func registerHealth(r chi.Router, s *store.Store) {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.Ping(r.Context()); err != nil {
 			render.Error(w, http.StatusServiceUnavailable, "database unavailable: "+err.Error())
@@ -63,89 +120,104 @@ func NewRouter(
 		}
 		render.Success(w, "ok", HealthResp{Status: "healthy"})
 	})
+}
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Route("/users", func(r chi.Router) {
-			r.Post("/register", userAPI.Register)
-			r.Post("/login", userAPI.Login)
-
-			r.Group(func(r chi.Router) {
-				r.Use(jwt.AuthMiddleware)
-				r.Post("/logout", userAPI.Logout)
-				r.Get("/search", userAPI.Search)
-				r.Get("/profile", userAPI.GetProfile)
-				r.Get("/{id}", userAPI.GetProfile)
-				r.Put("/profile", userAPI.UpdateProfile)
-				r.Put("/password", userAPI.UpdatePassword)
-				r.Post("/presence", userAPI.Presence)
-			})
-		})
-
-		r.Route("/devices", func(r chi.Router) {
+func registerUsers(r chi.Router, api *UserAPI, meta, presence bool) {
+	r.Route("/users", func(r chi.Router) {
+		if meta {
+			r.Post("/register", api.Register)
+			r.Post("/login", api.Login)
+		}
+		r.Group(func(r chi.Router) {
 			r.Use(jwt.AuthMiddleware)
-			r.Post("/token", userAPI.SaveDeviceToken)
-		})
-
-		r.Route("/friends", func(r chi.Router) {
-			r.Use(jwt.AuthMiddleware)
-			r.Get("/", friendAPI.ListFriends)
-			r.Post("/apply", friendAPI.Apply)
-			r.Post("/audit", friendAPI.Audit)
-			r.Get("/applications", friendAPI.ListApplications)
-			r.Delete("/{id}", friendAPI.DeleteFriend)
-			r.Put("/{id}/remark", friendAPI.UpdateRemark)
-			r.Get("/blacklist", friendAPI.ListBlacklist)
-			r.Post("/blacklist", friendAPI.AddBlacklist)
-			r.Delete("/blacklist/{id}", friendAPI.RemoveBlacklist)
-		})
-
-		r.Route("/messages", func(r chi.Router) {
-			r.Use(jwt.AuthMiddleware)
-			r.Get("/history", messageAPI.GetHistory)
-			r.Get("/search", messageAPI.Search)
-			r.Post("/recall", messageAPI.Recall)
-			r.Post("/{id}/reactions", messageAPI.AddReaction)
-			r.Delete("/{id}/reactions", messageAPI.RemoveReaction)
-			r.Get("/{id}/reactions", messageAPI.GetReactions)
-			r.Get("/{id}/read_users", messageAPI.GetReadUsers)
-		})
-
-		r.Route("/rooms", func(r chi.Router) {
-			r.Use(jwt.AuthMiddleware)
-			r.Post("/single", roomAPI.CreateOrGetSingleChatRoom)
-			r.Post("/group", roomAPI.CreateGroupRoom)
-			r.Post("/list", roomAPI.ListRooms)
-			r.Get("/{id}", roomAPI.GetRoom)
-			r.Put("/{id}", roomAPI.UpdateRoom)
-			r.Delete("/{id}", roomAPI.DissolveRoom)
-			r.Get("/{id}/members", roomAPI.ListMembers)
-			r.Post("/{id}/members", roomAPI.AddMembers)
-			r.Put("/{id}/members/{user_id}/role", roomAPI.UpdateMemberRole)
-			r.Delete("/{id}/members/{user_id}", roomAPI.RemoveMember)
-			r.Get("/{id}/messages/search", messageAPI.Search)
-			r.Post("/{id}/leave", roomAPI.LeaveRoom)
-			r.Post("/{id}/transfer", roomAPI.TransferOwner)
-			r.Post("/{id}/read", conversationAPI.MarkRead)
-			r.Put("/{id}/clear_unread", conversationAPI.ClearUnread)
-			r.Post("/{id}/pins", roomAPI.PinMessage)
-			r.Delete("/{id}/pins/{msg_id}", roomAPI.UnpinMessage)
-			r.Get("/{id}/pins", roomAPI.GetPinnedMessages)
-		})
-
-		r.Route("/conversations", func(r chi.Router) {
-			r.Use(jwt.AuthMiddleware)
-			r.Get("/", conversationAPI.ListConversations)
-			r.Put("/{id}/pin", conversationAPI.PinConversation)
-			r.Put("/{id}/mute", conversationAPI.MuteConversation)
-		})
-
-		r.Route("/files", func(r chi.Router) {
-			r.Use(jwt.AuthMiddleware)
-			r.Post("/presign", fileAPI.PresignUpload)
+			if meta {
+				r.Post("/logout", api.Logout)
+				r.Get("/search", api.Search)
+				r.Get("/profile", api.GetProfile)
+				r.Get("/{id}", api.GetProfile)
+				r.Put("/profile", api.UpdateProfile)
+				r.Put("/password", api.UpdatePassword)
+			}
+			if presence {
+				r.Post("/presence", api.Presence)
+			}
 		})
 	})
+}
 
-	return r
+func registerDevices(r chi.Router, api *UserAPI) {
+	r.Route("/devices", func(r chi.Router) {
+		r.Use(jwt.AuthMiddleware)
+		r.Post("/token", api.SaveDeviceToken)
+	})
+}
+
+func registerFriends(r chi.Router, api *FriendAPI) {
+	r.Route("/friends", func(r chi.Router) {
+		r.Use(jwt.AuthMiddleware)
+		r.Get("/", api.ListFriends)
+		r.Post("/apply", api.Apply)
+		r.Post("/audit", api.Audit)
+		r.Get("/applications", api.ListApplications)
+		r.Delete("/{id}", api.DeleteFriend)
+		r.Put("/{id}/remark", api.UpdateRemark)
+		r.Get("/blacklist", api.ListBlacklist)
+		r.Post("/blacklist", api.AddBlacklist)
+		r.Delete("/blacklist/{id}", api.RemoveBlacklist)
+	})
+}
+
+func registerWork(
+	r chi.Router,
+	roomAPI *RoomAPI,
+	messageAPI *MessageAPI,
+	conversationAPI *ConversationAPI,
+	fileAPI *FileAPI,
+) {
+	r.Route("/messages", func(r chi.Router) {
+		r.Use(jwt.AuthMiddleware)
+		r.Get("/history", messageAPI.GetHistory)
+		r.Get("/search", messageAPI.Search)
+		r.Post("/recall", messageAPI.Recall)
+		r.Post("/{id}/reactions", messageAPI.AddReaction)
+		r.Delete("/{id}/reactions", messageAPI.RemoveReaction)
+		r.Get("/{id}/reactions", messageAPI.GetReactions)
+		r.Get("/{id}/read_users", messageAPI.GetReadUsers)
+	})
+
+	r.Route("/rooms", func(r chi.Router) {
+		r.Use(jwt.AuthMiddleware)
+		r.Post("/single", roomAPI.CreateOrGetSingleChatRoom)
+		r.Post("/group", roomAPI.CreateGroupRoom)
+		r.Post("/list", roomAPI.ListRooms)
+		r.Get("/{id}", roomAPI.GetRoom)
+		r.Put("/{id}", roomAPI.UpdateRoom)
+		r.Delete("/{id}", roomAPI.DissolveRoom)
+		r.Get("/{id}/members", roomAPI.ListMembers)
+		r.Post("/{id}/members", roomAPI.AddMembers)
+		r.Put("/{id}/members/{user_id}/role", roomAPI.UpdateMemberRole)
+		r.Delete("/{id}/members/{user_id}", roomAPI.RemoveMember)
+		r.Get("/{id}/messages/search", messageAPI.Search)
+		r.Post("/{id}/leave", roomAPI.LeaveRoom)
+		r.Post("/{id}/transfer", roomAPI.TransferOwner)
+		r.Post("/{id}/read", conversationAPI.MarkRead)
+		r.Put("/{id}/clear_unread", conversationAPI.ClearUnread)
+		r.Post("/{id}/pins", roomAPI.PinMessage)
+		r.Delete("/{id}/pins/{msg_id}", roomAPI.UnpinMessage)
+		r.Get("/{id}/pins", roomAPI.GetPinnedMessages)
+	})
+
+	r.Route("/conversations", func(r chi.Router) {
+		r.Use(jwt.AuthMiddleware)
+		r.Get("/", conversationAPI.ListConversations)
+		r.Put("/{id}/pin", conversationAPI.PinConversation)
+		r.Put("/{id}/mute", conversationAPI.MuteConversation)
+	})
+
+	r.Route("/files", func(r chi.Router) {
+		r.Use(jwt.AuthMiddleware)
+		r.Post("/presign", fileAPI.PresignUpload)
+	})
 }
 
 func getContextUserID(r *http.Request) (uuid.UUID, error) {

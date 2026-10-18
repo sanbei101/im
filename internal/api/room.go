@@ -16,6 +16,7 @@ import (
 type RoomAPI struct {
 	store         *store.Store
 	streamHandler *StreamHandler
+	users         UserDirectory
 }
 
 type CreateSingleRoomReq struct {
@@ -355,7 +356,7 @@ func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
 	for i, m := range members {
 		ids[i] = m.UserID
 	}
-	users, err := a.store.UsersByIDs(r.Context(), ids)
+	users, err := a.users.UsersByIDs(r.Context(), ids)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return

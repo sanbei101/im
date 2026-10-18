@@ -6,6 +6,7 @@
 
 - `gateway` 是统一入口:维护 WebSocket 长连接和用户会话,同时把 `/api/` 请求转发到对应 API 节点;使用协议层 ping/pong 控制帧保活,每 30s 主动 ping,5s 未收到 pong 即断开并注销在线状态。
 - `api` 提供 HTTP 接口和房间分片存储;HTTP 端口只对内网/Gateway 开放,不再自行转发房间请求。
+- `meta` 保存用户、密码、设备 token,并向 Work 提供内网用户资料查询。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,协议由 Kitex 生成 fastpb 编解码代码。
 - 消息、房间、成员和幂等记录使用 Pebble 本地持久化。
 - 房间通过 `hash(room_id) % slots` 路由到 API 节点。
@@ -15,9 +16,11 @@
 ## 目录
 
 ```text
-cmd/api       API 进程
-cmd/gateway   WebSocket Gateway 进程
+cmd/meta      Meta 进程
+cmd/api       API/Work 进程
+cmd/gateway   WebSocket Gateway + HTTP Edge 进程
 internal/api  HTTP 和 Kitex 服务
+internal/meta Meta HTTP 客户端
 internal/gateway WebSocket、Kitex 客户端和会话
 internal/store Pebble 与固定二进制记录编码
 pkg           配置、分片、JWT、日志
@@ -34,11 +37,12 @@ go install github.com/cloudwego/kitex/tool/cmd/kitex@latest
 make gen
 ```
 
-启动 API 和 Gateway:
+启动 Meta、API 和 Gateway:
 
 ```bash
 cp config.example.yaml config.yaml
 # 填写 jwt_secret 与 storage 凭据；对象存储是 API 启动的硬依赖
+go run ./cmd/meta
 go run ./cmd/api
 go run ./cmd/gateway
 ```
@@ -47,6 +51,7 @@ go run ./cmd/gateway
 
 ```bash
 make build
+./bin/meta
 ./bin/api
 ./bin/gateway
 ```
@@ -58,7 +63,7 @@ make dev
 make stop
 ```
 
-默认端口:HTTP `8801`、WebSocket `8800`、API 内部流 `9000`、pprof `6061`。HTTP 与 pprof 监听地址可通过 `api.http_addr` / `api.pprof_addr` 或 `API_HTTP_ADDR` / `API_PPROF_ADDR` 覆盖。
+默认端口:API HTTP `8801`、Meta HTTP `8802`、WebSocket `8800`、API 内部流 `9000`、pprof `6061`/`6063`。HTTP 与 pprof 监听地址可通过 `api.http_addr` / `api.pprof_addr`、`meta.listen_addr` / `meta.http_addr` / `meta.pprof_addr` 或对应环境变量覆盖。
 
 多 API 节点时,`gateway.api_http_addrs` 必须按 `node_index` 顺序列出每个 API 节点的 HTTP 地址,并与 `gateway.api_addrs` 的顺序一致:
 
@@ -75,10 +80,13 @@ gateway:
   api_http_addrs:
     - "api-1:8801"
     - "api-2:8802"
-  meta_http_addr: "api-1:8801"
+
+meta:
+  listen_addr: ":8802"
+  http_addr: "meta-1:8802"
 ```
 
-客户端只需要连接 Gateway:WebSocket 走 `/ws`,HTTP 走 `/api/v1/...`。带房间语义的 HTTP 请求由 Gateway 转发到归属 API;用户、好友等非房间请求转发到 `meta_http_addr`。
+客户端只需要连接 Gateway:WebSocket 走 `/ws`,HTTP 走 `/api/v1/...`。带房间语义的 HTTP 请求由 Gateway 转发到归属 API;用户注册/登录/资料、设备 token 转发到 Meta;在线状态和好友请求转发到 Work。
 
 房间相关 HTTP 请求(路径或 `room_id` 查询参数/JSON 字段)只由 Gateway 转发到该房间的归属节点;API 节点只处理本地槽位的数据。单聊房间 ID 由双方用户 ID 确定性生成;群聊创建必须携带客户端生成的 `room_id`,以便在创建前完成路由。
 

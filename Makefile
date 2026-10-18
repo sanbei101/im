@@ -8,20 +8,23 @@ RUSTFS_DATA := .tmp/rustfs/data
 
 build:
 	@mkdir -p $(BIN_DIR)
-	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/api ./cmd/api
+	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/meta ./cmd/meta
+go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/api ./cmd/api
 	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/gateway ./cmd/gateway
 
 dev: build
 	@mkdir -p .tmp
-	for p in 9000 8801 8800; do fuser -kn tcp $$p 2>/dev/null && echo "killed on $$p" || true; done
+	for p in 9000 8801 8802 8800; do fuser -kn tcp $$p 2>/dev/null && echo "killed on $$p" || true; done
+	@nohup ./$(BIN_DIR)/meta > .tmp/meta.log 2>&1 & echo $$! > .tmp/meta.pid
 	@nohup ./$(BIN_DIR)/api > .tmp/api.log 2>&1 & echo $$! > .tmp/api.pid
 	@nohup ./$(BIN_DIR)/gateway > .tmp/gateway.log 2>&1 & echo $$! > .tmp/gateway.pid
 	@sleep 1
+	@echo "meta log: .tmp/meta.log"; tail -n 20 .tmp/meta.log
 	@echo "api log: .tmp/api.log"; tail -n 20 .tmp/api.log
 	@echo "gateway log: .tmp/gateway.log"; tail -n 20 .tmp/gateway.log
 
 stop:
-	@for f in .tmp/api.pid .tmp/gateway.pid; do \
+	@for f in .tmp/meta.pid .tmp/api.pid .tmp/gateway.pid; do \
 		if test -f $$f; then kill $$(cat $$f) 2>/dev/null; rm -f $$f; fi; \
 	done
 
