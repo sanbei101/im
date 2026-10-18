@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 	"uuid"
@@ -69,11 +68,7 @@ func TestDBConversations(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := db.MarkRead(ctx, alice.UserID, roomB, 5); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Run("orders by room update and returns read cursor", func(t *testing.T) {
+	t.Run("orders by room update", func(t *testing.T) {
 		conversations, err := db.Conversations(ctx, alice.UserID)
 		if err != nil {
 			t.Fatal(err)
@@ -86,10 +81,6 @@ func TestDBConversations(t *testing.T) {
 			t.Fatalf("conversation order = %s, %s, %s", conversations[0].Room.RoomID,
 				conversations[1].Room.RoomID, conversations[2].Room.RoomID)
 		}
-		if conversations[0].ReadSeq != 5 || conversations[1].ReadSeq != 0 || conversations[2].ReadSeq != 0 {
-			t.Fatalf("read cursors = %d, %d, %d", conversations[0].ReadSeq,
-				conversations[1].ReadSeq, conversations[2].ReadSeq)
-		}
 	})
 
 	t.Run("filters by membership", func(t *testing.T) {
@@ -97,7 +88,7 @@ func TestDBConversations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(bobRooms) != 1 || bobRooms[0].Room.RoomID != roomA || bobRooms[0].ReadSeq != 0 {
+		if len(bobRooms) != 1 || bobRooms[0].Room.RoomID != roomA {
 			t.Fatalf("bob conversations = %+v", bobRooms)
 		}
 		carolRooms, err := db.Conversations(ctx, carol.UserID)
@@ -154,66 +145,6 @@ func BenchmarkDBConversationList(b *testing.B) {
 	})
 	b.Run("parallel", func(b *testing.B) {
 		benchConversationList(b, 100, true)
-	})
-}
-
-type readTarget struct {
-	user uuid.UUID
-	room uuid.UUID
-}
-
-func newReadTargets(ctx context.Context, b *testing.B, db *DB, count int) []readTarget {
-	b.Helper()
-	targets := make([]readTarget, count)
-	for i := range targets {
-		user, err := db.CreateUser(ctx, "bench-read-"+strconv.Itoa(i), "hash")
-		if err != nil {
-			b.Fatal(err)
-		}
-		roomID := uuid.NewV7()
-		if err := db.CreateRoom(ctx, Room{RoomID: roomID, ChatType: ChatTypeGroup}, []Member{{
-			UserID: user.UserID, Role: RoleOwner,
-		}}); err != nil {
-			b.Fatal(err)
-		}
-		targets[i] = readTarget{user: user.UserID, room: roomID}
-	}
-	return targets
-}
-
-func BenchmarkDBMarkRead(b *testing.B) {
-	b.Run("serial", func(b *testing.B) {
-		db := newPGTestDB(b)
-		ctx := context.Background()
-		target := newReadTargets(ctx, b, db, 1)[0]
-
-		b.ResetTimer()
-		b.ReportAllocs()
-		for seq := uint64(1); b.Loop(); seq++ {
-			if err := db.MarkRead(ctx, target.user, target.room, seq); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-
-	b.Run("parallel", func(b *testing.B) {
-		db := newPGTestDB(b)
-		ctx := context.Background()
-		const users = 64
-		targets := newReadTargets(ctx, b, db, users)
-
-		var next atomic.Uint64
-		b.ResetTimer()
-		b.ReportAllocs()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				target := targets[next.Add(1)%users]
-				if err := db.MarkRead(ctx, target.user, target.room, 1); err != nil {
-					b.Errorf("mark read: %v", err)
-					return
-				}
-			}
-		})
 	})
 }
 

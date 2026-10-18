@@ -64,7 +64,10 @@ type MessageWriteResult struct {
 	Err     error
 }
 
-const roomShardCount = 64
+const (
+	roomShardCount = 64
+	readLockCount  = 256
+)
 
 // roomCachePerShard bounds the room cache: 64 shards * 256 rooms. Evicted
 // rooms are simply re-read from Pebble on demand.
@@ -79,6 +82,7 @@ type Store struct {
 	pg *DB
 
 	roomShards [roomShardCount]roomShard
+	readLocks  [readLockCount]sync.Mutex
 	dedupCache *lru.LRUCache[dedupLookupKey, Dedup]
 	cache      *messageCache
 	remote     *remoteReader
@@ -103,6 +107,10 @@ type Store struct {
 
 func (s *Store) getRoomShard(id uuid.UUID) *roomShard {
 	return &s.roomShards[id[15]%roomShardCount]
+}
+
+func (s *Store) getReadLock(roomID, userID uuid.UUID) *sync.Mutex {
+	return &s.readLocks[int(roomID[15]^userID[15])%readLockCount]
 }
 
 type User struct {
@@ -162,9 +170,8 @@ type FriendApplication struct {
 }
 
 type ConversationInfo struct {
-	Room    Room   `json:"room"`
-	Member  Member `json:"member"`
-	ReadSeq uint64 `json:"read_seq"`
+	Room   Room   `json:"room"`
+	Member Member `json:"member"`
 }
 
 type ReactionGroup struct {
@@ -586,6 +593,12 @@ func (s *Store) getRecord[T any](key []byte, decode func([]byte) (T, error)) (T,
 
 func commit(batch *pebble.Batch) error {
 	return batch.Commit(&pebble.WriteOptions{Sync: true})
+}
+
+// commitReadCursor persists advisory read state without fsync. Losing a few
+// seconds of read cursors on a crash is harmless; clients report them again.
+func commitReadCursor(batch *pebble.Batch) error {
+	return batch.Commit(&pebble.WriteOptions{Sync: false})
 }
 
 func contextErr(ctx context.Context) error {

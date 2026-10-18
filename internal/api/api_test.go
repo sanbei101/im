@@ -675,6 +675,19 @@ func TestRoomHTTP(t *testing.T) {
 			"/api/v1/rooms/"+roomID.String()+"/read", bobToken,
 			jsonBody(t, MarkReadReq{ReadSeq: message.RoomSeq}))
 		requireStatus(t, recorder, http.StatusOK)
+		readSeq, err := env.data.ReadSeq(context.Background(), roomID, bob.UserID)
+		if err != nil || readSeq != message.RoomSeq {
+			t.Fatalf("read seq = %d, want %d; err=%v", readSeq, message.RoomSeq, err)
+		}
+
+		recorder = doRequest(t, env.handler, http.MethodGet,
+			"/api/v1/messages/"+message.MsgID.String()+"/read_users?room_id="+roomID.String(), bobToken, nil)
+		requireStatus(t, recorder, http.StatusOK)
+		readUsers := decodeResponse[ReadUsersResp](t, recorder)
+		if readUsers.Data.Count != 1 || len(readUsers.Data.ReadUserIDs) != 1 ||
+			readUsers.Data.ReadUserIDs[0] != bob.UserID {
+			t.Fatalf("read users = %+v", readUsers.Data)
+		}
 
 		recorder = doRequest(t, env.handler, http.MethodGet, "/api/v1/rooms/"+roomID.String(), bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
@@ -727,11 +740,9 @@ func TestRoomHTTP(t *testing.T) {
 			"/api/v1/rooms/"+room.RoomID.String()+"/clear_unread", token, nil)
 		requireStatus(t, recorder, http.StatusOK)
 
-		recorder = doRequest(t, env.handler, http.MethodGet, "/api/v1/conversations", token, nil)
-		requireStatus(t, recorder, http.StatusOK)
-		conversations = decodeResponse[ConversationListResp](t, recorder)
-		if conversations.Data.Conversations[0].ReadSeq != message.RoomSeq {
-			t.Fatalf("read seq = %d, want %d", conversations.Data.Conversations[0].ReadSeq, message.RoomSeq)
+		readSeq, err := env.data.ReadSeq(context.Background(), room.RoomID, alice.UserID)
+		if err != nil || readSeq != message.RoomSeq {
+			t.Fatalf("read seq = %d, want %d; err=%v", readSeq, message.RoomSeq, err)
 		}
 	})
 

@@ -15,6 +15,7 @@ const (
 	prefixReaction   = 'R'
 	prefixPin        = 'P'
 	prefixDevice     = 't'
+	prefixRead       = 'u'
 )
 
 func appendRoomKey(dst []byte, id uuid.UUID) []byte {
@@ -77,6 +78,14 @@ func appendPinPrefix(dst []byte, room uuid.UUID) []byte {
 
 func appendDeviceKey(dst []byte, user uuid.UUID) []byte {
 	return append(append(dst, prefixDevice), user[:]...)
+}
+
+func appendReadKey(dst []byte, room, user uuid.UUID) []byte {
+	return append(append(append(dst, prefixRead), room[:]...), user[:]...)
+}
+
+func appendReadPrefix(dst []byte, room uuid.UUID) []byte {
+	return append(append(dst, prefixRead), room[:]...)
 }
 
 func prefixUpperBoundBuf(buf, prefix []byte) []byte {

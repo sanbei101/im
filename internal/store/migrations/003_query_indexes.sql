@@ -7,10 +7,6 @@ CREATE INDEX blacklist_user_created_idx
 DROP INDEX IF EXISTS friend_applications_from_idx;
 DROP INDEX IF EXISTS users_nickname_lower_idx;
 
-DROP INDEX IF EXISTS room_reads_room_idx;
-CREATE INDEX room_reads_room_seq_idx
-    ON room_reads (room_id, read_seq DESC, user_id);
-
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX users_username_trgm_idx
     ON users USING gin (lower(username) gin_trgm_ops);

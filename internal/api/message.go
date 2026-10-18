@@ -276,7 +276,7 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	users, err := a.db.ReadUsers(r.Context(), roomID, message.RoomSeq, members)
+	users, err := a.store.ReadUsers(r.Context(), roomID, message.RoomSeq, members)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return

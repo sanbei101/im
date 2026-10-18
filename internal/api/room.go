@@ -7,6 +7,7 @@ import (
 	"uuid"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
@@ -519,6 +520,10 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := a.data.DeleteRead(r.Context(), roomID, targetID); err != nil {
+		log.Warn().Err(err).Str("room_id", roomID.String()).
+			Str("user_id", targetID.String()).Msg("delete read cursor failed")
+	}
 	if a.streamHandler != nil {
 		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
@@ -613,6 +618,10 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := a.data.DeleteRead(r.Context(), roomID, myID); err != nil {
+		log.Warn().Err(err).Str("room_id", roomID.String()).
+			Str("user_id", myID.String()).Msg("delete read cursor failed")
+	}
 	if a.streamHandler != nil {
 		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
@@ -706,6 +715,9 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DissolveRoom(r.Context(), roomID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if err := a.data.DeleteRoomReads(r.Context(), roomID); err != nil {
+		log.Warn().Err(err).Str("room_id", roomID.String()).Msg("delete room read cursors failed")
 	}
 	if a.streamHandler != nil {
 		memberIDs := make([]uuid.UUID, 0, len(members))

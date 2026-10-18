@@ -5,7 +5,7 @@
 ## 架构
 
 - `gateway` 是统一入口:维护 WebSocket 长连接和用户会话,同时把 `/api/` 请求转发到 API 节点;使用协议层 ping/pong 控制帧保活,每 30s 主动 ping,5s 未收到 pong 即断开并注销在线状态。
-- `api` 同时承载控制面和消息面。控制面(用户、设备、好友、房间、成员、成员设置、已读游标)全部读写 PostgreSQL;消息面(消息、幂等、room_seq、置顶、表情、归档)使用本节点 Pebble。
+- `api` 同时承载控制面和消息面。控制面(用户、设备、好友、房间、成员、成员设置)读写 PostgreSQL;消息面(消息、幂等、room_seq、已读游标、置顶、表情、归档)使用本节点 Pebble。
 - 所有 API 节点共享同一个 PostgreSQL,控制面请求可以落到任意节点。
 - API 节点按 `hash(room_id) % slots` 拥有消息分片;Gateway 把消息、历史、搜索、置顶、表情等房间请求转发到归属节点。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,协议由 Kitex 生成 fastpb 编解码代码。
@@ -109,7 +109,7 @@ Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入
 
 推送:API 写盘后按 PostgreSQL 成员列表推送 → RoomPushBatch → Gateway 分发到成员 WS 连接
 补拉:GET /api/v1/messages/history?room_id=&before_seq=&page_size=
-会话列表:PostgreSQL 房间/成员/已读游标;最新消息和预览由客户端维护,新设备懒加载
+会话列表:PostgreSQL 房间/成员;最新消息、未读和已读游标由客户端维护,新设备懒加载
 ```
 
 - `before_seq` 是排他上界:返回 `room_seq < before_seq` 的消息,用于按本地最新序号向前补拉。

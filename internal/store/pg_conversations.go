@@ -13,11 +13,9 @@ func (db *DB) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversati
 	rows, err := db.pool.Query(ctx, `
 		SELECT r.room_id::text, r.chat_type, r.name, r.avatar_url, r.notice,
 		       r.single_chat_hash, r.created_at, r.updated_at,
-		       m.room_id::text, m.user_id::text, m.role, m.is_hidden, m.is_muted, m.is_pinned,
-		       COALESCE(rs.read_seq, 0)
+		       m.room_id::text, m.user_id::text, m.role, m.is_hidden, m.is_muted, m.is_pinned
 		FROM room_members m
 		JOIN rooms r ON r.room_id = m.room_id
-		LEFT JOIN room_reads rs ON rs.room_id = m.room_id AND rs.user_id = m.user_id
 		WHERE m.user_id = $1::uuid
 		ORDER BY r.updated_at DESC, r.room_id`, userID.String())
 	if err != nil {
@@ -33,14 +31,12 @@ func (db *DB) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversati
 			roomID       string
 			memberRoomID string
 			memberUserID string
-			readSeq      int64
 		)
 		if err := rows.Scan(
 			&roomID, &room.ChatType, &room.Name, &room.AvatarURL, &room.Notice,
 			&room.SingleChatHash, &room.CreatedAt, &room.UpdatedAt,
 			&memberRoomID, &memberUserID, &member.Role,
 			&member.IsHidden, &member.IsMuted, &member.IsPinned,
-			&readSeq,
 		); err != nil {
 			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
@@ -53,9 +49,7 @@ func (db *DB) Conversations(ctx context.Context, userID uuid.UUID) ([]Conversati
 		if member.UserID, err = uuid.Parse(memberUserID); err != nil {
 			return nil, fmt.Errorf("parse conversation user_id: %w", err)
 		}
-		result = append(result, ConversationInfo{
-			Room: room, Member: member, ReadSeq: uint64(readSeq),
-		})
+		result = append(result, ConversationInfo{Room: room, Member: member})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate conversations: %w", err)

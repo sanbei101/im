@@ -58,7 +58,7 @@ func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	if err := a.db.MarkRead(r.Context(), myID, roomID, req.ReadSeq); err != nil {
+	if err := a.data.MarkRead(r.Context(), roomID, myID, req.ReadSeq); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -86,7 +86,7 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.db.MarkRead(r.Context(), myID, roomID, head.LastSeq); err != nil {
+	if err := a.data.MarkRead(r.Context(), roomID, myID, head.LastSeq); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
