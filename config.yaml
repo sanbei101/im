@@ -8,7 +8,6 @@ gateway:
   addr: ":8800"
   api_addrs:
     - "127.0.0.1:9000"
-  max_timeout: 10
 
 store:
   path: "./data/api-1"
@@ -19,11 +18,13 @@ shard:
   slots: 1024
 
 storage:
-  endpoint: "127.0.0.1:19901"
+  endpoint: "<ACCOUNT_ID>.r2.cloudflarestorage.com"
   bucket: "im-media"
-  access_key_id: "rustfsadmin"
-  secret_access_key: "rustfsadmin"
-  use_ssl: false
-  public_url_prefix: ""
+  access_key: "<S3_ACCESS_KEY>"
+  secret_key: "<S3_ACCESS_SECRET>"
+  region: "auto"
+  use_ssl: true
+  path_style: false
+  public_base_url: "https://cdn.example.com"
 
 jwt_secret: ""

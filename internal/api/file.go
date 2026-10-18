@@ -14,12 +14,12 @@ import (
 )
 
 type FileAPI struct {
-	objects         *store.MinioObjectStore
-	publicURLPrefix string
+	objects       *store.MinioObjectStore
+	publicBaseURL string
 }
 
-func NewFileAPI(objects *store.MinioObjectStore, publicURLPrefix string) *FileAPI {
-	return &FileAPI{objects: objects, publicURLPrefix: publicURLPrefix}
+func NewFileAPI(objects *store.MinioObjectStore, publicBaseURL string) *FileAPI {
+	return &FileAPI{objects: objects, publicBaseURL: publicBaseURL}
 }
 
 type PresignUploadReq struct {
@@ -45,19 +45,15 @@ func (a *FileAPI) PresignUpload(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	presignedURL, err := a.objects.PresignPut(ctx, fileKey, 15*time.Minute)
+	uploadURL, err := a.objects.PresignPut(ctx, fileKey, 15*time.Minute)
 	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "generate presigned url failed: "+err.Error())
+		render.Error(w, http.StatusInternalServerError, "generate upload url failed: "+err.Error())
 		return
 	}
-
-	downloadURL := presignedURL.String()
-	if a.publicURLPrefix != "" {
-		downloadURL = fmt.Sprintf("%s/%s/%s", strings.TrimRight(a.publicURLPrefix, "/"), a.objects.Bucket(), fileKey)
-	}
+	downloadURL := strings.TrimRight(a.publicBaseURL, "/") + "/" + fileKey
 
 	render.Success(w, "获取上传预签名链接成功", PresignUploadResp{
-		UploadURL:   presignedURL.String(),
+		UploadURL:   uploadURL.String(),
 		DownloadURL: downloadURL,
 		FileKey:     fileKey,
 	})

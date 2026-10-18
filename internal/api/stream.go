@@ -76,7 +76,7 @@ func newAPIConnection(stream pb.GatewayService_ConnectServer) *apiConnection {
 
 // enqueue hands a frame to the connection writer and returns immediately, so
 // a slow gateway can never stall another gateway's message loop or an HTTP
-// handler. Pushes are lossy by design — clients catch up via room_seq pull.
+// handler. Pushes are lossy by design - clients catch up via room_seq pull.
 func (c *apiConnection) enqueue(frame *pb.APIFrame) error {
 	select {
 	case c.outbox <- frame:

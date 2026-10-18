@@ -74,10 +74,6 @@ func ownedMessage(m Message) Message {
 	return m
 }
 
-func encodeDedup(value Dedup) []byte {
-	return appendDedup(nil, value)
-}
-
 // appendDedup encodes into dst; the record is fixed-size, so batch writes
 // pass a stack buffer and allocate nothing.
 func appendDedup(data []byte, value Dedup) []byte {
@@ -338,7 +334,7 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 		return MessagePage{}, fmt.Errorf(
 			"messages %d..%d are archived but no remote object store is configured",
 			lo,
-			min64(hi, watermark+1),
+			min(hi, watermark+1),
 		)
 	}
 	warmLo := lo
@@ -349,7 +345,7 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	if err != nil {
 		return MessagePage{}, err
 	}
-	cold, err := s.readArchivedRange(ctx, roomID, lo, min64(hi, watermark+1))
+	cold, err := s.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -422,7 +418,7 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 		return MessagePage{}, fmt.Errorf(
 			"messages %d..%d are archived but no remote object store is configured",
 			lo,
-			min64(hi, watermark+1),
+			min(hi, watermark+1),
 		)
 	}
 	warmLo := lo
@@ -433,7 +429,7 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 	if err != nil {
 		return MessagePage{}, err
 	}
-	cold, err := s.readArchivedRange(ctx, roomID, lo, min64(hi, watermark+1))
+	cold, err := s.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -476,13 +472,6 @@ func (s *Store) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
 		messages = append(messages, message)
 	}
 	return messages, iter.Error()
-}
-
-func min64(a, b uint64) uint64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func messageUpperBoundBuf(buf, prefix []byte, before uint64) []byte {

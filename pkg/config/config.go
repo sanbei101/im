@@ -13,7 +13,7 @@ import (
 	"github.com/sanbei101/im/pkg"
 )
 
-const DefaultConfigPath = "config.yaml"
+const defaultConfigPath = "config.yaml"
 
 type Config struct {
 	API       APIConfig     `yaml:"api"`
@@ -25,12 +25,14 @@ type Config struct {
 }
 
 type StorageConfig struct {
-	Endpoint        string `yaml:"endpoint"`
-	Bucket          string `yaml:"bucket"`
-	AccessKeyID     string `yaml:"access_key_id"`
-	SecretAccessKey string `yaml:"secret_access_key"`
-	UseSSL          bool   `yaml:"use_ssl"`
-	PublicURLPrefix string `yaml:"public_url_prefix"`
+	Endpoint      string `yaml:"endpoint"`
+	Bucket        string `yaml:"bucket"`
+	AccessKey     string `yaml:"access_key"`
+	SecretKey     string `yaml:"secret_key"`
+	Region        string `yaml:"region"`
+	UseSSL        bool   `yaml:"use_ssl"`
+	PathStyle     bool   `yaml:"path_style"`
+	PublicBaseURL string `yaml:"public_base_url"`
 }
 
 type APIConfig struct {
@@ -41,9 +43,8 @@ type APIConfig struct {
 }
 
 type GatewayConfig struct {
-	Addr       string   `yaml:"addr"`
-	APIAddrs   []string `yaml:"api_addrs"`
-	MaxTimeout int      `yaml:"max_timeout"`
+	Addr     string   `yaml:"addr"`
+	APIAddrs []string `yaml:"api_addrs"`
 }
 
 type StoreConfig struct {
@@ -56,24 +57,28 @@ type ShardConfig struct {
 	Slots int `yaml:"slots"`
 }
 
-func New(path ...string) *Config {
-	p := DefaultConfigPath
-	if len(path) > 0 && path[0] != "" {
-		p = path[0]
-	}
-	cfg, err := Load(p)
+func New() *Config {
+	cfg, err := Load(defaultConfigPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 	return cfg
 }
 
+// NewTest returns a self-contained config for tests; it never reads the
+// environment or the filesystem.
 func NewTest() *Config {
-	cfg := &Config{}
-	if err := cfg.Default(); err != nil {
-		panic(err)
+	return &Config{
+		API:     APIConfig{NodeID: "api-1", Addr: ":9000", NodeCount: 1},
+		Gateway: GatewayConfig{Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"}},
+		Store:   StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
+		Shard:   ShardConfig{Slots: 1024},
+		Storage: StorageConfig{
+			Endpoint: "127.0.0.1:19901", Bucket: "im-media",
+			AccessKey: "rustfsadmin", SecretKey: "rustfsadmin",
+			Region: "us-east-1", PathStyle: true, PublicBaseURL: "https://cdn.example.test",
+		},
 	}
-	return cfg
 }
 
 func Load(path string) (*Config, error) {
@@ -92,12 +97,8 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) Default() error {
-	if value := os.Getenv("API_NODE_ID"); value != "" {
-		c.API.NodeID = value
-	}
-	if value := os.Getenv("API_ADDR"); value != "" {
-		c.API.Addr = value
-	}
+	envString("API_NODE_ID", &c.API.NodeID)
+	envString("API_ADDR", &c.API.Addr)
 	if c.API.NodeID == "" {
 		c.API.NodeID = "api-1"
 	}
@@ -109,9 +110,6 @@ func (c *Config) Default() error {
 	}
 	if len(c.Gateway.APIAddrs) == 0 {
 		c.Gateway.APIAddrs = []string{"127.0.0.1:9000"}
-	}
-	if c.Gateway.MaxTimeout == 0 {
-		c.Gateway.MaxTimeout = 10
 	}
 	if c.Store.Path == "" {
 		c.Store.Path = "./data/" + c.API.NodeID
@@ -125,9 +123,7 @@ func (c *Config) Default() error {
 	if c.Shard.Slots == 0 {
 		c.Shard.Slots = 1024
 	}
-	if value := os.Getenv("GATEWAY_ADDR"); value != "" {
-		c.Gateway.Addr = value
-	}
+	envString("GATEWAY_ADDR", &c.Gateway.Addr)
 	if value := os.Getenv("GATEWAY_API_ADDRS"); value != "" {
 		addrs := strings.Split(value, ",")
 		trimmed := make([]string, 0, len(addrs))
@@ -140,12 +136,8 @@ func (c *Config) Default() error {
 			c.Gateway.APIAddrs = trimmed
 		}
 	}
-	if value := os.Getenv("STORE_PATH"); value != "" {
-		c.Store.Path = value
-	}
-	if value := os.Getenv("BACKUP_PATH"); value != "" {
-		c.Store.BackupPath = value
-	}
+	envString("STORE_PATH", &c.Store.Path)
+	envString("BACKUP_PATH", &c.Store.BackupPath)
 	if value := os.Getenv("SHARD_SLOTS"); value != "" {
 		slots, err := strconv.Atoi(value)
 		if err != nil {
@@ -156,30 +148,40 @@ func (c *Config) Default() error {
 	if c.API.NodeCount == 0 {
 		c.API.NodeCount = len(c.Gateway.APIAddrs)
 	}
-	if c.Storage.Endpoint == "" {
-		c.Storage.Endpoint = "127.0.0.1:19901"
+	if c.Storage.Region == "" {
+		c.Storage.Region = "us-east-1"
 	}
-	if c.Storage.Bucket == "" {
-		c.Storage.Bucket = "im-media"
+	envString("S3_ENDPOINT", &c.Storage.Endpoint)
+	envString("S3_BUCKET", &c.Storage.Bucket)
+	envString("S3_ACCESS_KEY", &c.Storage.AccessKey)
+	envString("S3_ACCESS_SECRET", &c.Storage.SecretKey)
+	envString("S3_REGION", &c.Storage.Region)
+	if err := envBool("S3_USE_SSL", &c.Storage.UseSSL); err != nil {
+		return err
 	}
-	if c.Storage.AccessKeyID == "" {
-		c.Storage.AccessKeyID = "rustfsadmin"
+	if err := envBool("S3_PATH_STYLE", &c.Storage.PathStyle); err != nil {
+		return err
 	}
-	if c.Storage.SecretAccessKey == "" {
-		c.Storage.SecretAccessKey = "rustfsadmin"
+	envString("S3_PUBLIC_BASE_URL", &c.Storage.PublicBaseURL)
+	return nil
+}
+
+func envString(key string, target *string) {
+	if value := os.Getenv(key); value != "" {
+		*target = value
 	}
-	if value := os.Getenv("STORAGE_ENDPOINT"); value != "" {
-		c.Storage.Endpoint = value
+}
+
+func envBool(key string, target *bool) error {
+	value := os.Getenv(key)
+	if value == "" {
+		return nil
 	}
-	if value := os.Getenv("STORAGE_BUCKET"); value != "" {
-		c.Storage.Bucket = value
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fmt.Errorf("parse %s %q: %w", key, value, err)
 	}
-	if value := os.Getenv("STORAGE_ACCESS_KEY_ID"); value != "" {
-		c.Storage.AccessKeyID = value
-	}
-	if value := os.Getenv("STORAGE_SECRET_ACCESS_KEY"); value != "" {
-		c.Storage.SecretAccessKey = value
-	}
+	*target = parsed
 	return nil
 }
 
@@ -189,6 +191,12 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Gateway.APIAddrs) == 0 {
 		return errors.New("at least one api address is required")
+	}
+	if c.Storage.Endpoint == "" || c.Storage.Bucket == "" ||
+		c.Storage.AccessKey == "" || c.Storage.SecretKey == "" || c.Storage.PublicBaseURL == "" {
+		return errors.New(
+			"storage endpoint, bucket, access_key, secret_key and public_base_url are required",
+		)
 	}
 	if c.Shard.Slots < 1 || c.Shard.Slots > pkg.MaxSlots {
 		return fmt.Errorf("shard slots must be within [1, %d]", pkg.MaxSlots)

@@ -622,7 +622,7 @@ func (s *apiStream) handleRoomPush(batch *pb.RoomPushBatch) {
 		if push == nil {
 			continue
 		}
-		// 消息体在网关本地仅编码 1 次，随后零冗余分发给所有目标连接
+		// 消息体在网关本地仅编码 1 次,随后零冗余分发给所有目标连接
 		frame := render.PushFrame{
 			Type:         "message",
 			MsgID:        push.GetMsgId(),

@@ -270,14 +270,3 @@ func (s *UserSession) ForEachClient(fn func(*UserClient)) {
 		fn(client)
 	}
 }
-
-// Clients 返回会话内全部客户端的快照(调用方遍历发送)。
-func (s *UserSession) Clients() []*UserClient {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	clients := make([]*UserClient, 0, len(s.clients))
-	for client := range s.clients {
-		clients = append(clients, client)
-	}
-	return clients
-}

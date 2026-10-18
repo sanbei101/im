@@ -25,7 +25,7 @@ func NewRouter(
 	s *store.Store,
 	streamHandler *StreamHandler,
 	objects *store.MinioObjectStore,
-	publicURLPrefix string,
+	publicBaseURL string,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -54,7 +54,7 @@ func NewRouter(
 	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
 	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler}
 	conversationAPI := &ConversationAPI{store: s}
-	fileAPI := NewFileAPI(objects, publicURLPrefix)
+	fileAPI := NewFileAPI(objects, publicBaseURL)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.Ping(r.Context()); err != nil {

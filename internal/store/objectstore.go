@@ -12,7 +12,7 @@ import (
 )
 
 // ObjectStore is the remote archive destination. MinIO covers any
-// S3-compatible endpoint; tests back it with a local directory.
+// S3-compatible endpoint, including Cloudflare R2.
 type ObjectStore interface {
 	Put(ctx context.Context, key string, reader io.Reader, size int64) error
 	Get(ctx context.Context, key string) ([]byte, error)
@@ -23,26 +23,38 @@ type MinioObjectStore struct {
 	bucket string
 }
 
-func NewMinioObjectStore(
-	endpoint, bucket, accessKeyID, secretAccessKey string,
-	useSSL bool,
-) (*MinioObjectStore, error) {
-	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
-		// A fixed region keeps PresignPut purely local signing; without it
-		// minio-go queries the bucket location over the network first.
-		Region: "us-east-1",
+// ObjectStoreConfig describes an S3-compatible endpoint. PathStyle selects
+// path-style addressing (MinIO, rustfs, local endpoints); the default is
+// virtual-hosted-style, which R2 and AWS S3 support.
+type ObjectStoreConfig struct {
+	Endpoint  string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+	Region    string
+	UseSSL    bool
+	PathStyle bool
+}
+
+func NewMinioObjectStore(cfg ObjectStoreConfig) (*MinioObjectStore, error) {
+	region := cfg.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+	lookup := minio.BucketLookupDNS
+	if cfg.PathStyle {
+		lookup = minio.BucketLookupPath
+	}
+	client, err := minio.New(cfg.Endpoint, &minio.Options{
+		Creds:        credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure:       cfg.UseSSL,
+		Region:       region,
+		BucketLookup: lookup,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create minio client: %w", err)
 	}
-	return &MinioObjectStore{client: client, bucket: bucket}, nil
-}
-
-// Bucket exposes the configured bucket name for URL composition outside the store.
-func (s *MinioObjectStore) Bucket() string {
-	return s.bucket
+	return &MinioObjectStore{client: client, bucket: cfg.Bucket}, nil
 }
 
 // PresignPut generates a time-limited upload URL for direct client-to-storage

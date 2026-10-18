@@ -37,14 +37,24 @@ make gen
 启动 API 和 Gateway:
 
 ```bash
+cp config.example.yaml config.yaml
 go run ./cmd/api
 go run ./cmd/gateway
 ```
 
-或使用 Docker Compose:
+二进制部署:
 
 ```bash
-docker compose up --build
+make build
+./bin/api
+./bin/gateway
+```
+
+或后台启动并查看日志:
+
+```bash
+make dev
+make stop
 ```
 
 默认端口:HTTP `8801`、WebSocket `8800`、API 内部流 `9000`。

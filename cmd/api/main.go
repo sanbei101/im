@@ -61,10 +61,15 @@ func run() error {
 	defer data.Close()
 	defer cancel()
 
-	objects, err := store.NewMinioObjectStore(
-		cfg.Storage.Endpoint, cfg.Storage.Bucket,
-		cfg.Storage.AccessKeyID, cfg.Storage.SecretAccessKey, cfg.Storage.UseSSL,
-	)
+	objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
+		Endpoint:  cfg.Storage.Endpoint,
+		Bucket:    cfg.Storage.Bucket,
+		AccessKey: cfg.Storage.AccessKey,
+		SecretKey: cfg.Storage.SecretKey,
+		Region:    cfg.Storage.Region,
+		UseSSL:    cfg.Storage.UseSSL,
+		PathStyle: cfg.Storage.PathStyle,
+	})
 	if err != nil {
 		return fmt.Errorf("create object store: %w", err)
 	}
@@ -76,7 +81,7 @@ func run() error {
 	}
 
 	streamHandler := api.NewStreamHandler(data, cfg.API.NodeID, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
-	r := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicURLPrefix)
+	r := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicBaseURL)
 	listenAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)

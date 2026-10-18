@@ -9,3 +9,4 @@ bench/dist/
 data/
 backup/
 .tmp/
+bin/

@@ -49,10 +49,15 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 func newBenchObjectStore(b *testing.B) *MinioObjectStore {
 	b.Helper()
 	cfg := config.NewTest()
-	objects, err := NewMinioObjectStore(
-		cfg.Storage.Endpoint, cfg.Storage.Bucket,
-		cfg.Storage.AccessKeyID, cfg.Storage.SecretAccessKey, cfg.Storage.UseSSL,
-	)
+	objects, err := NewMinioObjectStore(ObjectStoreConfig{
+		Endpoint:  cfg.Storage.Endpoint,
+		Bucket:    cfg.Storage.Bucket,
+		AccessKey: cfg.Storage.AccessKey,
+		SecretKey: cfg.Storage.SecretKey,
+		Region:    cfg.Storage.Region,
+		UseSSL:    cfg.Storage.UseSSL,
+		PathStyle: cfg.Storage.PathStyle,
+	})
 	if err != nil {
 		b.Fatalf("create minio client for %s: %v", cfg.Storage.Endpoint, err)
 	}

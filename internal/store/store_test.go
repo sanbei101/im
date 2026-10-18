@@ -111,7 +111,7 @@ func TestMessageCodec(t *testing.T) {
 	})
 	t.Run("dedup round trip", func(t *testing.T) {
 		want := Dedup{MsgID: uuid.NewV7(), RoomSeq: 7, ServerTime: 42, PayloadSum: [32]byte{1, 2, 3}}
-		got, err := decodeDedup(encodeDedup(want))
+		got, err := decodeDedup(appendDedup(nil, want))
 		if err != nil {
 			t.Fatal(err)
 		}
