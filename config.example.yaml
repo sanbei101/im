@@ -16,6 +16,7 @@ gateway:
 meta:
   listen_addr: ":8802"
   http_addr: "127.0.0.1:8802"
+  rpc_addr: "127.0.0.1:9002"
   pprof_addr: "127.0.0.1:6063"
   store_path: "./data/meta"
   backup_path: "./backup/meta"

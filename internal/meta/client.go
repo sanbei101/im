@@ -2,50 +2,44 @@ package meta
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
 	"uuid"
 
+	kitexclient "github.com/cloudwego/kitex/client"
+	"github.com/cloudwego/kitex/transport"
+
 	"github.com/sanbei101/im/internal/store"
-	"github.com/sanbei101/im/pkg/render"
+	"github.com/sanbei101/im/proto/pb"
+	"github.com/sanbei101/im/proto/pb/metaservice"
 )
 
-const internalTokenHeader = "X-Internal-Token"
+const metaServiceName = "im-meta"
 
-// Client reads authoritative user profiles from the Meta service.
+// Client reads authoritative user profiles from the Meta Kitex service.
 type Client struct {
-	baseURL string
-	token   string
-	http    *http.Client
+	rpc metaservice.Client
 }
 
-func NewClient(address, token string) (*Client, error) {
-	if strings.TrimSpace(address) == "" {
-		return nil, errors.New("meta address is empty")
+func NewClient(address string) (*Client, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil, errors.New("meta rpc address is empty")
 	}
-	if !strings.Contains(address, "://") {
-		address = "http://" + address
-	}
-	parsed, err := url.Parse(address)
+	address = strings.TrimPrefix(address, "http://")
+	address = strings.TrimPrefix(address, "https://")
+	address = strings.TrimRight(address, "/")
+	rpc, err := metaservice.NewClient(
+		metaServiceName,
+		kitexclient.WithHostPorts(address),
+		kitexclient.WithTransportProtocol(transport.GRPC),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("parse meta address: %w", err)
+		return nil, fmt.Errorf("create meta rpc client: %w", err)
 	}
-	if parsed.Host == "" {
-		return nil, fmt.Errorf("meta address %q has no host", address)
-	}
-	return &Client{
-		baseURL: strings.TrimRight(parsed.String(), "/"),
-		token:   token,
-		http: &http.Client{
-			Timeout: 5 * time.Second,
-		},
-	}, nil
+	return &Client{rpc: rpc}, nil
 }
 
 func (c *Client) UsersByIDs(
@@ -55,37 +49,27 @@ func (c *Client) UsersByIDs(
 	if len(ids) == 0 {
 		return map[uuid.UUID]store.User{}, nil
 	}
-	values := make([]string, len(ids))
+	rawIDs := make([]string, len(ids))
 	for i, id := range ids {
-		values[i] = id.String()
+		rawIDs[i] = id.String()
 	}
-	endpoint := c.baseURL + "/internal/users?ids=" + url.QueryEscape(strings.Join(values, ","))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	response, err := c.rpc.GetUsers(ctx, &pb.GetUsersReq{UserIds: rawIDs})
 	if err != nil {
-		return nil, fmt.Errorf("create meta request: %w", err)
+		return nil, fmt.Errorf("get meta users: %w", err)
 	}
-	request.Header.Set(internalTokenHeader, c.token)
-	response, err := c.http.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("request meta users: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
-		if readErr != nil {
-			return nil, fmt.Errorf("meta users returned %d; read body: %w", response.StatusCode, readErr)
+	users := make(map[uuid.UUID]store.User, len(response.GetUsers()))
+	for _, profile := range response.GetUsers() {
+		id, parseErr := uuid.Parse(profile.GetUserId())
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse meta user id %q: %w", profile.GetUserId(), parseErr)
 		}
-		return nil, fmt.Errorf("meta users returned %d: %s", response.StatusCode, body)
+		users[id] = store.User{
+			UserID:    id,
+			Username:  profile.GetUsername(),
+			Nickname:  profile.GetNickname(),
+			AvatarURL: profile.GetAvatarUrl(),
+			CreatedAt: time.UnixMicro(profile.GetCreatedAtUnixMicro()),
+		}
 	}
-	var payload render.Response[map[uuid.UUID]store.User]
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode meta users: %w", err)
-	}
-	if payload.Code != http.StatusOK {
-		return nil, fmt.Errorf("meta users error %d: %s", payload.Code, payload.Msg)
-	}
-	if payload.Data == nil {
-		return map[uuid.UUID]store.User{}, nil
-	}
-	return payload.Data, nil
+	return users, nil
 }

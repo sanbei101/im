@@ -70,7 +70,7 @@ func NewRouter(
 }
 
 // NewMetaRouter serves the authoritative identity/social control plane.
-func NewMetaRouter(s *store.Store, internalSecret string) http.Handler {
+func NewMetaRouter(s *store.Store) http.Handler {
 	r := newBaseRouter()
 	userAPI := &UserAPI{store: s}
 
@@ -78,10 +78,6 @@ func NewMetaRouter(s *store.Store, internalSecret string) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		registerUsers(r, userAPI, true, false)
 		registerDevices(r, userAPI)
-	})
-	r.Route("/internal", func(r chi.Router) {
-		r.Use(internalAuth(internalSecret))
-		r.Get("/users", userAPI.InternalUsers)
 	})
 	return r
 }

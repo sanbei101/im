@@ -12,7 +12,7 @@
 - 实时推送不是可靠存储,断线和推送失败统一通过房间消息序号补拉。
 - Pebble checkpoint 由 API 进程定期生成和保留;当前不实现 `imctl`。
 - 多 API 节点时,`gateway.api_addrs` 与 `gateway.api_http_addrs` 都按 `node_index` 排列;客户端只连接 Gateway,`/ws` 走长连接,带 `room_id` 的 `/api` 请求由 Gateway 转发到归属节点,API 不再自行转发。
-- Meta 拥有用户、设备 token 和内部用户查询;Work 通过 `meta.http_addr` 读取用户资料。
+- Meta 拥有用户、设备 token,并通过 Kitex RPC `meta.rpc_addr` 提供内部用户查询;Work 不直接访问 Meta 的 Pebble。
 
 ## 目录
 

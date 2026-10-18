@@ -30,6 +30,7 @@ stop:
 
 gen:
 	kitex -type protobuf -streamx -module github.com/sanbei101/im -gen-path proto/pb proto/gateway.proto
+	kitex -type protobuf -module github.com/sanbei101/im -gen-path proto/pb proto/meta.proto
 
 lint:
 	golangci-lint fmt

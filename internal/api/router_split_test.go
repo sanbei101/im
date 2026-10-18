@@ -2,16 +2,12 @@ package api
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"testing"
-	"uuid"
-
-	"github.com/sanbei101/im/internal/store"
 )
 
 func TestMetaAndWorkRouters(t *testing.T) {
 	env := newTestEnv(t)
-	metaHandler := NewMetaRouter(env.store, "internal-secret")
+	metaHandler := NewMetaRouter(env.store)
 	workHandler := NewWorkRouter(env.store, env.stream, env.store, nil, "https://cdn.example.test")
 
 	alice, token := env.addUser(t, "alice")
@@ -44,23 +40,6 @@ func TestMetaAndWorkRouters(t *testing.T) {
 		presence := decodeResponse[PresenceResp](t, recorder)
 		if presence.Data.Presence[alice.UserID.String()] {
 			t.Fatal("user without a session reported online")
-		}
-	})
-
-	t.Run("internal users require the token", func(t *testing.T) {
-		recorder := doRequest(t, metaHandler, http.MethodGet,
-			"/internal/users?ids="+alice.UserID.String(), "", nil)
-		requireStatus(t, recorder, http.StatusUnauthorized)
-
-		request := httptest.NewRequest(http.MethodGet,
-			"/internal/users?ids="+alice.UserID.String(), nil)
-		request.Header.Set(internalTokenHeader, "internal-secret")
-		recorder = httptest.NewRecorder()
-		metaHandler.ServeHTTP(recorder, request)
-		requireStatus(t, recorder, http.StatusOK)
-		users := decodeResponse[map[uuid.UUID]store.User](t, recorder)
-		if users.Data[alice.UserID].Username != "alice" {
-			t.Fatalf("users = %+v", users.Data)
 		}
 	})
 }

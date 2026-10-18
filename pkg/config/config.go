@@ -54,6 +54,7 @@ type GatewayConfig struct {
 type MetaConfig struct {
 	ListenAddr     string `yaml:"listen_addr"`
 	HTTPAddr       string `yaml:"http_addr"`
+	RPCAddr        string `yaml:"rpc_addr"`
 	PProfAddr      string `yaml:"pprof_addr"`
 	StorePath      string `yaml:"store_path"`
 	BackupPath     string `yaml:"backup_path"`
@@ -116,7 +117,7 @@ func NewTest() *Config {
 			APIHTTPAddrs: []string{"127.0.0.1:8801"},
 		},
 		Meta: MetaConfig{
-			ListenAddr: ":8802", HTTPAddr: "127.0.0.1:8802",
+			ListenAddr: ":8802", HTTPAddr: "127.0.0.1:8802", RPCAddr: "127.0.0.1:9002",
 			PProfAddr: "127.0.0.1:6063", StorePath: "data/meta",
 			BackupPath: "backup/meta", BackupInterval: 3600,
 		},
@@ -177,6 +178,9 @@ func (c *Config) Default() error {
 	if c.Meta.HTTPAddr == "" {
 		c.Meta.HTTPAddr = "127.0.0.1:8802"
 	}
+	if c.Meta.RPCAddr == "" {
+		c.Meta.RPCAddr = "127.0.0.1:9002"
+	}
 	if c.Meta.PProfAddr == "" {
 		c.Meta.PProfAddr = "127.0.0.1:6063"
 	}
@@ -206,6 +210,7 @@ func (c *Config) Default() error {
 	envList("GATEWAY_API_HTTP_ADDRS", &c.Gateway.APIHTTPAddrs)
 	envString("META_LISTEN_ADDR", &c.Meta.ListenAddr)
 	envString("META_HTTP_ADDR", &c.Meta.HTTPAddr)
+	envString("META_RPC_ADDR", &c.Meta.RPCAddr)
 	envString("META_PPROF_ADDR", &c.Meta.PProfAddr)
 	envString("META_STORE_PATH", &c.Meta.StorePath)
 	envString("META_BACKUP_PATH", &c.Meta.BackupPath)
@@ -295,6 +300,9 @@ func (c *Config) ValidateMeta() error {
 	if strings.TrimSpace(c.Meta.ListenAddr) == "" || strings.TrimSpace(c.Meta.HTTPAddr) == "" {
 		return errors.New("meta listen_addr and http_addr are required")
 	}
+	if strings.TrimSpace(c.Meta.RPCAddr) == "" {
+		return errors.New("meta rpc_addr is required")
+	}
 	if strings.TrimSpace(c.Meta.StorePath) == "" || strings.TrimSpace(c.Meta.BackupPath) == "" {
 		return errors.New("meta store_path and backup_path are required")
 	}
@@ -334,6 +342,9 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Meta.ListenAddr) == "" || strings.TrimSpace(c.Meta.HTTPAddr) == "" {
 		return errors.New("meta listen_addr and http_addr are required")
+	}
+	if strings.TrimSpace(c.Meta.RPCAddr) == "" {
+		return errors.New("meta rpc_addr is required")
 	}
 	if strings.TrimSpace(c.Meta.StorePath) == "" || strings.TrimSpace(c.Meta.BackupPath) == "" {
 		return errors.New("meta store_path and backup_path are required")

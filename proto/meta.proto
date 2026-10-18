@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "github.com/sanbei101/im/proto/pb;pb";
+
+service MetaService {
+  rpc GetUsers(GetUsersReq) returns (GetUsersResp);
+}
+
+message GetUsersReq {
+  repeated string user_ids = 1;
+}
+
+message UserProfile {
+  string user_id = 1;
+  string username = 2;
+  string nickname = 3;
+  string avatar_url = 4;
+  int64 created_at_unix_micro = 5;
+}
+
+message GetUsersResp {
+  repeated UserProfile users = 1;
+}

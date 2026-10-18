@@ -13,13 +13,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/kitex/server"
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/api"
+	metarpc "github.com/sanbei101/im/internal/meta"
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
+	"github.com/sanbei101/im/proto/pb/metaservice"
 )
 
 const (
@@ -52,7 +55,17 @@ func run(cfg *config.Config) error {
 	}
 	defer data.Close()
 
-	handler := api.NewMetaRouter(data, cfg.JWTSecret)
+	handler := api.NewMetaRouter(data)
+	rpcAddr, err := net.ResolveTCPAddr("tcp", cfg.Meta.RPCAddr)
+	if err != nil {
+		return fmt.Errorf("resolve meta rpc address: %w", err)
+	}
+	rpcServer := metaservice.NewServer(
+		metarpc.NewServer(data),
+		server.WithServiceAddr(rpcAddr),
+		server.WithExitWaitTime(shutdownTimeout),
+	)
+
 	httpListener, err := net.Listen("tcp", cfg.Meta.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("listen meta http: %w", err)
@@ -84,7 +97,7 @@ func run(cfg *config.Config) error {
 		})
 	})
 
-	serveErr := make(chan error, 2)
+	serveErr := make(chan error, 3)
 	var servers sync.WaitGroup
 	servers.Go(func() {
 		log.Info().Str("addr", httpListener.Addr().String()).Msg("starting meta server")
@@ -97,6 +110,14 @@ func run(cfg *config.Config) error {
 			serveErr <- fmt.Errorf("meta pprof server: %w", err)
 		}
 	})
+	rpcDone := make(chan struct{})
+	go func() {
+		defer close(rpcDone)
+		log.Info().Str("addr", cfg.Meta.RPCAddr).Msg("starting meta rpc server")
+		if err := rpcServer.Run(); err != nil {
+			serveErr <- fmt.Errorf("meta rpc server: %w", err)
+		}
+	}()
 
 	var serveFailure error
 	select {
@@ -114,6 +135,10 @@ func run(cfg *config.Config) error {
 	if err := pprofServer.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("meta pprof shutdown failed")
 	}
+	if err := rpcServer.Stop(); err != nil {
+		log.Error().Err(err).Msg("meta rpc shutdown failed")
+	}
+	<-rpcDone
 	servers.Wait()
 	tasks.Wait()
 	if serveFailure != nil {

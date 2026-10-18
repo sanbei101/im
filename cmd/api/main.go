@@ -88,7 +88,7 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	}
 
 	streamHandler := api.NewStreamHandler(data, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
-	metaClient, err := metaclient.NewClient(cfg.Meta.HTTPAddr, cfg.JWTSecret)
+	metaClient, err := metaclient.NewClient(cfg.Meta.RPCAddr)
 	if err != nil {
 		return fmt.Errorf("create meta client: %w", err)
 	}
