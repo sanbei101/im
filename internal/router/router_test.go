@@ -20,30 +20,19 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestRouterRoutesRoomRequests(t *testing.T) {
+func TestEdgeRoutesRoomRequests(t *testing.T) {
 	const slots, nodes = 1024, 2
 
 	t.Run("path", func(t *testing.T) {
 		roomID := roomForNode(t, slots, nodes, 1)
-		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get(routedHeader) != "1" {
-				t.Error("forwarded request is missing the routed header")
-			}
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeBody(t, w, "upstream")
 		}))
 		defer upstream.Close()
 
-		rt, err := New(Config{
-			Slots:     slots,
-			LocalNode: 0,
-			HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-		}, localHandler(t, "local"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
+		edge := newEdge(t, upstream.Listener.Addr().String(), localHandler(t, "next"))
 		recorder := httptest.NewRecorder()
-		rt.ServeHTTP(recorder, httptest.NewRequest(
+		edge.ServeHTTP(recorder, httptest.NewRequest(
 			http.MethodGet,
 			"/api/v1/rooms/"+roomID.String()+"/members",
 			nil,
@@ -60,17 +49,9 @@ func TestRouterRoutesRoomRequests(t *testing.T) {
 		}))
 		defer upstream.Close()
 
-		rt, err := New(Config{
-			Slots:     slots,
-			LocalNode: 0,
-			HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-		}, localHandler(t, "local"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
+		edge := newEdge(t, upstream.Listener.Addr().String(), localHandler(t, "next"))
 		recorder := httptest.NewRecorder()
-		rt.ServeHTTP(recorder, httptest.NewRequest(
+		edge.ServeHTTP(recorder, httptest.NewRequest(
 			http.MethodGet,
 			"/api/v1/messages/history?room_id="+roomID.String(),
 			nil,
@@ -92,18 +73,10 @@ func TestRouterRoutesRoomRequests(t *testing.T) {
 		}))
 		defer upstream.Close()
 
-		rt, err := New(Config{
-			Slots:     slots,
-			LocalNode: 0,
-			HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-		}, localHandler(t, "local"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
+		edge := newEdge(t, upstream.Listener.Addr().String(), localHandler(t, "next"))
 		body := `{"room_id":"` + roomID.String() + `","msg_id":"00000000-0000-0000-0000-000000000000"}`
 		recorder := httptest.NewRecorder()
-		rt.ServeHTTP(recorder, httptest.NewRequest(
+		edge.ServeHTTP(recorder, httptest.NewRequest(
 			http.MethodPost,
 			"/api/v1/messages/recall",
 			strings.NewReader(body),
@@ -113,91 +86,22 @@ func TestRouterRoutesRoomRequests(t *testing.T) {
 		}
 	})
 
-	t.Run("local owner", func(t *testing.T) {
-		roomID := roomForNode(t, slots, nodes, 0)
+	t.Run("non-room request", func(t *testing.T) {
 		upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			t.Error("local request was forwarded")
+			t.Error("non-room request was forwarded to a room owner")
 		}))
 		defer upstream.Close()
 
-		rt, err := New(Config{
-			Slots:     slots,
-			LocalNode: 0,
-			HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-		}, localHandler(t, "local"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
+		edge := newEdge(t, upstream.Listener.Addr().String(), localHandler(t, "next"))
 		recorder := httptest.NewRecorder()
-		rt.ServeHTTP(recorder, httptest.NewRequest(
-			http.MethodGet,
-			"/api/v1/rooms/"+roomID.String(),
-			nil,
-		))
-		if recorder.Code != http.StatusOK || recorder.Body.String() != "local" {
-			t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
-		}
-	})
-
-	t.Run("request without room", func(t *testing.T) {
-		upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			t.Error("request without room was forwarded")
-		}))
-		defer upstream.Close()
-
-		rt, err := New(Config{
-			Slots:     slots,
-			LocalNode: 0,
-			HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-		}, localHandler(t, "local"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		recorder := httptest.NewRecorder()
-		rt.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil))
-		if recorder.Code != http.StatusOK || recorder.Body.String() != "local" {
-			t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
-		}
-	})
-
-	t.Run("already routed request stays local", func(t *testing.T) {
-		roomID := roomForNode(t, slots, nodes, 1)
-		upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			t.Error("already routed request was forwarded again")
-		}))
-		defer upstream.Close()
-
-		rt, err := New(Config{
-			Slots:     slots,
-			LocalNode: 0,
-			HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-		}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get(routedHeader) != "" {
-				t.Error("routed header leaked into the business handler")
-			}
-			writeBody(t, w, "local")
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		request := httptest.NewRequest(
-			http.MethodGet,
-			"/api/v1/rooms/"+roomID.String(),
-			nil,
-		)
-		request.Header.Set(routedHeader, "1")
-		recorder := httptest.NewRecorder()
-		rt.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusOK || recorder.Body.String() != "local" {
+		edge.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil))
+		if recorder.Code != http.StatusOK || recorder.Body.String() != "next" {
 			t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
 		}
 	})
 }
 
-func TestRouterRoutesSingleChatCreation(t *testing.T) {
+func TestEdgeRoutesSingleChatCreation(t *testing.T) {
 	const slots, nodes = 1024, 2
 	user1, user2 := singleChatPairForNode(t, slots, nodes, 1)
 	token, err := jwt.GenerateToken(user1.String())
@@ -218,15 +122,7 @@ func TestRouterRoutesSingleChatCreation(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	rt, err := New(Config{
-		Slots:     slots,
-		LocalNode: 0,
-		HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-	}, localHandler(t, "local"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	edge := newEdge(t, upstream.Listener.Addr().String(), localHandler(t, "next"))
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/rooms/single",
@@ -234,46 +130,9 @@ func TestRouterRoutesSingleChatCreation(t *testing.T) {
 	)
 	request.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
-	rt.ServeHTTP(recorder, request)
+	edge.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "upstream" {
 		t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
-	}
-}
-
-func TestEdgeRoutesRoomRequests(t *testing.T) {
-	const slots, nodes = 1024, 2
-	roomID := roomForNode(t, slots, nodes, 1)
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(routedHeader) != "1" {
-			t.Error("edge request is missing the routed header")
-		}
-		writeBody(t, w, "upstream")
-	}))
-	defer upstream.Close()
-
-	edge, err := NewEdge(EdgeConfig{
-		Slots:     slots,
-		HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
-	}, localHandler(t, "next"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	recorder := httptest.NewRecorder()
-	edge.ServeHTTP(recorder, httptest.NewRequest(
-		http.MethodGet,
-		"/api/v1/rooms/"+roomID.String()+"/members",
-		nil,
-	))
-	if recorder.Code != http.StatusOK || recorder.Body.String() != "upstream" {
-		t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	edge.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil))
-	if recorder.Code != http.StatusOK || recorder.Body.String() != "next" {
-		t.Fatalf("non-room response = %d %q", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -293,21 +152,16 @@ func TestEdgeRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestRouterRejectsInvalidConfig(t *testing.T) {
-	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
-	for _, cfg := range []Config{
-		{Slots: 0, LocalNode: 0, HTTPAddrs: []string{"127.0.0.1:1"}},
-		{Slots: 1, LocalNode: 0, HTTPAddrs: nil},
-		{Slots: 1, LocalNode: 1, HTTPAddrs: []string{"127.0.0.1:1"}},
-		{Slots: 1, LocalNode: 0, HTTPAddrs: []string{"://bad"}},
-	} {
-		if _, err := New(cfg, next); err == nil {
-			t.Fatalf("expected error for config %+v", cfg)
-		}
+func newEdge(t *testing.T, upstream string, next http.Handler) *Edge {
+	t.Helper()
+	edge, err := NewEdge(EdgeConfig{
+		Slots:     1024,
+		HTTPAddrs: []string{"127.0.0.1:1", upstream},
+	}, next)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := New(Config{Slots: 1, LocalNode: 0, HTTPAddrs: []string{"127.0.0.1:1"}}, nil); err == nil {
-		t.Fatal("expected error for nil next handler")
-	}
+	return edge
 }
 
 func localHandler(t *testing.T, body string) http.Handler {

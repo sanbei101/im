@@ -8,11 +8,6 @@ func TestValidateHTTPTopology(t *testing.T) {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 
-	cfg.API.HTTPAddrs = nil
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("config without api http_addrs was accepted")
-	}
-
 	cfg = NewTest()
 	cfg.Gateway.APIHTTPAddrs = nil
 	if err := cfg.Validate(); err == nil {

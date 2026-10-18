@@ -20,30 +20,10 @@ import (
 )
 
 const (
-	// routedHeader marks a request already forwarded by another API node.
-	// The receiving node handles it locally instead of forwarding it again.
-	routedHeader = "X-Im-Room-Routed"
 	// maxSniffBody bounds the body room_id probe; file uploads never pass
 	// through this path, and room_id is always a short JSON string.
 	maxSniffBody = 1 << 20
 )
-
-// Config describes the static API topology. HTTPAddrs is indexed by node,
-// matching the gateway's api_addrs order.
-type Config struct {
-	Slots     int
-	LocalNode int
-	HTTPAddrs []string
-}
-
-// Router forwards HTTP requests that carry a room_id to the API node that
-// owns the room's shard slot. Requests without a room_id stay local.
-type Router struct {
-	slots   int
-	local   int
-	next    http.Handler
-	proxies []*httputil.ReverseProxy
-}
 
 // EdgeConfig describes the public HTTP edge. Every room-scoped request is
 // forwarded to the owning API node; all other requests go to next.
@@ -52,43 +32,12 @@ type EdgeConfig struct {
 	HTTPAddrs []string
 }
 
-// Edge is the public HTTP entry used by the gateway. Unlike Router, it never
-// handles room requests locally.
+// Edge is the public HTTP entry used by the gateway. It never handles room
+// requests locally; the owning API node does.
 type Edge struct {
 	slots   int
 	next    http.Handler
 	proxies []*httputil.ReverseProxy
-}
-
-func New(cfg Config, next http.Handler) (*Router, error) {
-	if next == nil {
-		return nil, errors.New("room router next handler is nil")
-	}
-	if cfg.Slots < 1 || cfg.Slots > pkg.MaxSlots {
-		return nil, fmt.Errorf("room router slots must be within [1, %d]", pkg.MaxSlots)
-	}
-	if len(cfg.HTTPAddrs) == 0 {
-		return nil, errors.New("room router requires at least one api http address")
-	}
-	if cfg.LocalNode < 0 || cfg.LocalNode >= len(cfg.HTTPAddrs) {
-		return nil, errors.New("room router local node is outside api http addresses")
-	}
-
-	proxies := make([]*httputil.ReverseProxy, len(cfg.HTTPAddrs))
-	for i, address := range cfg.HTTPAddrs {
-		proxy, err := newProxy(address)
-		if err != nil {
-			return nil, fmt.Errorf("create api http proxy %q: %w", address, err)
-		}
-		proxies[i] = proxy
-	}
-
-	return &Router{
-		slots:   cfg.Slots,
-		local:   cfg.LocalNode,
-		next:    next,
-		proxies: proxies,
-	}, nil
 }
 
 func NewEdge(cfg EdgeConfig, next http.Handler) (*Edge, error) {
@@ -113,11 +62,6 @@ func NewEdge(cfg EdgeConfig, next http.Handler) (*Edge, error) {
 }
 
 func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get(routedHeader) != "" {
-		r.Header.Del(routedHeader)
-		e.next.ServeHTTP(w, r)
-		return
-	}
 	roomID, ok := roomIDFromRequest(r)
 	if !ok {
 		e.next.ServeHTTP(w, r)
@@ -133,36 +77,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.next.ServeHTTP(w, r)
 		return
 	}
-	r.Header.Set(routedHeader, "1")
 	e.proxies[owner].ServeHTTP(w, r)
-}
-
-func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get(routedHeader) != "" {
-		r.Header.Del(routedHeader)
-		rt.next.ServeHTTP(w, r)
-		return
-	}
-
-	roomID, ok := roomIDFromRequest(r)
-	if !ok {
-		rt.next.ServeHTTP(w, r)
-		return
-	}
-
-	slot, err := pkg.RoomSlot(roomID, rt.slots)
-	if err != nil {
-		rt.next.ServeHTTP(w, r)
-		return
-	}
-	owner, err := pkg.NodeIndex(slot, rt.slots, len(rt.proxies))
-	if err != nil || owner == rt.local || rt.proxies[owner] == nil {
-		rt.next.ServeHTTP(w, r)
-		return
-	}
-
-	r.Header.Set(routedHeader, "1")
-	rt.proxies[owner].ServeHTTP(w, r)
 }
 
 // roomIDFromRequest finds the room id in the query, path, or JSON body. Body

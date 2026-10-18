@@ -18,7 +18,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/api"
-	"github.com/sanbei101/im/internal/router"
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
@@ -89,14 +88,6 @@ func serve(ctx context.Context, cfg *config.Config) error {
 
 	streamHandler := api.NewStreamHandler(data, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
 	handler := api.NewRouter(data, streamHandler, objects, cfg.Storage.PublicBaseURL)
-	routed, err := router.New(router.Config{
-		Slots:     cfg.Shard.Slots,
-		LocalNode: cfg.API.NodeIndex,
-		HTTPAddrs: cfg.API.HTTPAddrs,
-	}, handler)
-	if err != nil {
-		return fmt.Errorf("create room router: %w", err)
-	}
 	streamAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)
@@ -138,7 +129,7 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	serveErr := make(chan error, 3)
 	var httpServers sync.WaitGroup
 	httpServers.Go(func() {
-		err := serveHTTP(runCtx, newHTTPServer(cfg.API.HTTPAddr, routed), httpListener)
+		err := serveHTTP(runCtx, newHTTPServer(cfg.API.HTTPAddr, handler), httpListener)
 		if err == nil && runCtx.Err() == nil {
 			err = errors.New("api http server stopped unexpectedly")
 		}

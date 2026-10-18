@@ -36,13 +36,12 @@ type StorageConfig struct {
 }
 
 type APIConfig struct {
-	NodeID    string   `yaml:"node_id"`
-	Addr      string   `yaml:"addr"`
-	HTTPAddr  string   `yaml:"http_addr"`
-	HTTPAddrs []string `yaml:"http_addrs"`
-	PProfAddr string   `yaml:"pprof_addr"`
-	NodeIndex int      `yaml:"node_index"`
-	NodeCount int      `yaml:"node_count"`
+	NodeID    string `yaml:"node_id"`
+	Addr      string `yaml:"addr"`
+	HTTPAddr  string `yaml:"http_addr"`
+	PProfAddr string `yaml:"pprof_addr"`
+	NodeIndex int    `yaml:"node_index"`
+	NodeCount int    `yaml:"node_count"`
 }
 
 type GatewayConfig struct {
@@ -76,7 +75,6 @@ func NewTest() *Config {
 	return &Config{
 		API: APIConfig{
 			NodeID: "api-1", Addr: ":9000", HTTPAddr: ":8801",
-			HTTPAddrs: []string{":8801"},
 			PProfAddr: "127.0.0.1:6061", NodeCount: 1,
 		},
 		Gateway: GatewayConfig{
@@ -112,7 +110,6 @@ func (c *Config) Default() error {
 	envString("API_NODE_ID", &c.API.NodeID)
 	envString("API_ADDR", &c.API.Addr)
 	envString("API_HTTP_ADDR", &c.API.HTTPAddr)
-	envList("API_HTTP_ADDRS", &c.API.HTTPAddrs)
 	envString("API_PPROF_ADDR", &c.API.PProfAddr)
 	if c.API.NodeID == "" {
 		c.API.NodeID = "api-1"
@@ -122,9 +119,6 @@ func (c *Config) Default() error {
 	}
 	if c.API.HTTPAddr == "" {
 		c.API.HTTPAddr = ":8801"
-	}
-	if len(c.API.HTTPAddrs) == 0 {
-		c.API.HTTPAddrs = []string{c.API.HTTPAddr}
 	}
 	if c.API.PProfAddr == "" {
 		c.API.PProfAddr = "127.0.0.1:6061"
@@ -251,19 +245,11 @@ func (c *Config) Validate() error {
 	if c.API.NodeCount != len(c.Gateway.APIAddrs) {
 		return errors.New("api node_count must match the number of gateway api_addrs")
 	}
-	if c.API.NodeCount != len(c.API.HTTPAddrs) {
-		return errors.New("api node_count must match the number of api http_addrs")
-	}
 	if c.API.NodeCount != len(c.Gateway.APIHTTPAddrs) {
 		return errors.New("api node_count must match the number of gateway api_http_addrs")
 	}
 	if strings.TrimSpace(c.Gateway.MetaHTTPAddr) == "" {
 		return errors.New("gateway meta_http_addr is required")
-	}
-	for _, address := range c.API.HTTPAddrs {
-		if strings.TrimSpace(address) == "" {
-			return errors.New("api http_addrs must not contain empty addresses")
-		}
 	}
 	for _, address := range c.Gateway.APIHTTPAddrs {
 		if strings.TrimSpace(address) == "" {
