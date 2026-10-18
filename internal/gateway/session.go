@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 	"uuid"
 
 	"github.com/coder/websocket"
@@ -14,6 +15,11 @@ import (
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg/render"
 	"github.com/sanbei101/im/proto/pb"
+)
+
+const (
+	heartbeatInterval = 30 * time.Second
+	heartbeatTimeout  = 5 * time.Second
 )
 
 type UserClient struct {
@@ -34,6 +40,38 @@ func (c *UserClient) writePump(ctx context.Context) {
 	}()
 	for frame := range c.Send {
 		if err := c.Conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
+			return
+		}
+	}
+}
+
+// pingPump proves the peer is alive with WebSocket control frames. The client
+// stack answers pong automatically; a missed pong closes the connection so the
+// normal offline path runs.
+func (c *UserClient) pingPump(ctx context.Context, interval, timeout time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pingCtx, cancel := context.WithTimeout(ctx, timeout)
+			err := c.Conn.Ping(pingCtx)
+			cancel()
+			if err == nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			log.Warn().Err(err).Str("user_id", c.UserID.String()).Msg("websocket ping failed")
+			if closeErr := c.Conn.CloseNow(); closeErr != nil {
+				log.Debug().
+					Err(closeErr).
+					Str("user_id", c.UserID.String()).
+					Msg("close websocket after ping failure")
+			}
 			return
 		}
 	}
@@ -70,9 +108,6 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("decode websocket message: %w", err)
 	}
-	if input.Type == "ping" {
-		return c.encodeFrame(render.PongFrame{Type: "pong"})
-	}
 	if input.Type == "typing" || input.Type == "join_room" {
 		roomID, err := uuid.Parse(input.RoomID)
 		if err != nil {
@@ -86,6 +121,9 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 			c.gateway.BroadcastTyping(c.UserID, roomIDStr)
 		}
 		return nil
+	}
+	if input.Type != "message" {
+		return fmt.Errorf("unsupported frame type %q", input.Type)
 	}
 	if input.RoomID == "" || input.ClientMsgID == "" {
 		return errors.New("room_id and client_msg_id are required")

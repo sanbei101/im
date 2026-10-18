@@ -13,7 +13,7 @@ func TestRender(t *testing.T) {
 		frames := []PushFrame{
 			{Type: "message", MsgID: "m1", RoomSeq: 1, MsgType: "text", Payload: jsontext.Value(`{"text":"one"}`)},
 			{Type: "message", MsgID: "m2", RoomSeq: 2, MsgType: "text", Payload: jsontext.Value(`{"text":"two"}`)},
-			{Type: "pong"},
+			{Type: "message", MsgID: "m3", RoomSeq: 3, MsgType: "text", Payload: jsontext.Value(`{"text":"three"}`)},
 		}
 		for i, frame := range frames {
 			data, err := writer.EncodeFrame(frame)
@@ -40,11 +40,11 @@ func TestRender(t *testing.T) {
 		if _, err := writer.EncodeFrame(map[string]chan int{"bad": nil}); err == nil {
 			t.Fatal("expected error for unsupported value")
 		}
-		data, err := writer.EncodeFrame(PongFrame{Type: "pong"})
+		data, err := writer.EncodeFrame(AckFrame{Type: "ack", RequestID: "req-1", RoomSeq: 1})
 		if err != nil {
 			t.Fatalf("encode after failure: %v", err)
 		}
-		if !bytes.Contains(data, []byte(`"pong"`)) {
+		if !bytes.Contains(data, []byte(`"ack"`)) {
 			t.Fatalf("frame after failure corrupted: %s", data)
 		}
 	})

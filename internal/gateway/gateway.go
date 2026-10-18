@@ -103,8 +103,8 @@ func NewGateway(cfg *config.Config) *Gateway {
 	for i := range g.roomUserShards {
 		g.roomUserShards[i].m = make(map[string]*roomUserSet)
 	}
-	for index, address := range cfg.Gateway.APIAddrs {
-		g.streams = append(g.streams, newAPIStream(g, fmt.Sprintf("gateway-%d", index), address))
+	for _, address := range cfg.Gateway.APIAddrs {
+		g.streams = append(g.streams, newAPIStream(g, address))
 	}
 	return g
 }
@@ -262,7 +262,6 @@ func (g *Gateway) registerUser(ctx context.Context, userID uuid.UUID, online boo
 
 type apiStream struct {
 	gateway  *Gateway
-	id       string
 	address  string
 	client   gatewayservice.Client // created once per stream, reused across reconnects
 	stream   gatewayservice.GatewayService_ConnectClient
@@ -272,10 +271,9 @@ type apiStream struct {
 	frames   *render.FrameWriter
 }
 
-func newAPIStream(g *Gateway, id, address string) *apiStream {
+func newAPIStream(g *Gateway, address string) *apiStream {
 	return &apiStream{
 		gateway:  g,
-		id:       id,
 		address:  address,
 		queue:    make(chan *pb.SendMessage, 1024),
 		sessions: make(chan *pb.Session, 256),
@@ -367,12 +365,6 @@ func (s *apiStream) connect(ctx context.Context) error {
 	s.mu.Lock()
 	s.stream = stream
 	s.mu.Unlock()
-	if err := stream.Send(ctx,
-		&pb.GatewayFrame{Body: &pb.GatewayFrame_Hello{Hello: &pb.Hello{GatewayId: s.id}}},
-	); err != nil {
-		s.close()
-		return err
-	}
 	// Replay every local session in one batch so the API node restores its
 	// routing table after a reconnect with a single round trip.
 	sessions := s.gateway.UserSessionManager.All()
@@ -463,17 +455,13 @@ func (s *apiStream) loop(ctx context.Context) error {
 			switch {
 			case frame.GetSendResultBatch() != nil:
 				s.handleResults(frame.GetSendResultBatch())
-			case frame.GetPushBatch() != nil:
-				s.handlePush(frame.GetPushBatch())
 			case frame.GetRoomPushBatch() != nil:
 				s.handleRoomPush(frame.GetRoomPushBatch())
 			case frame.GetNotificationBatch() != nil:
 				s.handleNotification(frame.GetNotificationBatch())
 			default:
-				log.Error().
-					Str("api", s.address).
-					Str("body", fmt.Sprintf("%T", frame.GetBody())).
-					Msg("api stream received unknown frame")
+				done <- fmt.Errorf("api stream received unknown frame: %T", frame.GetBody())
+				return
 			}
 		}
 	}()
@@ -563,57 +551,6 @@ func (s *apiStream) handleResults(batch *pb.SendResultBatch) {
 		}); err != nil {
 			log.Error().Err(err).Msg("send message result to websocket failed")
 		}
-	}
-}
-
-func (s *apiStream) handlePush(batch *pb.PushBatch) {
-	var (
-		lastMsgID      string
-		lastFrameBytes []byte
-	)
-	for _, push := range batch.GetPushes() {
-		if push == nil {
-			continue
-		}
-		userID, err := uuid.Parse(push.GetUserId())
-		if err != nil {
-			continue
-		}
-		session, ok := s.gateway.UserSessionManager.Load(userID)
-		if !ok {
-			continue
-		}
-		var frameBytes []byte
-		if lastFrameBytes != nil && push.GetMsgId() == lastMsgID {
-			frameBytes = lastFrameBytes
-		} else {
-			frame := render.PushFrame{
-				Type:         "message",
-				MsgID:        push.GetMsgId(),
-				ClientMsgID:  push.GetClientMsgId(),
-				SenderID:     push.GetSenderId(),
-				RoomID:       push.GetRoomId(),
-				RoomSeq:      push.GetRoomSeq(),
-				ServerTime:   push.GetServerTime(),
-				MsgType:      store.MsgType(push.GetMsgType()).String(),
-				Payload:      jsontext.Value(push.GetPayload()),
-				ReplyToMsgID: push.GetReplyToMsgId(),
-				Ext:          jsontext.Value(push.GetExt()),
-			}
-			encoded, err := s.frames.EncodeFrame(frame)
-			if err != nil {
-				log.Error().Err(err).Msg("encode push frame failed")
-				continue
-			}
-			frameBytes = encoded
-			lastMsgID = push.GetMsgId()
-			lastFrameBytes = encoded
-		}
-		session.ForEachClient(func(client *UserClient) {
-			if err := client.sendFrame(frameBytes); err != nil {
-				log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send push frame to websocket failed")
-			}
-		})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"uuid"
 
 	"github.com/coder/websocket"
@@ -33,15 +34,21 @@ func (gateway *Gateway) HandleUserMessage(w http.ResponseWriter, r *http.Request
 	defer gateway.cleanUserClient(userID, userClient)
 	gateway.registerUser(r.Context(), userID, true)
 
-	writeDone := make(chan struct{})
-	go func() {
-		defer close(writeDone)
-		userClient.writePump(r.Context())
-	}()
+	pumpCtx, stopPumps := context.WithCancel(r.Context())
+	defer stopPumps()
+
+	var pumps sync.WaitGroup
+	pumps.Go(func() {
+		userClient.writePump(pumpCtx)
+	})
+	pumps.Go(func() {
+		userClient.pingPump(pumpCtx, heartbeatInterval, heartbeatTimeout)
+	})
 
 	userClient.readPump(r.Context())
+	stopPumps()
 	userClient.closeSend()
-	<-writeDone
+	pumps.Wait()
 }
 
 func (gateway *Gateway) authenticate(r *http.Request) (uuid.UUID, error) {

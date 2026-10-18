@@ -165,11 +165,6 @@ type ErrorFrame struct {
 	Error string `json:"error"`
 }
 
-// PongFrame 心跳应答帧。
-type PongFrame struct {
-	Type string `json:"type"`
-}
-
 // TypingFrame 正在输入状态帧
 type TypingFrame struct {
 	Type   string `json:"type"`
@@ -182,16 +177,6 @@ type NotificationFrame struct {
 	Type  string         `json:"type"`
 	Event string         `json:"event"`
 	Data  jsontext.Value `json:"data,omitempty"`
-}
-
-// SyncNoticeFrame 客户端增量同步通知帧 (推拉结合模型: 推送最新序号与概要, 触发客户端按需 Pull)
-type SyncNoticeFrame struct {
-	Type       string `json:"type"` // "sync"
-	RoomID     string `json:"room_id"`
-	RoomSeq    uint64 `json:"room_seq"`
-	MsgID      string `json:"msg_id,omitempty"`
-	SenderID   string `json:"sender_id,omitempty"`
-	ServerTime int64  `json:"server_time,omitempty"`
 }
 
 // FrameWriter 持有可复用的 jsontext.Encoder,把下行帧流式编码进内部 buffer

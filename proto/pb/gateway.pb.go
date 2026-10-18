@@ -12,11 +12,8 @@ import (
 type GatewayFrame struct {
 	// Types that are assignable to Body:
 	//
-	//	*GatewayFrame_Hello
 	//	*GatewayFrame_SendBatch
 	//	*GatewayFrame_SessionBatch
-	//	*GatewayFrame_ReceiptBatch
-	//	*GatewayFrame_Heartbeat
 	Body isGatewayFrame_Body `protobuf_oneof:"body"`
 }
 
@@ -32,13 +29,6 @@ func (x *GatewayFrame) GetBody() isGatewayFrame_Body {
 	}
 	return nil
 }
-func (x *GatewayFrame) GetHello() *Hello {
-	if p, ok := x.GetBody().(*GatewayFrame_Hello); ok {
-		return p.Hello
-	}
-	return nil
-}
-
 func (x *GatewayFrame) GetSendBatch() *SendBatch {
 	if p, ok := x.GetBody().(*GatewayFrame_SendBatch); ok {
 		return p.SendBatch
@@ -53,28 +43,11 @@ func (x *GatewayFrame) GetSessionBatch() *SessionBatch {
 	return nil
 }
 
-func (x *GatewayFrame) GetReceiptBatch() *ReceiptBatch {
-	if p, ok := x.GetBody().(*GatewayFrame_ReceiptBatch); ok {
-		return p.ReceiptBatch
-	}
-	return nil
-}
-
-func (x *GatewayFrame) GetHeartbeat() *Heartbeat {
-	if p, ok := x.GetBody().(*GatewayFrame_Heartbeat); ok {
-		return p.Heartbeat
-	}
-	return nil
-}
-
 // XXX_OneofWrappers is for the internal use of the prutal package.
 func (*GatewayFrame) XXX_OneofWrappers() []interface{} {
 	return []interface{}{
-		(*GatewayFrame_Hello)(nil),
 		(*GatewayFrame_SendBatch)(nil),
 		(*GatewayFrame_SessionBatch)(nil),
-		(*GatewayFrame_ReceiptBatch)(nil),
-		(*GatewayFrame_Heartbeat)(nil),
 	}
 }
 
@@ -82,44 +55,22 @@ type isGatewayFrame_Body interface {
 	isGatewayFrame_Body()
 }
 
-type GatewayFrame_Hello struct {
-	Hello *Hello `protobuf:"bytes,1,opt,name=hello" json:"hello,omitempty"`
-}
-
-func (*GatewayFrame_Hello) isGatewayFrame_Body() {}
-
 type GatewayFrame_SendBatch struct {
-	SendBatch *SendBatch `protobuf:"bytes,2,opt,name=send_batch" json:"send_batch,omitempty"`
+	SendBatch *SendBatch `protobuf:"bytes,1,opt,name=send_batch" json:"send_batch,omitempty"`
 }
 
 func (*GatewayFrame_SendBatch) isGatewayFrame_Body() {}
 
 type GatewayFrame_SessionBatch struct {
-	SessionBatch *SessionBatch `protobuf:"bytes,3,opt,name=session_batch" json:"session_batch,omitempty"`
+	SessionBatch *SessionBatch `protobuf:"bytes,2,opt,name=session_batch" json:"session_batch,omitempty"`
 }
 
 func (*GatewayFrame_SessionBatch) isGatewayFrame_Body() {}
 
-type GatewayFrame_ReceiptBatch struct {
-	ReceiptBatch *ReceiptBatch `protobuf:"bytes,4,opt,name=receipt_batch" json:"receipt_batch,omitempty"`
-}
-
-func (*GatewayFrame_ReceiptBatch) isGatewayFrame_Body() {}
-
-type GatewayFrame_Heartbeat struct {
-	Heartbeat *Heartbeat `protobuf:"bytes,5,opt,name=heartbeat" json:"heartbeat,omitempty"`
-}
-
-func (*GatewayFrame_Heartbeat) isGatewayFrame_Body() {}
-
 type APIFrame struct {
 	// Types that are assignable to Body:
 	//
-	//	*APIFrame_HelloAck
 	//	*APIFrame_SendResultBatch
-	//	*APIFrame_PushBatch
-	//	*APIFrame_RoutingError
-	//	*APIFrame_Heartbeat
 	//	*APIFrame_NotificationBatch
 	//	*APIFrame_RoomPushBatch
 	Body isAPIFrame_Body `protobuf_oneof:"body"`
@@ -137,37 +88,9 @@ func (x *APIFrame) GetBody() isAPIFrame_Body {
 	}
 	return nil
 }
-func (x *APIFrame) GetHelloAck() *HelloAck {
-	if p, ok := x.GetBody().(*APIFrame_HelloAck); ok {
-		return p.HelloAck
-	}
-	return nil
-}
-
 func (x *APIFrame) GetSendResultBatch() *SendResultBatch {
 	if p, ok := x.GetBody().(*APIFrame_SendResultBatch); ok {
 		return p.SendResultBatch
-	}
-	return nil
-}
-
-func (x *APIFrame) GetPushBatch() *PushBatch {
-	if p, ok := x.GetBody().(*APIFrame_PushBatch); ok {
-		return p.PushBatch
-	}
-	return nil
-}
-
-func (x *APIFrame) GetRoutingError() *RoutingError {
-	if p, ok := x.GetBody().(*APIFrame_RoutingError); ok {
-		return p.RoutingError
-	}
-	return nil
-}
-
-func (x *APIFrame) GetHeartbeat() *Heartbeat {
-	if p, ok := x.GetBody().(*APIFrame_Heartbeat); ok {
-		return p.Heartbeat
 	}
 	return nil
 }
@@ -189,11 +112,7 @@ func (x *APIFrame) GetRoomPushBatch() *RoomPushBatch {
 // XXX_OneofWrappers is for the internal use of the prutal package.
 func (*APIFrame) XXX_OneofWrappers() []interface{} {
 	return []interface{}{
-		(*APIFrame_HelloAck)(nil),
 		(*APIFrame_SendResultBatch)(nil),
-		(*APIFrame_PushBatch)(nil),
-		(*APIFrame_RoutingError)(nil),
-		(*APIFrame_Heartbeat)(nil),
 		(*APIFrame_NotificationBatch)(nil),
 		(*APIFrame_RoomPushBatch)(nil),
 	}
@@ -203,97 +122,23 @@ type isAPIFrame_Body interface {
 	isAPIFrame_Body()
 }
 
-type APIFrame_HelloAck struct {
-	HelloAck *HelloAck `protobuf:"bytes,1,opt,name=hello_ack" json:"hello_ack,omitempty"`
-}
-
-func (*APIFrame_HelloAck) isAPIFrame_Body() {}
-
 type APIFrame_SendResultBatch struct {
-	SendResultBatch *SendResultBatch `protobuf:"bytes,2,opt,name=send_result_batch" json:"send_result_batch,omitempty"`
+	SendResultBatch *SendResultBatch `protobuf:"bytes,1,opt,name=send_result_batch" json:"send_result_batch,omitempty"`
 }
 
 func (*APIFrame_SendResultBatch) isAPIFrame_Body() {}
 
-type APIFrame_PushBatch struct {
-	PushBatch *PushBatch `protobuf:"bytes,3,opt,name=push_batch" json:"push_batch,omitempty"`
-}
-
-func (*APIFrame_PushBatch) isAPIFrame_Body() {}
-
-type APIFrame_RoutingError struct {
-	RoutingError *RoutingError `protobuf:"bytes,4,opt,name=routing_error" json:"routing_error,omitempty"`
-}
-
-func (*APIFrame_RoutingError) isAPIFrame_Body() {}
-
-type APIFrame_Heartbeat struct {
-	Heartbeat *Heartbeat `protobuf:"bytes,5,opt,name=heartbeat" json:"heartbeat,omitempty"`
-}
-
-func (*APIFrame_Heartbeat) isAPIFrame_Body() {}
-
 type APIFrame_NotificationBatch struct {
-	NotificationBatch *NotificationBatch `protobuf:"bytes,6,opt,name=notification_batch" json:"notification_batch,omitempty"`
+	NotificationBatch *NotificationBatch `protobuf:"bytes,2,opt,name=notification_batch" json:"notification_batch,omitempty"`
 }
 
 func (*APIFrame_NotificationBatch) isAPIFrame_Body() {}
 
 type APIFrame_RoomPushBatch struct {
-	RoomPushBatch *RoomPushBatch `protobuf:"bytes,7,opt,name=room_push_batch" json:"room_push_batch,omitempty"`
+	RoomPushBatch *RoomPushBatch `protobuf:"bytes,3,opt,name=room_push_batch" json:"room_push_batch,omitempty"`
 }
 
 func (*APIFrame_RoomPushBatch) isAPIFrame_Body() {}
-
-type Hello struct {
-	GatewayId       string `protobuf:"bytes,1,opt,name=gateway_id" json:"gateway_id,omitempty"`
-	TopologyVersion string `protobuf:"bytes,2,opt,name=topology_version" json:"topology_version,omitempty"`
-}
-
-func (x *Hello) Reset() { *x = Hello{} }
-
-func (x *Hello) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *Hello) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *Hello) GetGatewayId() string {
-	if x != nil {
-		return x.GatewayId
-	}
-	return ""
-}
-
-func (x *Hello) GetTopologyVersion() string {
-	if x != nil {
-		return x.TopologyVersion
-	}
-	return ""
-}
-
-type HelloAck struct {
-	NodeId          string `protobuf:"bytes,1,opt,name=node_id" json:"node_id,omitempty"`
-	TopologyVersion string `protobuf:"bytes,2,opt,name=topology_version" json:"topology_version,omitempty"`
-}
-
-func (x *HelloAck) Reset() { *x = HelloAck{} }
-
-func (x *HelloAck) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *HelloAck) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *HelloAck) GetNodeId() string {
-	if x != nil {
-		return x.NodeId
-	}
-	return ""
-}
-
-func (x *HelloAck) GetTopologyVersion() string {
-	if x != nil {
-		return x.TopologyVersion
-	}
-	return ""
-}
 
 type SendBatch struct {
 	BatchId  string         `protobuf:"bytes,1,opt,name=batch_id" json:"batch_id,omitempty"`
@@ -509,9 +354,8 @@ func (x *SessionBatch) GetSessions() []*Session {
 }
 
 type Session struct {
-	SessionId string `protobuf:"bytes,1,opt,name=session_id" json:"session_id,omitempty"`
-	UserId    string `protobuf:"bytes,2,opt,name=user_id" json:"user_id,omitempty"`
-	Online    bool   `protobuf:"varint,3,opt,name=online" json:"online,omitempty"`
+	UserId string `protobuf:"bytes,1,opt,name=user_id" json:"user_id,omitempty"`
+	Online bool   `protobuf:"varint,2,opt,name=online" json:"online,omitempty"`
 }
 
 func (x *Session) Reset() { *x = Session{} }
@@ -519,13 +363,6 @@ func (x *Session) Reset() { *x = Session{} }
 func (x *Session) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
 
 func (x *Session) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *Session) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
 
 func (x *Session) GetUserId() string {
 	if x != nil {
@@ -539,220 +376,6 @@ func (x *Session) GetOnline() bool {
 		return x.Online
 	}
 	return false
-}
-
-type ReceiptBatch struct {
-	Receipts []*Receipt `protobuf:"bytes,1,rep,name=receipts" json:"receipts,omitempty"`
-}
-
-func (x *ReceiptBatch) Reset() { *x = ReceiptBatch{} }
-
-func (x *ReceiptBatch) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *ReceiptBatch) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *ReceiptBatch) GetReceipts() []*Receipt {
-	if x != nil {
-		return x.Receipts
-	}
-	return nil
-}
-
-type Receipt struct {
-	UserId  string `protobuf:"bytes,1,opt,name=user_id" json:"user_id,omitempty"`
-	RoomId  string `protobuf:"bytes,2,opt,name=room_id" json:"room_id,omitempty"`
-	RoomSeq uint64 `protobuf:"varint,3,opt,name=room_seq" json:"room_seq,omitempty"`
-}
-
-func (x *Receipt) Reset() { *x = Receipt{} }
-
-func (x *Receipt) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *Receipt) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *Receipt) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
-}
-
-func (x *Receipt) GetRoomId() string {
-	if x != nil {
-		return x.RoomId
-	}
-	return ""
-}
-
-func (x *Receipt) GetRoomSeq() uint64 {
-	if x != nil {
-		return x.RoomSeq
-	}
-	return 0
-}
-
-type PushBatch struct {
-	Pushes []*Push `protobuf:"bytes,1,rep,name=pushes" json:"pushes,omitempty"`
-}
-
-func (x *PushBatch) Reset() { *x = PushBatch{} }
-
-func (x *PushBatch) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *PushBatch) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *PushBatch) GetPushes() []*Push {
-	if x != nil {
-		return x.Pushes
-	}
-	return nil
-}
-
-type Push struct {
-	UserId       string `protobuf:"bytes,1,opt,name=user_id" json:"user_id,omitempty"`
-	RoomId       string `protobuf:"bytes,2,opt,name=room_id" json:"room_id,omitempty"`
-	RoomSeq      uint64 `protobuf:"varint,3,opt,name=room_seq" json:"room_seq,omitempty"`
-	MsgId        string `protobuf:"bytes,4,opt,name=msg_id" json:"msg_id,omitempty"`
-	SenderId     string `protobuf:"bytes,5,opt,name=sender_id" json:"sender_id,omitempty"`
-	MsgType      int32  `protobuf:"varint,6,opt,name=msg_type" json:"msg_type,omitempty"`
-	Payload      []byte `protobuf:"bytes,7,opt,name=payload" json:"payload,omitempty"`
-	ServerTime   int64  `protobuf:"varint,8,opt,name=server_time" json:"server_time,omitempty"`
-	Ext          []byte `protobuf:"bytes,9,opt,name=ext" json:"ext,omitempty"`
-	ClientMsgId  string `protobuf:"bytes,10,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
-	ReplyToMsgId string `protobuf:"bytes,11,opt,name=reply_to_msg_id" json:"reply_to_msg_id,omitempty"`
-}
-
-func (x *Push) Reset() { *x = Push{} }
-
-func (x *Push) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *Push) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *Push) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
-}
-
-func (x *Push) GetRoomId() string {
-	if x != nil {
-		return x.RoomId
-	}
-	return ""
-}
-
-func (x *Push) GetRoomSeq() uint64 {
-	if x != nil {
-		return x.RoomSeq
-	}
-	return 0
-}
-
-func (x *Push) GetMsgId() string {
-	if x != nil {
-		return x.MsgId
-	}
-	return ""
-}
-
-func (x *Push) GetSenderId() string {
-	if x != nil {
-		return x.SenderId
-	}
-	return ""
-}
-
-func (x *Push) GetMsgType() int32 {
-	if x != nil {
-		return x.MsgType
-	}
-	return 0
-}
-
-func (x *Push) GetPayload() []byte {
-	if x != nil {
-		return x.Payload
-	}
-	return nil
-}
-
-func (x *Push) GetServerTime() int64 {
-	if x != nil {
-		return x.ServerTime
-	}
-	return 0
-}
-
-func (x *Push) GetExt() []byte {
-	if x != nil {
-		return x.Ext
-	}
-	return nil
-}
-
-func (x *Push) GetClientMsgId() string {
-	if x != nil {
-		return x.ClientMsgId
-	}
-	return ""
-}
-
-func (x *Push) GetReplyToMsgId() string {
-	if x != nil {
-		return x.ReplyToMsgId
-	}
-	return ""
-}
-
-type RoutingError struct {
-	RoomId          string `protobuf:"bytes,1,opt,name=room_id" json:"room_id,omitempty"`
-	Owner           string `protobuf:"bytes,2,opt,name=owner" json:"owner,omitempty"`
-	TopologyVersion string `protobuf:"bytes,3,opt,name=topology_version" json:"topology_version,omitempty"`
-}
-
-func (x *RoutingError) Reset() { *x = RoutingError{} }
-
-func (x *RoutingError) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *RoutingError) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *RoutingError) GetRoomId() string {
-	if x != nil {
-		return x.RoomId
-	}
-	return ""
-}
-
-func (x *RoutingError) GetOwner() string {
-	if x != nil {
-		return x.Owner
-	}
-	return ""
-}
-
-func (x *RoutingError) GetTopologyVersion() string {
-	if x != nil {
-		return x.TopologyVersion
-	}
-	return ""
-}
-
-type Heartbeat struct {
-	UnixMicro int64 `protobuf:"varint,1,opt,name=unix_micro" json:"unix_micro,omitempty"`
-}
-
-func (x *Heartbeat) Reset() { *x = Heartbeat{} }
-
-func (x *Heartbeat) Marshal(in []byte) ([]byte, error) { return prutal.MarshalAppend(in, x) }
-
-func (x *Heartbeat) Unmarshal(in []byte) error { return prutal.Unmarshal(in, x) }
-
-func (x *Heartbeat) GetUnixMicro() int64 {
-	if x != nil {
-		return x.UnixMicro
-	}
-	return 0
 }
 
 type NotificationBatch struct {
