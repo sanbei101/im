@@ -86,6 +86,7 @@ type userShard struct {
 
 type Store struct {
 	db *pebble.DB
+	pg *DB
 
 	roomShards    [roomShardCount]roomShard
 	userShards    [userShardCount]userShard
@@ -356,6 +357,12 @@ func Open(path string) (*Store, error) {
 	return store, nil
 }
 
+// AttachDB connects the message plane to the control-plane database used for
+// conversation heads and read cursors. It must be called once at startup.
+func (s *Store) AttachDB(db *DB) {
+	s.pg = db
+}
+
 func (s *Store) Close() error {
 	if s == nil {
 		return nil
@@ -537,7 +544,7 @@ func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
 				results[index].Err = err
 			}
 		}
-		s.writeMessageBatch(request.messages, results)
+		s.writeMessageBatch(request.ctx, request.messages, results)
 		request.result <- results
 		return
 	}
@@ -557,7 +564,7 @@ func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
 		}
 		offset += len(request.messages)
 	}
-	s.writeMessageBatch(messages, results)
+	s.writeMessageBatch(requests[0].ctx, messages, results)
 	offset = 0
 	for i := range requests {
 		requests[i].result <- results[offset : offset+len(requests[i].messages)]

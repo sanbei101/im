@@ -2,30 +2,30 @@
 
 ## 架构
 
-本项目使用 Go、Pebble 和按 `room_id` 的固定逻辑槽分片,不依赖 PostgreSQL、Redis、外部消息队列、Raft 或服务注册中心。
+本项目使用 Go、PostgreSQL 和按 `room_id` 的固定逻辑槽分片;消息面使用 Pebble,控制面使用 PostgreSQL,不依赖 Redis、外部消息队列、Raft 或服务注册中心。
 
 - `gateway` 负责 WebSocket 长连接、鉴权、会话管理、按 `room_id` 路由和批量发送。
-- `api` 负责 HTTP API、房间分片写入、用户/好友元数据和 Pebble 读写。
+- `api` 负责 HTTP API、控制面 PostgreSQL 读写、房间分片内的 Pebble 消息读写。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,消息使用 Kitex 生成的 fastpb 编解码。
 - 每个 API 节点只拥有配置中分配的逻辑槽;`hash(room_id) % slot_count` 得到槽,再通过静态拓扑找到节点。
-- 消息、房间、成员、消息幂等记录必须写入同一个 Pebble Batch;只有本地持久化成功后才能返回成功 ACK。
+- 消息、room_seq 和消息幂等记录必须写入同一个 Pebble Batch;只有本地持久化成功后才能返回成功 ACK。
+- 用户、设备、好友、申请、黑名单、房间、成员、成员设置和已读游标统一存 PostgreSQL;所有 API 节点共享同一数据库。
+- 消息写入后把会话头投影到 PostgreSQL 的 `room_heads`;跨节点通知使用 `LISTEN/NOTIFY`。
 - 实时推送不是可靠存储,断线和推送失败统一通过房间消息序号补拉。
 - Pebble checkpoint 由 API 进程定期生成和保留;当前不实现 `imctl`。
 - 多 API 节点时,`gateway.api_addrs` 与 `gateway.api_http_addrs` 都按 `node_index` 排列;客户端只连接 Gateway,`/ws` 走长连接,带 `room_id` 的 `/api` 请求由 Gateway 转发到归属节点,API 不再自行转发。
-- Meta 拥有用户、设备 token,并通过 Kitex RPC `meta.rpc_addr` 提供内部用户查询;Work 不直接访问 Meta 的 Pebble。
+- 不再有 Meta 进程或 Meta RPC;控制面代码和 SQL 都在 API 进程内。
 
 ## 目录
 
 保持目录扁平,优先在现有包中增加文件,不为单一职责新建目录。
 
 ```text
-cmd/meta         Meta 入口
-cmd/api          Work API 入口
+cmd/api          API 入口(控制面 + 消息面)
 cmd/gateway      Gateway 入口
 internal/api     HTTP Handler、Kitex Server 和 API 业务逻辑
-internal/meta    Meta HTTP 客户端
 internal/gateway WebSocket、Kitex Client、会话和批量发送
-internal/store   Pebble、Key 编码、用户、房间、消息和备份
+internal/store   Pebble 消息、PostgreSQL 控制面、迁移和备份
 pkg              配置、分片、JWT、日志和通用工具
 proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 ```
@@ -52,33 +52,32 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - 消息幂等键为 `room_id + sender_id + client_msg_id`,相同键不同内容必须返回冲突。
 - 不需要考虑任何的兼容性行为,一切以代码最优雅简洁,性能为目标
 
-## 存储架构 (内存 -> 文件 -> Parquet 归档)
+## 存储架构 (PostgreSQL -> 内存 -> Pebble -> Parquet)
 
-本项目采用严格的三层渐进式分层存储架构,兼顾极端读写性能、严格持久化一致性与海量冷数据低成本保留:
+### 1. 控制面 PostgreSQL
+- 用户、设备 token、好友关系、好友申请、黑名单、房间、成员与成员设置、已读游标全部存 PostgreSQL。
+- 所有 API 节点共享同一 PostgreSQL;控制面请求不按房间分片,可以落到任意 API 节点。
+- 迁移文件位于 `internal/store/migrations`,API 启动时使用 advisory lock 串行执行。
+- 房间会话头 `room_heads` 由消息写入后投影,供跨节点会话列表使用。
 
-### 1. 内存层
+### 2. 消息面内存层
 - **高性能分片 LRU 缓存 (`phuslu/lru`)**:
   - `messageCache` (`roomTail`): 4096 房间的分片 LRU 环形缓冲区,每个活跃房间保留最新 128 条(至多 64KB)已提交消息。最新一页(`before=0`)历史读取及推拉结合增量拉取(`MessagesAfter`) 100% 命中内存
-  - `roomShards`: 64 分片 LRU 缓存热点房间元数据与成员名单(`members`),反范式化嵌入 `LastMsg` 与 `LastSeq`
-  - `userShards` & `usernameCache`: 64 分片 LRU 缓存热点用户资料与用户名反查,批量用户解析(`UsersByIDs`)优先走内存
+  - `roomShards`: 64 分片 LRU 缓存热点房间消息头(`LastSeq`/`LastMsg`)
   - `dedupCache`: 缓存近期 32K 条消息的幂等键(`room_id + sender_id + client_msg_id`),秒级拦截网络重发,消除写前读取 Pebble 的 LSM 读放大。
   - `StreamHandler.memberCache`: API 广播网关使用 `phuslu/lru.TTLCache` 缓存 4096 房间活跃成员,30s TTL,杜绝长连接无界 map 内存泄漏。
 - **推拉结合与网关单包就地扇出 (RoomPush)**:
   - API 向 Gateway 发送 `RoomPushBatch` 单包广播,消息 Payload 仅在网络间传输 1 次,由 Gateway 在本地连接池就地扇出给所有目标 WebSocket 连接
-  - 客户端支持推拉结合:推送完整消息,断线或检测到序号空洞时通过 `MessagesAfter` 批量拉取,极速内存闭环。
+  - 客户端支持推拉结合:支持推送完整消息与轻量同步信号(`SyncNotice`),断线或检测到序号空洞时通过 `MessagesAfter` 批量拉取,极速内存闭环。
 - **写聚合缓冲管道**:客户端发送请求通过 `messageQueue`(4096 容量)由单写协程在 1ms 或 128 条批大小窗口内合并,变随机小写为顺序批写。
 
-### 2. 文件存储层
-- **无中心化独立存储**:单 API 节点全权负责本地逻辑槽的 Pebble 实例,不依赖任何外部集中式数据库。
-- **大端字典序 Key 编码**:
-  - 消息主表 `m:<room_id>:<room_seq>`:单调自增前缀连续存储,消息游标分页与断线补拉天然有序高效。
-  - 消息索引 `i:<room_id>:<msg_id>` -> `room_seq`:支持点查与快速定位。
-  - 幂等记账 `d:<room_id>:<sender_id>:<client_msg_id>` -> `Dedup`(记录 SHA-256 `PayloadSum` 防止冲突)。
-  - 房间元数据 `r:<room_id>`、成员关系 `M:<room_id>:<user_id>`、已读游标 `R:<user_id>:<room_id>`。
-- **单 Batch 严格原子性**:消息记录、房间 `LastSeq`、最新消息预览与幂等凭证必须提交至同一个 `pebble.Batch`;持久化至本地 WAL/SST 后才向客户端返回 ACK。
-- **Checkpoint 物理快照**:由 API 节点定期生成硬链接快照,零停机且无锁备份。
+### 3. 消息面 Pebble
+- 每个 API 节点只负责本地逻辑槽的消息数据,不依赖 PostgreSQL 存消息正文。
+- 大端字典序 Key:消息 `m:<room_id>:<room_seq>`、消息索引 `i:<room_id>:<msg_id>`、幂等 `d:<room_id>:<sender_id>:<client_msg_id>`、置顶、表情、归档清单。
+- 消息记录、room_seq、最新消息预览和幂等凭证在同一 Batch 提交;Pebble 同步提交成功后才返回 ACK。
+- PostgreSQL 只保存会话头投影和已读游标;这些写入失败不影响消息本身,客户端通过 room_seq 补拉收敛。
 
-### 3. 冷数据归档层
+### 4. 冷数据归档层
 - **异步批归档**:后台 Archiver 协程周期巡检沉淀的冷历史消息(超过 `ArchiveThreshold`),按房间与序号区间分段。
 - **Parquet 列式高压缩 (`parquet-go`)**:
   - 高基数 ID(`MsgID`、`SenderID` 等)采用字典编码(Dictionary Encoding);

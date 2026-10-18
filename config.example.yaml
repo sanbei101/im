@@ -13,14 +13,9 @@ gateway:
   # HTTP addresses of the API nodes, in node_index order.
   api_http_addrs:
     - "127.0.0.1:8801"
-meta:
-  listen_addr: ":8802"
-  http_addr: "127.0.0.1:8802"
-  rpc_addr: "127.0.0.1:9002"
-  pprof_addr: "127.0.0.1:6063"
-  store_path: "./data/meta"
-  backup_path: "./backup/meta"
-  backup_interval_seconds: 3600
+postgres:
+  # Shared control-plane database. Every API node uses the same URL.
+  url: "postgres://im:im@127.0.0.1:5432/im?sslmode=disable"
 
 store:
   path: "./data/api-1"

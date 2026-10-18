@@ -28,13 +28,8 @@ func newBaseRouter() *chi.Mux {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodPatch,
-			http.MethodDelete,
-			http.MethodHead,
-			http.MethodOptions,
+			http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch,
+			http.MethodDelete, http.MethodHead, http.MethodOptions,
 		},
 		AllowedHeaders: []string{"*"},
 		ExposedHeaders: []string{"*"},
@@ -43,25 +38,28 @@ func newBaseRouter() *chi.Mux {
 	return r
 }
 
-// NewRouter wires every handler into one process. Tests and single-process
-// deployments use it; the split services use NewMetaRouter/NewWorkRouter.
+// NewRouter wires the control plane (PostgreSQL) and the message plane
+// (Pebble) into one API process. Every API node serves every HTTP route.
 func NewRouter(
-	s *store.Store,
+	db *store.DB,
+	data *store.Store,
 	streamHandler *StreamHandler,
 	objects *store.MinioObjectStore,
 	publicBaseURL string,
+	nodeID string,
 ) http.Handler {
 	r := newBaseRouter()
-	userAPI := &UserAPI{store: s, streamHandler: streamHandler}
-	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler, users: s}
-	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
-	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler, users: s}
-	conversationAPI := &ConversationAPI{store: s}
+	notifier := NewNotifier(db, streamHandler, nodeID)
+	userAPI := &UserAPI{store: db, streamHandler: streamHandler}
+	roomAPI := &RoomAPI{db: db, data: data, streamHandler: streamHandler, notifier: notifier}
+	messageAPI := &MessageAPI{store: data, db: db, streamHandler: streamHandler}
+	friendAPI := &FriendAPI{store: db, notifier: notifier}
+	conversationAPI := &ConversationAPI{db: db}
 	fileAPI := NewFileAPI(objects, publicBaseURL)
 
-	registerHealth(r, s)
+	registerHealth(r, db, data)
 	r.Route("/api/v1", func(r chi.Router) {
-		registerUsers(r, userAPI, true, true)
+		registerUsers(r, userAPI)
 		registerDevices(r, userAPI)
 		registerFriends(r, friendAPI)
 		registerWork(r, roomAPI, messageAPI, conversationAPI, fileAPI)
@@ -69,74 +67,33 @@ func NewRouter(
 	return r
 }
 
-// NewMetaRouter serves the authoritative identity/social control plane.
-func NewMetaRouter(s *store.Store) http.Handler {
-	r := newBaseRouter()
-	userAPI := &UserAPI{store: s}
-
-	registerHealth(r, s)
-	r.Route("/api/v1", func(r chi.Router) {
-		registerUsers(r, userAPI, true, false)
-		registerDevices(r, userAPI)
-	})
-	return r
-}
-
-// NewWorkRouter serves rooms, messages, files, friends, and presence. User
-// profiles are resolved through users (the Meta service in production).
-func NewWorkRouter(
-	s *store.Store,
-	streamHandler *StreamHandler,
-	users UserDirectory,
-	objects *store.MinioObjectStore,
-	publicBaseURL string,
-) http.Handler {
-	r := newBaseRouter()
-	presenceAPI := &UserAPI{streamHandler: streamHandler}
-	roomAPI := &RoomAPI{store: s, streamHandler: streamHandler, users: users}
-	messageAPI := &MessageAPI{store: s, streamHandler: streamHandler}
-	friendAPI := &FriendAPI{store: s, streamHandler: streamHandler, users: users}
-	conversationAPI := &ConversationAPI{store: s}
-	fileAPI := NewFileAPI(objects, publicBaseURL)
-
-	registerHealth(r, s)
-	r.Route("/api/v1", func(r chi.Router) {
-		registerUsers(r, presenceAPI, false, true)
-		registerFriends(r, friendAPI)
-		registerWork(r, roomAPI, messageAPI, conversationAPI, fileAPI)
-	})
-	return r
-}
-
-func registerHealth(r chi.Router, s *store.Store) {
+func registerHealth(r chi.Router, db *store.DB, data *store.Store) {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if err := s.Ping(r.Context()); err != nil {
-			render.Error(w, http.StatusServiceUnavailable, "database unavailable: "+err.Error())
+		if err := db.Ping(r.Context()); err != nil {
+			render.Error(w, http.StatusServiceUnavailable, "postgres unavailable: "+err.Error())
+			return
+		}
+		if err := data.Ping(r.Context()); err != nil {
+			render.Error(w, http.StatusServiceUnavailable, "pebble unavailable: "+err.Error())
 			return
 		}
 		render.Success(w, "ok", HealthResp{Status: "healthy"})
 	})
 }
 
-func registerUsers(r chi.Router, api *UserAPI, meta, presence bool) {
+func registerUsers(r chi.Router, api *UserAPI) {
 	r.Route("/users", func(r chi.Router) {
-		if meta {
-			r.Post("/register", api.Register)
-			r.Post("/login", api.Login)
-		}
+		r.Post("/register", api.Register)
+		r.Post("/login", api.Login)
 		r.Group(func(r chi.Router) {
 			r.Use(jwt.AuthMiddleware)
-			if meta {
-				r.Post("/logout", api.Logout)
-				r.Get("/search", api.Search)
-				r.Get("/profile", api.GetProfile)
-				r.Get("/{id}", api.GetProfile)
-				r.Put("/profile", api.UpdateProfile)
-				r.Put("/password", api.UpdatePassword)
-			}
-			if presence {
-				r.Post("/presence", api.Presence)
-			}
+			r.Post("/logout", api.Logout)
+			r.Get("/search", api.Search)
+			r.Get("/profile", api.GetProfile)
+			r.Get("/{id}", api.GetProfile)
+			r.Put("/profile", api.UpdateProfile)
+			r.Put("/password", api.UpdatePassword)
+			r.Post("/presence", api.Presence)
 		})
 	})
 }
@@ -224,8 +181,6 @@ func getContextUserID(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(raw)
 }
 
-// requireUser resolves the authenticated caller; on failure the response is
-// already written and it returns false.
 func requireUser(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	userID, err := getContextUserID(r)
 	if err != nil {
@@ -235,8 +190,6 @@ func requireUser(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	return userID, true
 }
 
-// roomIDFromPath parses the {id} URL parameter as a room UUID; on failure the
-// response is already written and it returns false.
 func roomIDFromPath(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	roomID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
@@ -246,19 +199,16 @@ func roomIDFromPath(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	return roomID, true
 }
 
-// isManager reports whether the role may manage room-wide settings.
 func isManager(role string) bool {
 	return role == store.RoleOwner || role == store.RoleAdmin
 }
 
-// requireRoomMember authenticates the caller and verifies membership of
-// roomID; on failure the response is already written and it returns false.
-func requireRoomMember(s *store.Store, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
+func requireRoomMember(db *store.DB, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
 	userID, ok := requireUser(w, r)
 	if !ok {
 		return false
 	}
-	_, err := s.Member(r.Context(), roomID, userID)
+	_, err := db.Member(r.Context(), roomID, userID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return false

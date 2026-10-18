@@ -14,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/phuslu/log"
 )
 
 func encodeMessage(message Message) []byte {
@@ -122,7 +123,11 @@ type dedupEntry struct {
 	dedup  Dedup
 }
 
-func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResult) {
+func (s *Store) writeMessageBatch(
+	ctx context.Context,
+	messages []Message,
+	results []MessageWriteResult,
+) {
 	batch := s.db.NewBatch()
 	defer batch.Close()
 	rooms := make(map[uuid.UUID]Room)
@@ -150,7 +155,13 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		}
 		if !ok {
 			var err error
-			if room, err = s.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom); err != nil {
+			room, err = s.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom)
+			if errors.Is(err, ErrNotFound) {
+				// Room metadata lives in PostgreSQL. Work only keeps the
+				// message head, created lazily on the first committed message.
+				now := time.Now()
+				room = Room{RoomID: message.RoomID, CreatedAt: now, UpdatedAt: now}
+			} else if err != nil {
 				results[index].Err = err
 				continue
 			}
@@ -279,7 +290,15 @@ func (s *Store) writeMessageBatch(messages []Message, results []MessageWriteResu
 		if _, ok := failedRooms[roomID]; ok {
 			continue
 		}
-		s.getRoomShard(roomID).rooms.Set(roomID, rooms[roomID])
+		room := rooms[roomID]
+		s.getRoomShard(roomID).rooms.Set(roomID, room)
+		if s.pg != nil {
+			headCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			if err := s.pg.UpdateRoomHead(headCtx, roomID, room.LastSeq, room.LastMsg); err != nil {
+				log.Error().Err(err).Str("room_id", roomID.String()).Msg("update room head failed")
+			}
+			cancel()
+		}
 	}
 	for _, entry := range dedupEntries {
 		s.dedupCache.Set(entry.lookup, entry.dedup)
@@ -893,16 +912,15 @@ func (s *Store) populateReactions(ctx context.Context, roomID uuid.UUID, message
 	return nil
 }
 
-func (s *Store) ReadUsers(ctx context.Context, roomID, msgID uuid.UUID) ([]uuid.UUID, error) {
+func (s *Store) ReadUsers(
+	ctx context.Context,
+	roomID, msgID uuid.UUID,
+	members []Member,
+) ([]uuid.UUID, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
 	msg, err := s.MessageByID(ctx, roomID, msgID)
-	if err != nil {
-		return nil, err
-	}
-
-	members, err := s.Members(ctx, roomID)
 	if err != nil {
 		return nil, err
 	}

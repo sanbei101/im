@@ -15,8 +15,8 @@ func TestValidateHTTPTopology(t *testing.T) {
 	}
 
 	cfg = NewTest()
-	cfg.Meta.HTTPAddr = ""
+	cfg.Postgres.URL = ""
 	if err := cfg.Validate(); err == nil {
-		t.Fatal("config without meta http_addr was accepted")
+		t.Fatal("config without postgres url was accepted")
 	}
 }

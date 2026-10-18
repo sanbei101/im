@@ -12,6 +12,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/sanbei101/im/internal/store"
@@ -29,27 +30,54 @@ func TestMain(m *testing.M) {
 }
 
 type testEnv struct {
-	store   *store.Store
+	db      *store.DB
+	data    *store.Store
 	stream  *StreamHandler
 	handler http.Handler
 }
 
+func testDBURL() string {
+	if value := os.Getenv("TEST_POSTGRES_URL"); value != "" {
+		return value
+	}
+	return "postgres://127.0.0.1:5432/im_api_test?sslmode=disable"
+}
+
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
+	ctx := context.Background()
+	db, err := store.OpenDB(ctx, testDBURL())
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	admin, err := pgxpool.New(ctx, testDBURL())
+	if err != nil {
+		t.Fatalf("open postgres admin: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `TRUNCATE users, rooms CASCADE`); err != nil {
+		admin.Close()
+		t.Fatalf("truncate test database: %v", err)
+	}
+	admin.Close()
+
 	data, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	data.AttachDB(db)
 	t.Cleanup(func() {
 		if err := data.Close(); err != nil {
-			t.Errorf("close store: %v", err)
+			t.Errorf("close pebble: %v", err)
 		}
 	})
-	stream := NewStreamHandler(data, 1024, 0, 1)
+	stream := NewStreamHandler(data, db, 1024, 0, 1)
 	return &testEnv{
-		store:   data,
+		db:      db,
+		data:    data,
 		stream:  stream,
-		handler: NewRouter(data, stream, nil, "https://cdn.example.test"),
+		handler: NewRouter(db, data, stream, nil, "https://cdn.example.test", "test-node"),
 	}
 }
 
@@ -59,7 +87,7 @@ func (e *testEnv) addUser(t *testing.T, name string) (store.User, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := e.store.CreateUser(context.Background(), name, string(hashed))
+	user, err := e.db.CreateUser(context.Background(), name, string(hashed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +116,7 @@ func (e *testEnv) createRoom(
 		list = append(list, store.Member{UserID: member.UserID, Role: store.RoleMember})
 	}
 	room := store.Room{RoomID: roomID, ChatType: store.ChatTypeGroup, Name: "test-room"}
-	if err := e.store.CreateRoom(context.Background(), room, list); err != nil {
+	if err := e.db.CreateRoom(context.Background(), room, list); err != nil {
 		t.Fatal(err)
 	}
 	return room
@@ -297,7 +325,7 @@ func TestStreamHandler(t *testing.T) {
 			t.Fatalf("members = %d, want 2", len(members))
 		}
 
-		if err := env.store.AddMembers(context.Background(), room.RoomID, []store.Member{{
+		if _, err := env.db.AddMembers(context.Background(), room.RoomID, []store.Member{{
 			UserID: carol.UserID,
 			Role:   store.RoleMember,
 		}}); err != nil {
@@ -326,8 +354,8 @@ func TestStreamHandler(t *testing.T) {
 		env := newTestEnv(t)
 		sender, _ := env.addUser(t, "sender")
 		room := env.createRoom(t, roomIDForNode(t, 0), sender)
-		owner := NewStreamHandler(env.store, 1024, 0, 2)
-		foreign := NewStreamHandler(env.store, 1024, 1, 2)
+		owner := NewStreamHandler(env.data, env.db, 1024, 0, 2)
+		foreign := NewStreamHandler(env.data, env.db, 1024, 1, 2)
 
 		clientMsgID := uuid.NewV7()
 		input := &pb.SendMessage{
@@ -404,7 +432,7 @@ func TestStreamHandler(t *testing.T) {
 		bob, _ := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		message, err := env.store.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), store.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,

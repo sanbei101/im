@@ -16,13 +16,13 @@ import (
 const defaultConfigPath = "config.yaml"
 
 type Config struct {
-	API       APIConfig     `yaml:"api"`
-	Gateway   GatewayConfig `yaml:"gateway"`
-	Meta      MetaConfig    `yaml:"meta"`
-	Store     StoreConfig   `yaml:"store"`
-	Shard     ShardConfig   `yaml:"shard"`
-	Storage   StorageConfig `yaml:"storage"`
-	JWTSecret string        `yaml:"jwt_secret"`
+	API       APIConfig      `yaml:"api"`
+	Gateway   GatewayConfig  `yaml:"gateway"`
+	Postgres  PostgresConfig `yaml:"postgres"`
+	Store     StoreConfig    `yaml:"store"`
+	Shard     ShardConfig    `yaml:"shard"`
+	Storage   StorageConfig  `yaml:"storage"`
+	JWTSecret string         `yaml:"jwt_secret"`
 }
 
 type StorageConfig struct {
@@ -51,14 +51,8 @@ type GatewayConfig struct {
 	APIHTTPAddrs []string `yaml:"api_http_addrs"`
 }
 
-type MetaConfig struct {
-	ListenAddr     string `yaml:"listen_addr"`
-	HTTPAddr       string `yaml:"http_addr"`
-	RPCAddr        string `yaml:"rpc_addr"`
-	PProfAddr      string `yaml:"pprof_addr"`
-	StorePath      string `yaml:"store_path"`
-	BackupPath     string `yaml:"backup_path"`
-	BackupInterval int    `yaml:"backup_interval_seconds"`
+type PostgresConfig struct {
+	URL string `yaml:"url"`
 }
 
 type StoreConfig struct {
@@ -79,31 +73,6 @@ func New() *Config {
 	return cfg
 }
 
-// NewMeta loads the subset of config used by the Meta process; object storage
-// and room sharding are not required there.
-func NewMeta() *Config {
-	cfg, err := LoadMeta(defaultConfigPath)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load meta config")
-	}
-	return cfg
-}
-
-func LoadMeta(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	cfg := &Config{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, err
-	}
-	if err := cfg.Default(); err != nil {
-		return nil, err
-	}
-	return cfg, cfg.ValidateMeta()
-}
-
 // NewTest returns a self-contained config for tests; it never reads the
 // environment or the filesystem.
 func NewTest() *Config {
@@ -116,13 +85,9 @@ func NewTest() *Config {
 			Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"},
 			APIHTTPAddrs: []string{"127.0.0.1:8801"},
 		},
-		Meta: MetaConfig{
-			ListenAddr: ":8802", HTTPAddr: "127.0.0.1:8802", RPCAddr: "127.0.0.1:9002",
-			PProfAddr: "127.0.0.1:6063", StorePath: "data/meta",
-			BackupPath: "backup/meta", BackupInterval: 3600,
-		},
-		Store: StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
-		Shard: ShardConfig{Slots: 1024},
+		Postgres: PostgresConfig{URL: "postgres://127.0.0.1:5432/im_test?sslmode=disable"},
+		Store:    StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
+		Shard:    ShardConfig{Slots: 1024},
 		Storage: StorageConfig{
 			Endpoint: "127.0.0.1:19901", Bucket: "im-media",
 			AccessKey: "rustfsadmin", SecretKey: "rustfsadmin",
@@ -172,26 +137,8 @@ func (c *Config) Default() error {
 	if len(c.Gateway.APIHTTPAddrs) == 0 {
 		c.Gateway.APIHTTPAddrs = []string{"127.0.0.1:8801"}
 	}
-	if c.Meta.ListenAddr == "" {
-		c.Meta.ListenAddr = ":8802"
-	}
-	if c.Meta.HTTPAddr == "" {
-		c.Meta.HTTPAddr = "127.0.0.1:8802"
-	}
-	if c.Meta.RPCAddr == "" {
-		c.Meta.RPCAddr = "127.0.0.1:9002"
-	}
-	if c.Meta.PProfAddr == "" {
-		c.Meta.PProfAddr = "127.0.0.1:6063"
-	}
-	if c.Meta.StorePath == "" {
-		c.Meta.StorePath = "./data/meta"
-	}
-	if c.Meta.BackupPath == "" {
-		c.Meta.BackupPath = "./backup/meta"
-	}
-	if c.Meta.BackupInterval == 0 {
-		c.Meta.BackupInterval = 3600
+	if c.Postgres.URL == "" {
+		c.Postgres.URL = "postgres://127.0.0.1:5432/im?sslmode=disable"
 	}
 	if c.Store.Path == "" {
 		c.Store.Path = "./data/" + c.API.NodeID
@@ -208,15 +155,7 @@ func (c *Config) Default() error {
 	envString("GATEWAY_ADDR", &c.Gateway.Addr)
 	envList("GATEWAY_API_ADDRS", &c.Gateway.APIAddrs)
 	envList("GATEWAY_API_HTTP_ADDRS", &c.Gateway.APIHTTPAddrs)
-	envString("META_LISTEN_ADDR", &c.Meta.ListenAddr)
-	envString("META_HTTP_ADDR", &c.Meta.HTTPAddr)
-	envString("META_RPC_ADDR", &c.Meta.RPCAddr)
-	envString("META_PPROF_ADDR", &c.Meta.PProfAddr)
-	envString("META_STORE_PATH", &c.Meta.StorePath)
-	envString("META_BACKUP_PATH", &c.Meta.BackupPath)
-	if err := envInt("META_BACKUP_INTERVAL_SECONDS", &c.Meta.BackupInterval); err != nil {
-		return err
-	}
+	envString("POSTGRES_URL", &c.Postgres.URL)
 	envString("STORE_PATH", &c.Store.Path)
 	envString("BACKUP_PATH", &c.Store.BackupPath)
 	if value := os.Getenv("SHARD_SLOTS"); value != "" {
@@ -270,19 +209,6 @@ func envList(key string, target *[]string) {
 	}
 }
 
-func envInt(key string, target *int) error {
-	value := os.Getenv(key)
-	if value == "" {
-		return nil
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return fmt.Errorf("parse %s %q: %w", key, value, err)
-	}
-	*target = parsed
-	return nil
-}
-
 func envBool(key string, target *bool) error {
 	value := os.Getenv(key)
 	if value == "" {
@@ -293,19 +219,6 @@ func envBool(key string, target *bool) error {
 		return fmt.Errorf("parse %s %q: %w", key, value, err)
 	}
 	*target = parsed
-	return nil
-}
-
-func (c *Config) ValidateMeta() error {
-	if strings.TrimSpace(c.Meta.ListenAddr) == "" || strings.TrimSpace(c.Meta.HTTPAddr) == "" {
-		return errors.New("meta listen_addr and http_addr are required")
-	}
-	if strings.TrimSpace(c.Meta.RPCAddr) == "" {
-		return errors.New("meta rpc_addr is required")
-	}
-	if strings.TrimSpace(c.Meta.StorePath) == "" || strings.TrimSpace(c.Meta.BackupPath) == "" {
-		return errors.New("meta store_path and backup_path are required")
-	}
 	return nil
 }
 
@@ -340,14 +253,8 @@ func (c *Config) Validate() error {
 	if c.API.NodeCount != len(c.Gateway.APIHTTPAddrs) {
 		return errors.New("api node_count must match the number of gateway api_http_addrs")
 	}
-	if strings.TrimSpace(c.Meta.ListenAddr) == "" || strings.TrimSpace(c.Meta.HTTPAddr) == "" {
-		return errors.New("meta listen_addr and http_addr are required")
-	}
-	if strings.TrimSpace(c.Meta.RPCAddr) == "" {
-		return errors.New("meta rpc_addr is required")
-	}
-	if strings.TrimSpace(c.Meta.StorePath) == "" || strings.TrimSpace(c.Meta.BackupPath) == "" {
-		return errors.New("meta store_path and backup_path are required")
+	if strings.TrimSpace(c.Postgres.URL) == "" {
+		return errors.New("postgres url is required")
 	}
 	for _, address := range c.Gateway.APIHTTPAddrs {
 		if strings.TrimSpace(address) == "" {

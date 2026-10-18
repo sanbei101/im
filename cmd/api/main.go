@@ -18,7 +18,6 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/api"
-	metaclient "github.com/sanbei101/im/internal/meta"
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
@@ -62,11 +61,18 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	db, err := store.OpenDB(runCtx, cfg.Postgres.URL)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer db.Close()
+
 	data, err := store.Open(cfg.Store.Path)
 	if err != nil {
 		return fmt.Errorf("open pebble store: %w", err)
 	}
 	defer data.Close()
+	data.AttachDB(db)
 
 	objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
 		Endpoint:  cfg.Storage.Endpoint,
@@ -87,12 +93,18 @@ func serve(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("attach remote archive: %w", err)
 	}
 
-	streamHandler := api.NewStreamHandler(data, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
-	metaClient, err := metaclient.NewClient(cfg.Meta.RPCAddr)
-	if err != nil {
-		return fmt.Errorf("create meta client: %w", err)
-	}
-	handler := api.NewWorkRouter(data, streamHandler, metaClient, objects, cfg.Storage.PublicBaseURL)
+	streamHandler := api.NewStreamHandler(data, db, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
+	notifyDone := make(chan struct{})
+	go func() {
+		defer close(notifyDone)
+		db.ListenNotifications(runCtx, func(notification store.Notification) {
+			if notification.Origin == cfg.API.NodeID {
+				return // the publishing node already delivered it synchronously
+			}
+			streamHandler.NotifyRaw(notification.Event, notification.UserIDs, notification.Data)
+		})
+	}()
+	handler := api.NewRouter(db, data, streamHandler, objects, cfg.Storage.PublicBaseURL, cfg.API.NodeID)
 	streamAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)
@@ -177,6 +189,8 @@ func serve(ctx context.Context, cfg *config.Config) error {
 
 	httpServers.Wait()
 	tasks.Wait()
+	cancel()
+	<-notifyDone
 	if err := kitexServer.Stop(); err != nil {
 		log.Error().Err(err).Msg("api stream server shutdown failed")
 	}

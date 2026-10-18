@@ -202,7 +202,7 @@ func bearerToken(r *http.Request) string {
 }
 
 // NewProxy exposes the same reverse proxy configuration to callers that only
-// need a plain pass-through handler (for example the gateway's meta fallback).
+// need a plain pass-through handler (for example the gateway's API fallback).
 func NewProxy(address string) (http.Handler, error) {
 	return newProxy(address)
 }

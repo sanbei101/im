@@ -14,9 +14,8 @@ import (
 )
 
 type FriendAPI struct {
-	store         *store.Store
-	streamHandler *StreamHandler
-	users         UserDirectory
+	store    *store.DB
+	notifier *Notifier
 }
 
 type ApplyFriendReq struct {
@@ -69,7 +68,7 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 检查目标用户是否存在
-	targets, err := a.users.UsersByIDs(r.Context(), []uuid.UUID{targetID})
+	targets, err := a.store.UsersByIDs(r.Context(), []uuid.UUID{targetID})
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -88,10 +87,10 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.streamHandler != nil {
+	if a.notifier != nil {
 		application := FriendApplication{FromUserID: myID, Greeting: req.Greeting}
 		application.FromUsername, application.FromNickname, application.FromAvatarURL = a.myProfile(r, myID)
-		a.streamHandler.NotifyUser(targetID, application)
+		a.notifier.Notify(r.Context(), application.event(), []uuid.UUID{targetID}, application)
 	}
 
 	render.SuccessNoData(w, http.StatusOK, "好友申请已发送")
@@ -124,10 +123,10 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if accept && a.streamHandler != nil {
+	if accept && a.notifier != nil {
 		accepted := FriendAccepted{UserID: myID}
 		accepted.Username, accepted.Nickname, accepted.AvatarURL = a.myProfile(r, myID)
-		a.streamHandler.NotifyUser(fromID, accepted)
+		a.notifier.Notify(r.Context(), accepted.event(), []uuid.UUID{fromID}, accepted)
 	}
 
 	msg := "已同意好友申请"
@@ -138,7 +137,7 @@ func (a *FriendAPI) Audit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FriendAPI) myProfile(r *http.Request, userID uuid.UUID) (username, nickname, avatar string) {
-	users, err := a.users.UsersByIDs(r.Context(), []uuid.UUID{userID})
+	users, err := a.store.UsersByIDs(r.Context(), []uuid.UUID{userID})
 	if err != nil {
 		return "", "", ""
 	}
@@ -179,7 +178,7 @@ func (a *FriendAPI) ListFriends(w http.ResponseWriter, r *http.Request) {
 	for i, f := range friends {
 		ids[i] = f.FriendID
 	}
-	users, err := a.users.UsersByIDs(r.Context(), ids)
+	users, err := a.store.UsersByIDs(r.Context(), ids)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -310,7 +309,7 @@ func (a *FriendAPI) ListBlacklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users, err := a.users.UsersByIDs(r.Context(), targetIDs)
+	users, err := a.store.UsersByIDs(r.Context(), targetIDs)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return

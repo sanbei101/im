@@ -7,8 +7,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os/signal"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -38,21 +38,18 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	metaProxy, err := router.NewProxy(cfg.Meta.HTTPAddr)
-	if err != nil {
-		return fmt.Errorf("create meta http proxy: %w", err)
-	}
-	workProxy, err := router.NewProxy(cfg.Gateway.APIHTTPAddrs[0])
-	if err != nil {
-		return fmt.Errorf("create work http proxy: %w", err)
-	}
-	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimSuffix(r.URL.Path, "/")
-		if path == "/api/v1/users/presence" || strings.HasPrefix(path, "/api/v1/friends") {
-			workProxy.ServeHTTP(w, r)
-			return
+	proxies := make([]http.Handler, 0, len(cfg.Gateway.APIHTTPAddrs))
+	for _, address := range cfg.Gateway.APIHTTPAddrs {
+		proxy, err := router.NewProxy(address)
+		if err != nil {
+			return fmt.Errorf("create api http proxy %q: %w", address, err)
 		}
-		metaProxy.ServeHTTP(w, r)
+		proxies = append(proxies, proxy)
+	}
+	var nextProxy atomic.Uint64
+	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		index := nextProxy.Add(1) - 1
+		proxies[index%uint64(len(proxies))].ServeHTTP(w, r)
 	})
 	edge, err := router.NewEdge(router.EdgeConfig{
 		Slots:     cfg.Shard.Slots,

@@ -95,7 +95,7 @@ func TestUserHTTP(t *testing.T) {
 
 		recorder = doRequest(t, env.handler, http.MethodPost, "/api/v1/users/logout", token, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		if _, err := env.store.DeviceToken(context.Background(), alice.UserID); !errors.Is(err, store.ErrNotFound) {
+		if _, err := env.db.DeviceToken(context.Background(), alice.UserID); !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("device token after logout: %v", err)
 		}
 
@@ -156,7 +156,7 @@ func TestRoomHTTP(t *testing.T) {
 			t.Fatalf("members = %d, want 3", len(members.Data))
 		}
 
-		message, err := env.store.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), store.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      roomID,
@@ -219,7 +219,7 @@ func TestRoomHTTP(t *testing.T) {
 		bob, _ := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		if _, err := env.store.WriteMessage(context.Background(), store.Message{
+		if _, err := env.data.WriteMessage(context.Background(), store.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,
@@ -269,7 +269,7 @@ func TestRoomHTTP(t *testing.T) {
 		bob, bobToken := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		message, err := env.store.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), store.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,
@@ -348,7 +348,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder := doRequest(t, env.handler, http.MethodPost, roomPath+"/members", aliceToken,
 			jsonBody(t, AddMembersReq{MemberIDs: []string{carol.UserID.String()}}))
 		requireStatus(t, recorder, http.StatusOK)
-		if _, err := env.store.Member(context.Background(), room.RoomID, carol.UserID); err != nil {
+		if _, err := env.db.Member(context.Background(), room.RoomID, carol.UserID); err != nil {
 			t.Fatalf("load added member: %v", err)
 		}
 
@@ -356,7 +356,7 @@ func TestRoomHTTP(t *testing.T) {
 			roomPath+"/members/"+carol.UserID.String()+"/role", aliceToken,
 			jsonBody(t, UpdateMemberRoleReq{Role: store.RoleAdmin}))
 		requireStatus(t, recorder, http.StatusOK)
-		member, err := env.store.Member(context.Background(), room.RoomID, carol.UserID)
+		member, err := env.db.Member(context.Background(), room.RoomID, carol.UserID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -367,7 +367,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodDelete,
 			roomPath+"/members/"+carol.UserID.String(), aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		if _, err := env.store.Member(
+		if _, err := env.db.Member(
 			context.Background(),
 			room.RoomID,
 			carol.UserID,
@@ -381,7 +381,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodPost, roomPath+"/transfer", aliceToken,
 			jsonBody(t, TransferOwnerReq{NewOwnerID: bob.UserID.String()}))
 		requireStatus(t, recorder, http.StatusOK)
-		owner, err := env.store.Member(context.Background(), room.RoomID, bob.UserID)
+		owner, err := env.db.Member(context.Background(), room.RoomID, bob.UserID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,7 +391,7 @@ func TestRoomHTTP(t *testing.T) {
 
 		recorder = doRequest(t, env.handler, http.MethodPost, roomPath+"/leave", aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		if _, err := env.store.Member(
+		if _, err := env.db.Member(
 			context.Background(),
 			room.RoomID,
 			alice.UserID,
@@ -404,7 +404,7 @@ func TestRoomHTTP(t *testing.T) {
 
 		recorder = doRequest(t, env.handler, http.MethodDelete, roomPath, bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		if _, err := env.store.Room(context.Background(), room.RoomID); !errors.Is(err, store.ErrNotFound) {
+		if _, err := env.db.Room(context.Background(), room.RoomID); !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("dissolved room lookup: %v", err)
 		}
 	})
@@ -510,10 +510,10 @@ func TestFriendHTTP(t *testing.T) {
 		alice, aliceToken := env.addUser(t, "alice")
 		bob, _ := env.addUser(t, "bob")
 
-		if err := env.store.ApplyFriend(context.Background(), alice.UserID, bob.UserID, "hi"); err != nil {
+		if err := env.db.ApplyFriend(context.Background(), alice.UserID, bob.UserID, "hi"); err != nil {
 			t.Fatal(err)
 		}
-		if err := env.store.AuditFriend(context.Background(), bob.UserID, alice.UserID, true); err != nil {
+		if err := env.db.AuditFriend(context.Background(), bob.UserID, alice.UserID, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -557,7 +557,7 @@ func TestFileHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewRouter(env.store, env.stream, objects, "https://cdn.example.test")
+	handler := NewRouter(env.db, env.data, env.stream, objects, "https://cdn.example.test", "test-node")
 
 	recorder := doRequest(t, handler, http.MethodPost, "/api/v1/files/presign", token,
 		jsonBody(t, PresignUploadReq{FileName: "photo.PNG", ContentType: "image/png"}))

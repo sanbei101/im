@@ -29,6 +29,7 @@ type sessionShard struct {
 
 type StreamHandler struct {
 	store     *store.Store
+	db        *store.DB
 	slots     int
 	nodeIndex int
 	nodeCount int
@@ -105,9 +106,14 @@ func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
 	return &h.sessionShards[pkg.StringShard(userID, sessionShardCount)]
 }
 
-func NewStreamHandler(data *store.Store, slots, nodeIndex, nodeCount int) *StreamHandler {
+func NewStreamHandler(
+	data *store.Store,
+	db *store.DB,
+	slots, nodeIndex, nodeCount int,
+) *StreamHandler {
 	handler := &StreamHandler{
 		store:     data,
+		db:        db,
 		slots:     slots,
 		nodeIndex: nodeIndex,
 		nodeCount: nodeCount,
@@ -131,7 +137,7 @@ func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([
 		return cached, nil
 	}
 
-	rawMembers, err := h.store.Members(ctx, roomID)
+	rawMembers, err := h.db.Members(ctx, roomID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +250,11 @@ func (h *StreamHandler) writeBatch(
 		message, err := h.message(input)
 		if err == nil {
 			err = h.checkRoomOwned(message.RoomID)
+		}
+		if err == nil {
+			if _, memberErr := h.db.Member(ctx, message.RoomID, message.SenderID); memberErr != nil {
+				err = memberErr
+			}
 		}
 		if err != nil {
 			item.Code = 1
@@ -488,14 +499,27 @@ func (h *StreamHandler) NotifyUsers(userIDs []uuid.UUID, n Notification) {
 		log.Error().Err(err).Str("event", n.event()).Msg("marshal notification failed")
 		return
 	}
+	h.NotifyRaw(n.event(), userIDs, payload)
+}
+
+// NotifyRaw fans an already-encoded event out to local gateway connections.
+func (h *StreamHandler) NotifyRaw(event string, userIDs []uuid.UUID, payload []byte) {
+	if h.nodeCount < 1 {
+		return
+	}
 	targets := make(map[*apiConnection][]string)
 	for _, uid := range userIDs {
 		uidStr := uid.String()
+		// Every API node knows every gateway session, so elect exactly one
+		// node per user; otherwise PostgreSQL fan-out duplicates the frame.
+		if pkg.StringShard(uidStr, h.nodeCount) != h.nodeIndex {
+			continue
+		}
 		if conn := h.onlineConnection(uidStr); conn != nil {
 			targets[conn] = append(targets[conn], uidStr)
 		}
 	}
-	h.fanOut(targets, n.event(), payload)
+	h.fanOut(targets, event, payload)
 }
 
 // NotifyRoom delivers one notification to every online room member except

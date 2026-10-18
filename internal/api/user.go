@@ -17,7 +17,7 @@ import (
 )
 
 type UserAPI struct {
-	store         *store.Store
+	store         *store.DB
 	streamHandler *StreamHandler
 }
 

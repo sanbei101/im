@@ -15,6 +15,7 @@ import (
 
 type MessageAPI struct {
 	store         *store.Store
+	db            *store.DB
 	streamHandler *StreamHandler
 }
 
@@ -45,7 +46,7 @@ func (a *MessageAPI) GetHistory(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
-	if !requireRoomMember(a.store, w, r, roomID) {
+	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
 
@@ -106,7 +107,7 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, userID)
+	member, err := a.db.Member(r.Context(), roomID, userID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a room member")
 		return
@@ -168,7 +169,7 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "emoji too long")
 		return
 	}
-	if !requireRoomMember(a.store, w, r, roomID) {
+	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
 
@@ -207,7 +208,7 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid emoji")
 		return
 	}
-	if !requireRoomMember(a.store, w, r, roomID) {
+	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
 
@@ -237,7 +238,7 @@ func (a *MessageAPI) GetReactions(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
-	if !requireRoomMember(a.store, w, r, roomID) {
+	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
 
@@ -261,11 +262,21 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
-	if !requireRoomMember(a.store, w, r, roomID) {
+	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
 
-	users, err := a.store.ReadUsers(r.Context(), roomID, msgID)
+	members, err := a.db.Members(r.Context(), roomID)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	message, err := a.store.MessageByID(r.Context(), roomID, msgID)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	users, err := a.db.ReadUsers(r.Context(), roomID, message.RoomSeq, members)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -286,7 +297,7 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusBadRequest, "invalid room_id")
 		return
 	}
-	if !requireRoomMember(a.store, w, r, roomID) {
+	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
 

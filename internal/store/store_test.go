@@ -336,10 +336,13 @@ func TestStoreMessages(t *testing.T) {
 		if err != nil || got.LastSeq != 1 {
 			t.Fatalf("room last seq: room=%+v err=%v", got, err)
 		}
+		// Work lazily creates its message head; room metadata and membership
+		// live in PostgreSQL, so a missing Pebble room is not an error.
+		freshRoom := uuid.NewV7()
 		if _, err := s.WriteMessage(ctx, Message{
-			ClientMsgID: uuid.NewV7(), SenderID: sender.UserID, RoomID: uuid.NewV7(), MsgType: MsgTypeText,
-		}); err == nil {
-			t.Fatal("expected error writing to missing room")
+			ClientMsgID: uuid.NewV7(), SenderID: sender.UserID, RoomID: freshRoom, MsgType: MsgTypeText,
+		}); err != nil {
+			t.Fatalf("write to fresh room: %v", err)
 		}
 	})
 
@@ -755,7 +758,11 @@ func TestStoreInteractions(t *testing.T) {
 		if err := s.MarkRoomRead(ctx, readers[1].UserID, room.RoomID, msg.RoomSeq-1); err != nil {
 			t.Fatal(err)
 		}
-		readUsers, err := s.ReadUsers(ctx, room.RoomID, msg.MsgID)
+		members, err := s.Members(ctx, room.RoomID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		readUsers, err := s.ReadUsers(ctx, room.RoomID, msg.MsgID, members)
 		if err != nil || len(readUsers) != 1 || readUsers[0] != readers[0].UserID {
 			t.Fatalf("read users: list=%+v err=%v", readUsers, err)
 		}

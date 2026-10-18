@@ -14,9 +14,10 @@ import (
 )
 
 type RoomAPI struct {
-	store         *store.Store
+	db            *store.DB
+	data          *store.Store
 	streamHandler *StreamHandler
-	users         UserDirectory
+	notifier      *Notifier
 }
 
 type CreateSingleRoomReq struct {
@@ -99,7 +100,7 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 	}
 
 	hash := pkg.SingleChatHash(user1, user2)
-	if room, err := a.store.RoomBySingleHash(r.Context(), hash[:]); err == nil {
+	if room, err := a.db.RoomBySingleHash(r.Context(), hash[:]); err == nil {
 		render.Success(w, "获取或创建单聊房间成功", RoomResp{RoomID: room.RoomID.String()})
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -109,7 +110,7 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 
 	roomID := pkg.SingleRoomID(user1, user2)
 	name, avatar := generateRoomInfo(roomID)
-	err = a.store.CreateRoom(
+	err = a.db.CreateRoom(
 		r.Context(),
 		store.Room{
 			RoomID:         roomID,
@@ -121,7 +122,7 @@ func (a *RoomAPI) CreateOrGetSingleChatRoom(w http.ResponseWriter, r *http.Reque
 		[]store.Member{{UserID: user1, Role: store.RoleMember}, {UserID: user2, Role: store.RoleMember}},
 	)
 	if errors.Is(err, store.ErrAlreadyExists) {
-		room, lookupErr := a.store.RoomBySingleHash(r.Context(), hash[:])
+		room, lookupErr := a.db.RoomBySingleHash(r.Context(), hash[:])
 		if lookupErr != nil {
 			render.Error(w, http.StatusInternalServerError, lookupErr.Error())
 			return
@@ -181,7 +182,7 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 	if req.Name != "" {
 		name = req.Name
 	}
-	if err := a.store.CreateRoom(
+	if err := a.db.CreateRoom(
 		r.Context(),
 		store.Room{RoomID: roomID, ChatType: store.ChatTypeGroup, Name: name, AvatarURL: avatar},
 		members,
@@ -190,17 +191,18 @@ func (a *RoomAPI) CreateGroupRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.streamHandler != nil {
+	if a.notifier != nil {
 		memberIDs := make([]uuid.UUID, 0, len(members)-1)
 		for _, m := range members {
 			if m.UserID != creatorID {
 				memberIDs = append(memberIDs, m.UserID)
 			}
 		}
-		a.streamHandler.NotifyUsers(memberIDs, RoomUpdated{
+		event := RoomUpdated{
 			Action: "created", RoomID: roomID, ChatType: store.ChatTypeGroup,
 			Name: name, AvatarURL: avatar, InviterID: creatorID,
-		})
+		}
+		a.notifier.Notify(r.Context(), event.event(), memberIDs, event)
 	}
 
 	render.Success(w, "创建群聊房间成功", RoomResp{RoomID: roomID.String()})
@@ -212,7 +214,7 @@ func (a *RoomAPI) ListRooms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rooms, err := a.store.RoomsByUser(r.Context(), id)
+	rooms, err := a.db.RoomsByUser(r.Context(), id)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -249,7 +251,7 @@ func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := a.store.Room(r.Context(), roomID)
+	room, err := a.db.Room(r.Context(), roomID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusNotFound, "room not found")
 		return
@@ -259,7 +261,7 @@ func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, myID)
+	member, err := a.db.Member(r.Context(), roomID, myID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
@@ -289,7 +291,7 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, myID)
+	member, err := a.db.Member(r.Context(), roomID, myID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
@@ -308,17 +310,18 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := a.store.UpdateRoom(r.Context(), roomID, req.Name, req.AvatarURL, req.Notice)
+	updated, err := a.db.UpdateRoom(r.Context(), roomID, req.Name, req.AvatarURL, req.Notice)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	if a.streamHandler != nil {
-		a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), RoomUpdated{
+	if a.notifier != nil {
+		event := RoomUpdated{
 			Action: "info_updated", RoomID: updated.RoomID,
 			Name: updated.Name, AvatarURL: updated.AvatarURL, Notice: updated.Notice,
-		})
+		}
+		a.notifier.NotifyRoom(r.Context(), roomID, uuid.Nil(), event.event(), event)
 	}
 
 	render.Success(w, "更新房间信息成功", RoomDetailResp{
@@ -341,12 +344,12 @@ func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.store.Member(r.Context(), roomID, myID); err != nil {
+	if _, err := a.db.Member(r.Context(), roomID, myID); err != nil {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
 	}
 
-	members, err := a.store.Members(r.Context(), roomID)
+	members, err := a.db.Members(r.Context(), roomID)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -356,7 +359,7 @@ func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
 	for i, m := range members {
 		ids[i] = m.UserID
 	}
-	users, err := a.users.UsersByIDs(r.Context(), ids)
+	users, err := a.db.UsersByIDs(r.Context(), ids)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -392,7 +395,7 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := a.store.Room(r.Context(), roomID)
+	room, err := a.db.Room(r.Context(), roomID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusNotFound, "room not found")
 		return
@@ -406,7 +409,7 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	myMember, err := a.db.Member(r.Context(), roomID, myID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
@@ -420,7 +423,7 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current, err := a.store.Members(r.Context(), roomID)
+	current, err := a.db.Members(r.Context(), roomID)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -450,10 +453,12 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(toAdd) > 0 {
-		if err := a.store.AddMembers(r.Context(), roomID, toAdd); err != nil {
+		added, err := a.db.AddMembers(r.Context(), roomID, toAdd)
+		if err != nil {
 			render.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		toAdd = added
 		if a.streamHandler != nil {
 			a.streamHandler.InvalidateRoomMembers(roomID)
 			newMemberIDs := make([]uuid.UUID, len(toAdd))
@@ -461,13 +466,12 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 				newMemberIDs[i] = m.UserID
 			}
 			invited := RoomUpdated{Action: "invited", RoomID: roomID, InviterID: myID}
-			if rInfo, err := a.store.Room(r.Context(), roomID); err == nil {
+			if rInfo, err := a.db.Room(r.Context(), roomID); err == nil {
 				invited.Name, invited.AvatarURL, invited.ChatType = rInfo.Name, rInfo.AvatarURL, rInfo.ChatType
 			}
-			a.streamHandler.NotifyUsers(newMemberIDs, invited)
-			a.streamHandler.NotifyRoom(r.Context(), roomID, uuid.Nil(), RoomMembersChanged{
-				RoomID: roomID, Action: "members_added",
-			})
+			a.notifier.Notify(r.Context(), invited.event(), newMemberIDs, invited)
+			change := RoomMembersChanged{RoomID: roomID, Action: "members_added"}
+			a.notifier.NotifyRoom(r.Context(), roomID, uuid.Nil(), change.event(), change)
 		}
 	}
 
@@ -489,12 +493,12 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	myMember, err := a.db.Member(r.Context(), roomID, myID)
 	if err != nil {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
 	}
-	targetMember, err := a.store.Member(r.Context(), roomID, targetID)
+	targetMember, err := a.db.Member(r.Context(), roomID, targetID)
 	if err != nil {
 		render.Error(w, http.StatusNotFound, "target not in room")
 		return
@@ -511,7 +515,7 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.RemoveMember(r.Context(), roomID, targetID); err != nil {
+	if err := a.db.RemoveMember(r.Context(), roomID, targetID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -541,7 +545,7 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	myMember, err := a.db.Member(r.Context(), roomID, myID)
 	if err != nil {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
@@ -551,7 +555,7 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetMember, err := a.store.Member(r.Context(), roomID, targetID)
+	targetMember, err := a.db.Member(r.Context(), roomID, targetID)
 	if err != nil {
 		render.Error(w, http.StatusNotFound, "target not in room")
 		return
@@ -572,7 +576,7 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.UpdateMemberRole(r.Context(), roomID, targetID, req.Role); err != nil {
+	if err := a.db.UpdateMemberRole(r.Context(), roomID, targetID, req.Role); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -594,7 +598,7 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, myID)
+	member, err := a.db.Member(r.Context(), roomID, myID)
 	if err != nil {
 		render.Error(w, http.StatusNotFound, "not a member of this room")
 		return
@@ -605,7 +609,7 @@ func (a *RoomAPI) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.RemoveMember(r.Context(), roomID, myID); err != nil {
+	if err := a.db.RemoveMember(r.Context(), roomID, myID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -626,7 +630,7 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.store.Member(r.Context(), roomID, myID)
+	myMember, err := a.db.Member(r.Context(), roomID, myID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
@@ -654,12 +658,12 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.store.Member(r.Context(), roomID, newOwnerID); err != nil {
+	if _, err := a.db.Member(r.Context(), roomID, newOwnerID); err != nil {
 		render.Error(w, http.StatusNotFound, "new owner is not a member of this room")
 		return
 	}
 
-	if err := a.store.TransferOwnership(r.Context(), roomID, myID, newOwnerID); err != nil {
+	if err := a.db.TransferOwnership(r.Context(), roomID, myID, newOwnerID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -680,7 +684,7 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, myID)
+	member, err := a.db.Member(r.Context(), roomID, myID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return
@@ -694,14 +698,24 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.DissolveRoom(r.Context(), roomID); err != nil {
+	members, err := a.db.Members(r.Context(), roomID)
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := a.db.DissolveRoom(r.Context(), roomID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if a.streamHandler != nil {
-		a.streamHandler.NotifyRoom(r.Context(), roomID, myID, RoomUpdated{
-			Action: "dissolved", RoomID: roomID,
-		})
+		memberIDs := make([]uuid.UUID, 0, len(members))
+		for _, member := range members {
+			if member.UserID != myID {
+				memberIDs = append(memberIDs, member.UserID)
+			}
+		}
+		event := RoomUpdated{Action: "dissolved", RoomID: roomID}
+		a.notifier.Notify(r.Context(), event.event(), memberIDs, event)
 		a.streamHandler.InvalidateRoomMembers(roomID)
 	}
 
@@ -731,13 +745,13 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, myID)
+	member, err := a.db.Member(r.Context(), roomID, myID)
 	if err != nil || !isManager(member.Role) {
 		render.Error(w, http.StatusForbidden, "只有群主或管理员可以置顶消息")
 		return
 	}
 
-	if err := a.store.PinMessage(r.Context(), roomID, msgID, myID); err != nil {
+	if err := a.data.PinMessage(r.Context(), roomID, msgID, myID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -759,13 +773,13 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.store.Member(r.Context(), roomID, myID)
+	member, err := a.db.Member(r.Context(), roomID, myID)
 	if err != nil || !isManager(member.Role) {
 		render.Error(w, http.StatusForbidden, "只有群主或管理员可以取消置顶消息")
 		return
 	}
 
-	if err := a.store.UnpinMessage(r.Context(), roomID, msgID); err != nil {
+	if err := a.data.UnpinMessage(r.Context(), roomID, msgID); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -782,12 +796,12 @@ func (a *RoomAPI) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.store.Member(r.Context(), roomID, myID); err != nil {
+	if _, err := a.db.Member(r.Context(), roomID, myID); err != nil {
 		render.Error(w, http.StatusForbidden, "not a room member")
 		return
 	}
 
-	pins, err := a.store.PinnedMessages(r.Context(), roomID)
+	pins, err := a.data.PinnedMessages(r.Context(), roomID)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return

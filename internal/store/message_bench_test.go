@@ -304,7 +304,11 @@ func BenchmarkStoreReadUsers(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		users, err := s.ReadUsers(context.Background(), room, message.MsgID)
+		roster, err := s.Members(context.Background(), room)
+		if err != nil {
+			b.Fatal(err)
+		}
+		users, err := s.ReadUsers(context.Background(), room, message.MsgID, roster)
 		if err != nil || len(users) != members-20 {
 			b.Fatalf("read users: count=%d err=%v", len(users), err)
 		}

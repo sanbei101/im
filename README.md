@@ -4,25 +4,23 @@
 
 ## 架构
 
-- `gateway` 是统一入口:维护 WebSocket 长连接和用户会话,同时把 `/api/` 请求转发到对应 API 节点;使用协议层 ping/pong 控制帧保活,每 30s 主动 ping,5s 未收到 pong 即断开并注销在线状态。
-- `api` 提供 HTTP 接口和房间分片存储;HTTP 端口只对内网/Gateway 开放,不再自行转发房间请求。
-- `meta` 保存用户、密码、设备 token,并向 Work 提供内网用户资料查询。
+- `gateway` 是统一入口:维护 WebSocket 长连接和用户会话,同时把 `/api/` 请求转发到 API 节点;使用协议层 ping/pong 控制帧保活,每 30s 主动 ping,5s 未收到 pong 即断开并注销在线状态。
+- `api` 同时承载控制面和消息面。控制面(用户、设备、好友、房间、成员、成员设置、已读游标)全部读写 PostgreSQL;消息面(消息、幂等、room_seq、置顶、表情、归档)使用本节点 Pebble。
+- 所有 API 节点共享同一个 PostgreSQL,控制面请求可以落到任意节点。
+- API 节点按 `hash(room_id) % slots` 拥有消息分片;Gateway 把消息、历史、搜索、置顶、表情等房间请求转发到归属节点。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,协议由 Kitex 生成 fastpb 编解码代码。
-- 消息、房间、成员和幂等记录使用 Pebble 本地持久化。
-- 房间通过 `hash(room_id) % slots` 路由到 API 节点。
-- 消息按照 `room_seq` 排序、分页和断线补拉。
-- API 定期生成 Pebble checkpoint,不依赖 PostgreSQL、Redis、外部 MQ 或 Raft。
+- 消息按照 `room_seq` 排序、分页和断线补拉;消息写入 Pebble 后把会话头(last_seq/last_message)投影到 PostgreSQL。
+- 跨 API 节点通知通过 PostgreSQL `LISTEN/NOTIFY` 分发,客户端断线后仍以 HTTP/room_seq 补拉为准。
+- Pebble checkpoint 由 API 进程定期生成和保留。
 
 ## 目录
 
 ```text
-cmd/meta      Meta 进程
-cmd/api       API/Work 进程
+cmd/api       API 进程(控制面 + 消息面)
 cmd/gateway   WebSocket Gateway + HTTP Edge 进程
-internal/api  HTTP 和 Kitex 服务
-internal/meta Meta HTTP 客户端
+internal/api  HTTP Handler、Kitex Server 和业务逻辑
 internal/gateway WebSocket、Kitex 客户端和会话
-internal/store Pebble 与固定二进制记录编码
+internal/store Pebble 消息存储、PostgreSQL 控制面存储与迁移
 pkg           配置、分片、JWT、日志
 proto         Protobuf 源文件与 Kitex 生成代码(proto/pb)
 ```
@@ -37,21 +35,22 @@ go install github.com/cloudwego/kitex/tool/cmd/kitex@latest
 make gen
 ```
 
-启动 Meta、API 和 Gateway:
+准备 PostgreSQL 并启动 API 和 Gateway:
 
 ```bash
+createdb im
 cp config.example.yaml config.yaml
-# 填写 jwt_secret 与 storage 凭据；对象存储是 API 启动的硬依赖
-go run ./cmd/meta
+# 填写 postgres.url、jwt_secret 与 storage 凭据；对象存储是 API 启动的硬依赖
 go run ./cmd/api
 go run ./cmd/gateway
 ```
+
+API 启动时会自动执行 `internal/store/migrations` 下的迁移。多个 API 节点必须指向同一个 PostgreSQL。
 
 二进制部署:
 
 ```bash
 make build
-./bin/meta
 ./bin/api
 ./bin/gateway
 ```
@@ -63,7 +62,7 @@ make dev
 make stop
 ```
 
-默认端口:API HTTP `8801`、Meta HTTP `8802`、Meta RPC `9002`、WebSocket `8800`、API 内部流 `9000`、pprof `6061`/`6063`。HTTP 与 pprof 监听地址可通过 `api.http_addr` / `api.pprof_addr`、`meta.listen_addr` / `meta.http_addr` / `meta.rpc_addr` / `meta.pprof_addr` 或对应环境变量覆盖。
+默认端口:API HTTP `8801`、WebSocket `8800`、API 内部流 `9000`、pprof `6061`/`6062`、PostgreSQL `5432`。HTTP 与 pprof 监听地址可通过 `api.http_addr` / `api.pprof_addr` 或对应环境变量覆盖。
 
 多 API 节点时,`gateway.api_http_addrs` 必须按 `node_index` 顺序列出每个 API 节点的 HTTP 地址,并与 `gateway.api_addrs` 的顺序一致:
 
@@ -81,19 +80,17 @@ gateway:
     - "api-1:8801"
     - "api-2:8802"
 
-meta:
-  listen_addr: ":8802"
-  http_addr: "meta-1:8802"
-  rpc_addr: "meta-1:9002"
+postgres:
+  url: "postgres://im:im@postgres:5432/im?sslmode=disable"
 ```
 
-客户端只需要连接 Gateway:WebSocket 走 `/ws`,HTTP 走 `/api/v1/...`。带房间语义的 HTTP 请求由 Gateway 转发到归属 API;用户注册/登录/资料、设备 token 转发到 Meta;在线状态和好友请求转发到 Work。Work 通过 Kitex RPC(`meta.rpc_addr`)读取用户资料。
+客户端只需要连接 Gateway:WebSocket 走 `/ws`,HTTP 走 `/api/v1/...`。带房间语义的 HTTP 请求由 Gateway 转发到归属 API;用户、好友、房间控制请求可以在任意 API 节点处理,因为控制面在 PostgreSQL。
 
 房间相关 HTTP 请求(路径或 `room_id` 查询参数/JSON 字段)只由 Gateway 转发到该房间的归属节点;API 节点只处理本地槽位的数据。单聊房间 ID 由双方用户 ID 确定性生成;群聊创建必须携带客户端生成的 `room_id`,以便在创建前完成路由。
 
 ## 数据写入约定
 
-Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入会在同一个 Batch 中更新消息、房间序号和幂等记录;只有同步提交成功后才返回成功结果。
+Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入会在同一个 Batch 中更新消息、房间序号和幂等记录;只有同步提交成功后才返回成功结果。PostgreSQL 表结构见 `internal/store/migrations`。
 
 消息幂等键为 `room_id + sender_id + client_msg_id`。相同请求重试返回原消息结果,使用相同键提交不同内容会返回冲突。
 
@@ -110,8 +107,9 @@ Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入
                      ▼
               ack 帧回客户端;Pebble 提交成功才发 ack
 
-推送:API 写盘后按房间成员推送 → RoomPushBatch → Gateway 分发到成员 WS 连接
+推送:API 写盘后按 PostgreSQL 成员列表推送 → RoomPushBatch → Gateway 分发到成员 WS 连接
 补拉:GET /api/v1/messages/history?room_id=&before_seq=&page_size=
+会话列表:PostgreSQL 房间/成员/已读/会话头;消息正文仍从归属 API 的 Pebble 读取
 ```
 
 - `before_seq` 是排他上界:返回 `room_seq < before_seq` 的消息,用于按本地最新序号向前补拉。
