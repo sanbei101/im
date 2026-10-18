@@ -75,8 +75,9 @@ type roomShard struct {
 }
 
 type Store struct {
-	db *pebble.DB
-	pg *DB
+	db    *pebble.DB
+	pg    *DB
+	heads *roomHeadProjector
 
 	roomShards [roomShardCount]roomShard
 	dedupCache *lru.LRUCache[dedupLookupKey, Dedup]
@@ -340,6 +341,8 @@ func Open(path string) (*Store, error) {
 // conversation heads and read cursors. It must be called once at startup.
 func (s *Store) AttachDB(db *DB) {
 	s.pg = db
+	s.heads = newRoomHeadProjector(db)
+	s.heads.start()
 }
 
 func (s *Store) Close() error {
@@ -352,6 +355,9 @@ func (s *Store) Close() error {
 		close(s.closeSignal)
 		s.stateMu.Unlock()
 		<-s.writerDone
+		if s.heads != nil {
+			s.heads.close()
+		}
 		s.closeErr = s.db.Close()
 		close(s.closeDone)
 	})
@@ -523,7 +529,7 @@ func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
 				results[index].Err = err
 			}
 		}
-		s.writeMessageBatch(request.ctx, request.messages, results)
+		s.writeMessageBatch(request.messages, results)
 		request.result <- results
 		return
 	}
@@ -543,7 +549,7 @@ func (s *Store) commitMessageRequests(requests []messageWriteRequest) {
 		}
 		offset += len(request.messages)
 	}
-	s.writeMessageBatch(requests[0].ctx, messages, results)
+	s.writeMessageBatch(messages, results)
 	offset = 0
 	for i := range requests {
 		requests[i].result <- results[offset : offset+len(requests[i].messages)]

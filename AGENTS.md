@@ -42,7 +42,7 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - Key 编码集中维护,不在业务代码中手写字符串前缀。
 - Pebble 读结果必须及时释放;Batch、Iterator、Snapshot 使用 `defer Close`。
 - 任何写路径都要说明幂等键、顺序保证和 ACK 时机。
-- 先写可验证的最小实现,再做性能优化;优化必须有 benchmark 或指标依据。
+- 先写可验证的最小实现,再做性能优化;关键路径必须同时有 test 和 benchmark,`make verify` 通过才算可交付。
 
 ## 协议和存储
 
@@ -58,7 +58,7 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - 用户、设备 token、好友关系、好友申请、黑名单、房间、成员与成员设置、已读游标全部存 PostgreSQL。
 - 所有 API 节点共享同一 PostgreSQL;控制面请求不按房间分片,可以落到任意 API 节点。
 - 迁移文件位于 `internal/store/migrations`,API 启动时使用 advisory lock 串行执行。
-- 房间会话头 `room_heads` 由消息写入后投影,供跨节点会话列表使用;`last_msg_time` 让会话排序不解析 JSON。
+- 房间会话头 `room_heads` 在 Pebble 提交后进入有界异步投影队列,不阻塞消息 ACK;按房间合并,按房间数和字节数限流,数据库恢复后自动重试。`last_msg_time` 让会话排序不解析 JSON。
 - 会话列表用一条 `room_members LEFT JOIN room_heads LEFT JOIN room_reads` 查询完成,禁止逐房间 N+1。
 - 高频查询必须有对应索引:用户搜索使用 `pg_trgm` GIN,已读回执使用 `(room_id, read_seq, user_id)`,好友/申请/黑名单按时间排序列建索引。
 
@@ -77,7 +77,7 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - 每个 API 节点只负责本地逻辑槽的消息数据,不依赖 PostgreSQL 存消息正文。
 - 大端字典序 Key:消息 `m:<room_id>:<room_seq>`、消息索引 `i:<room_id>:<msg_id>`、幂等 `d:<room_id>:<sender_id>:<client_msg_id>`、置顶、表情、归档清单。
 - 消息记录、room_seq、最新消息预览和幂等凭证在同一 Batch 提交;Pebble 同步提交成功后才返回 ACK。
-- PostgreSQL 只保存会话头投影和已读游标;这些写入失败不影响消息本身,客户端通过 room_seq 补拉收敛。
+- PostgreSQL 只保存会话头投影和已读游标;投影失败只影响会话列表的短暂延迟,消息 ACK 和历史读取仍只依赖 Pebble,客户端通过 room_seq 补拉收敛。
 
 ### 4. 冷数据归档层
 - **异步批归档**:后台 Archiver 协程周期巡检沉淀的冷历史消息(超过 `ArchiveThreshold`),按房间与序号区间分段。

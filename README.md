@@ -9,7 +9,7 @@
 - 所有 API 节点共享同一个 PostgreSQL,控制面请求可以落到任意节点。
 - API 节点按 `hash(room_id) % slots` 拥有消息分片;Gateway 把消息、历史、搜索、置顶、表情等房间请求转发到归属节点。
 - Gateway 与 API 之间使用 Kitex 双向流式 gRPC,底层使用 Netpoll,协议由 Kitex 生成 fastpb 编解码代码。
-- 消息按照 `room_seq` 排序、分页和断线补拉;消息写入 Pebble 后把会话头(last_seq/last_message)投影到 PostgreSQL。
+- 消息按照 `room_seq` 排序、分页和断线补拉;消息写入 Pebble 后把会话头(last_seq/last_message)异步入有界队列投影到 PostgreSQL,不阻塞 ACK。
 - 跨 API 节点通知通过 PostgreSQL `LISTEN/NOTIFY` 分发,客户端断线后仍以 HTTP/room_seq 补拉为准。
 - Pebble checkpoint 由 API 进程定期生成和保留。
 
@@ -122,7 +122,7 @@ Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入
 
 ```bash
 make verify       # lint、全部测试(-race)、benchmark
-make bench        # Pebble 写入/读取、PostgreSQL 查询和编解码 benchmark
+make bench        # Pebble、PostgreSQL、异步会话头投影和编解码 benchmark
 make pprof        # 真实批量写入并生成 CPU、heap、mutex、block profile
 make analyze      # 输出 pprof top 热点
 ```

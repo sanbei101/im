@@ -54,7 +54,7 @@ func NewRouter(
 	roomAPI := &RoomAPI{db: db, data: data, streamHandler: streamHandler, notifier: notifier}
 	messageAPI := &MessageAPI{store: data, db: db, streamHandler: streamHandler}
 	friendAPI := &FriendAPI{store: db, notifier: notifier}
-	conversationAPI := &ConversationAPI{db: db}
+	conversationAPI := &ConversationAPI{db: db, data: data}
 	fileAPI := NewFileAPI(objects, publicBaseURL)
 
 	registerHealth(r, db, data)

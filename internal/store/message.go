@@ -14,7 +14,6 @@ import (
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/phuslu/log"
 )
 
 func encodeMessage(message Message) []byte {
@@ -124,7 +123,6 @@ type dedupEntry struct {
 }
 
 func (s *Store) writeMessageBatch(
-	ctx context.Context,
 	messages []Message,
 	results []MessageWriteResult,
 ) {
@@ -292,12 +290,8 @@ func (s *Store) writeMessageBatch(
 		}
 		room := rooms[roomID]
 		s.getRoomShard(roomID).rooms.Set(roomID, room)
-		if s.pg != nil {
-			headCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-			if err := s.pg.UpdateRoomHead(headCtx, roomID, room.LastSeq, room.LastMsg); err != nil {
-				log.Error().Err(err).Str("room_id", roomID.String()).Msg("update room head failed")
-			}
-			cancel()
+		if s.heads != nil {
+			s.heads.enqueue(RoomHeadUpdate{RoomID: roomID, Seq: room.LastSeq, Message: room.LastMsg})
 		}
 	}
 	for _, entry := range dedupEntries {

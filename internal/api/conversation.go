@@ -9,7 +9,8 @@ import (
 )
 
 type ConversationAPI struct {
-	db *store.DB
+	db   *store.DB
+	data *store.Store
 }
 
 type MarkReadReq struct {
@@ -76,7 +77,7 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 	if !requireRoomMember(a.db, w, r, roomID) {
 		return
 	}
-	head, err := a.db.RoomHead(r.Context(), roomID)
+	head, err := a.data.Room(r.Context(), roomID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.SuccessNoData(w, http.StatusOK, "清空未读成功")
 		return
