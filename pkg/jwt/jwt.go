@@ -2,7 +2,7 @@ package jwt
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -71,6 +71,8 @@ func GenerateToken(userID string) (string, error) {
 func ParseToken(tokenStr string) (string, error) {
 	var c userClaims
 
+	// cristalhq only reads the slice, so the token string can be viewed as
+	// bytes without copying it.
 	tokenBytes := unsafe.Slice(unsafe.StringData(tokenStr), len(tokenStr))
 
 	if err := jwt.ParseClaims(tokenBytes, jwtVerifier, &c); err != nil {
