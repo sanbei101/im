@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 
 // seqByMsgID resolves a message's seq through the msg-id index. The index
 // survives archival precisely so messages stay addressable by id.
-func (s *Store) seqByMsgID(roomID, msgID uuid.UUID) (uint64, error) {
+func (e *Engine) seqByMsgID(roomID, msgID uuid.UUID) (uint64, error) {
 	var indexKeyBuf [33]byte
-	data, closer, err := s.db.Get(appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID))
+	data, closer, err := e.db.Get(appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return 0, ErrNotFound
@@ -31,11 +31,11 @@ func (s *Store) seqByMsgID(roomID, msgID uuid.UUID) (uint64, error) {
 // messageBySeq loads a message body by seq, transparently falling back to
 // the archive when the local record has been archived away. The result is
 // owned: it never aliases a pebble buffer.
-func (s *Store) messageBySeq(ctx context.Context, roomID uuid.UUID, seq uint64) (Message, error) {
+func (e *Engine) messageBySeq(ctx context.Context, roomID uuid.UUID, seq uint64) (Message, error) {
 	var msgKeyBuf [25]byte
-	message, err := s.getRecord(appendMessageKey(msgKeyBuf[:0], roomID, seq), decodeMessage)
+	message, err := e.getRecord(appendMessageKey(msgKeyBuf[:0], roomID, seq), decodeMessage)
 	if errors.Is(err, ErrNotFound) {
-		remote, remoteErr := s.remoteMessage(ctx, roomID, seq)
+		remote, remoteErr := e.remoteMessage(ctx, roomID, seq)
 		if remoteErr != nil {
 			return Message{}, remoteErr
 		}
@@ -50,15 +50,15 @@ func (s *Store) messageBySeq(ctx context.Context, roomID uuid.UUID, seq uint64) 
 // Pins are room-scoped message bookmarks: P:<room>:<msg_id> -> operator and
 // timestamp. The pin itself holds no message content; reads resolve through
 // the msg-id index so pinned messages stay readable after archival.
-func (s *Store) PinMessage(ctx context.Context, roomID, msgID, operatorID uuid.UUID) error {
+func (e *Engine) PinMessage(ctx context.Context, roomID, msgID, operatorID uuid.UUID) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	if _, err := s.seqByMsgID(roomID, msgID); err != nil {
+	if _, err := e.seqByMsgID(roomID, msgID); err != nil {
 		return err
 	}
 
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
 
 	key := appendPinKey(nil, roomID, msgID)
@@ -66,18 +66,18 @@ func (s *Store) PinMessage(ctx context.Context, roomID, msgID, operatorID uuid.U
 	copy(val[:16], operatorID[:])
 	binary.BigEndian.PutUint64(val[16:], uint64(time.Now().Unix()))
 
-	if err := s.setBytes(batch, key, val[:]); err != nil {
+	if err := e.setBytes(batch, key, val[:]); err != nil {
 		return err
 	}
 	return commit(batch)
 }
 
-func (s *Store) UnpinMessage(ctx context.Context, roomID, msgID uuid.UUID) error {
+func (e *Engine) UnpinMessage(ctx context.Context, roomID, msgID uuid.UUID) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
 
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
 
 	if err := batch.Delete(appendPinKey(nil, roomID, msgID), nil); err != nil {
@@ -87,14 +87,14 @@ func (s *Store) UnpinMessage(ctx context.Context, roomID, msgID uuid.UUID) error
 }
 
 // PinnedMessages returns the room's pinned messages in pin-key order.
-func (s *Store) PinnedMessages(ctx context.Context, roomID uuid.UUID) ([]Message, error) {
+func (e *Engine) PinnedMessages(ctx context.Context, roomID uuid.UUID) ([]Message, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
 
 	prefix := appendPinPrefix(nil, roomID)
 	upperBound := prefixUpperBound(prefix)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
 		return nil, err
 	}
@@ -117,14 +117,14 @@ func (s *Store) PinnedMessages(ctx context.Context, roomID uuid.UUID) ([]Message
 
 	messages := make([]Message, 0, len(msgIDs))
 	for _, msgID := range msgIDs {
-		seq, err := s.seqByMsgID(roomID, msgID)
+		seq, err := e.seqByMsgID(roomID, msgID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				continue // stale pin: the message is gone for good
 			}
 			return nil, err
 		}
-		message, err := s.messageBySeq(ctx, roomID, seq)
+		message, err := e.messageBySeq(ctx, roomID, seq)
 		if err != nil {
 			return nil, err
 		}

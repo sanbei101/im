@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"bytes"
@@ -10,7 +10,6 @@ import (
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/phuslu/log"
 )
 
 // ArchiveManifest describes one uploaded parquet file. The manifest key embeds
@@ -80,7 +79,7 @@ func DefaultArchiveParams() ArchiveParams {
 // uploads are reported and retried on the next cycle; a crashed cycle leaves
 // at worst an orphan object that the deterministic seq-range key lets the
 // next run overwrite.
-func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params ArchiveParams) error {
+func (e *Engine) ArchiveOnce(ctx context.Context, objects ObjectStore, params ArchiveParams) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
@@ -92,7 +91,7 @@ func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params Arc
 	// ownership filter runs before any decode, and only the last sequence is
 	// parsed for the surviving rooms.
 	prefix := appendRoomPrefix(nil)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return fmt.Errorf("scan rooms: %w", err)
 	}
@@ -110,27 +109,32 @@ func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params Arc
 		if params.Owns != nil && !params.Owns(roomID) {
 			continue
 		}
-		room, err := decodeRoom(iter.Value())
+		lastSeq, err := decodeLastSeq(iter.Value())
 		if err != nil {
 			return fmt.Errorf("decode room %s: %w", roomID, err)
 		}
-		room.RoomID = roomID
-		if err := s.archiveRoom(ctx, objects, params, &room); err != nil {
-			log.Warn().Err(err).Str("room", roomID.String()).Msg("archive room failed")
+		if err := e.archiveRoom(ctx, objects, params, roomID, lastSeq); err != nil {
+			e.logger.Warn().Err(err).Str("room", roomID.String()).Msg("archive room failed")
 		}
 	}
 	return iter.Error()
 }
 
-func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params ArchiveParams, room *Room) error {
-	watermark, err := s.archiveWatermark(room.RoomID)
+func (e *Engine) archiveRoom(
+	ctx context.Context,
+	objects ObjectStore,
+	params ArchiveParams,
+	roomID uuid.UUID,
+	lastSeq uint64,
+) error {
+	watermark, err := e.archiveWatermark(roomID)
 	if err != nil {
 		return err
 	}
-	if room.LastSeq <= watermark {
+	if lastSeq <= watermark {
 		return nil
 	}
-	messages, err := s.collectArchivable(room.RoomID, watermark+1, room.LastSeq, params)
+	messages, err := e.collectArchivable(roomID, watermark+1, lastSeq, params)
 	if err != nil || len(messages) == 0 {
 		return err
 	}
@@ -150,18 +154,18 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 
 	// Deterministic seq-range key: re-uploads after a crash overwrite the
 	// orphan instead of accumulating duplicates.
-	key := fmt.Sprintf("%s/rooms/%s/%012d_%012d.parquet", params.Prefix, room.RoomID, start, end)
+	key := fmt.Sprintf("%s/rooms/%s/%012d_%012d.parquet", params.Prefix, roomID, start, end)
 	if err := objects.Put(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {
 		return err
 	}
 
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
 	manifest := ArchiveManifest{
 		EndSeq: end, MsgCount: uint32(len(rows)),
 		MinTime: minTime, MaxTime: maxTime, S3Key: key,
 	}
-	if err := s.setBytes(batch, appendArchiveIndexKey(nil, room.RoomID, start), encodeManifest(manifest)); err != nil {
+	if err := e.setBytes(batch, appendArchiveIndexKey(nil, roomID, start), encodeManifest(manifest)); err != nil {
 		return err
 	}
 	// Range tombstone over the archived message bodies plus per-key dedup
@@ -169,8 +173,8 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 	// only in the object store. The 'i' index is kept so MessageByID can still
 	// resolve archived messages by id.
 	if err := batch.DeleteRange(
-		appendMessageKey(nil, room.RoomID, start),
-		appendMessageKey(nil, room.RoomID, end+1),
+		appendMessageKey(nil, roomID, start),
+		appendMessageKey(nil, roomID, end+1),
 		nil,
 	); err != nil {
 		return err
@@ -178,7 +182,7 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 	var dedupBuf [49]byte
 	for i := range messages {
 		if err := batch.Delete(
-			appendDedupKey(dedupBuf[:0], room.RoomID, messages[i].SenderID, messages[i].ClientMsgID),
+			appendDedupKey(dedupBuf[:0], roomID, messages[i].SenderID, messages[i].ClientMsgID),
 			nil,
 		); err != nil {
 			return err
@@ -187,8 +191,8 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 	if err := commit(batch); err != nil {
 		return fmt.Errorf("commit archive manifest: %w", err)
 	}
-	s.archiveMarks.Set(room.RoomID, manifest.EndSeq)
-	s.forgetDedup(room.RoomID, messages)
+	e.archiveMarks.Set(roomID, manifest.EndSeq)
+	e.forgetDedup(roomID, messages)
 	return nil
 }
 
@@ -196,12 +200,12 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 // messages to archive: the oldest-first run of messages past the age cutoff,
 // or the first MaxMessages unarchived messages once that many piled up
 // (whichever applies), always bounded by MaxBytes.
-func (s *Store) collectArchivable(room uuid.UUID, start, lastSeq uint64, params ArchiveParams) ([]Message, error) {
+func (e *Engine) collectArchivable(room uuid.UUID, start, lastSeq uint64, params ArchiveParams) ([]Message, error) {
 	cutoff := time.Now().Add(-params.MaxAge).UnixMicro()
 	countTriggered := lastSeq-start+1 >= uint64(params.MaxMessages)
 
 	var lowerBuf, upperBuf [25]byte
-	iter, err := s.db.NewIter(&pebble.IterOptions{
+	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: appendMessageKey(lowerBuf[:0], room, start),
 		UpperBound: appendMessageKey(upperBuf[:0], room, lastSeq+1),
 	})
@@ -240,13 +244,13 @@ func (s *Store) collectArchivable(room uuid.UUID, start, lastSeq uint64, params 
 // archiveWatermark returns the room's archived-through seq, 0 when the room
 // has never been archived. Only this node's archiver moves a watermark, and
 // it refreshes the cache on every archive, so a cached mark never goes stale.
-func (s *Store) archiveWatermark(room uuid.UUID) (uint64, error) {
-	if mark, ok := s.archiveMarks.Get(room); ok {
+func (e *Engine) archiveWatermark(room uuid.UUID) (uint64, error) {
+	if mark, ok := e.archiveMarks.Get(room); ok {
 		return mark, nil
 	}
 	var keyBuf [32]byte
 	prefix := appendArchiveIndexPrefix(keyBuf[:0], room)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return 0, err
 	}
@@ -258,6 +262,6 @@ func (s *Store) archiveWatermark(room uuid.UUID) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	s.archiveMarks.Set(room, manifest.EndSeq)
+	e.archiveMarks.Set(room, manifest.EndSeq)
 	return manifest.EndSeq, nil
 }

@@ -12,12 +12,13 @@ import (
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 )
 
 type RoomAPI struct {
 	db            *store.DB
-	data          *store.Store
+	data          *engine.Engine
 	streamHandler *StreamHandler
 	notifier      *Notifier
 	members       *Membership
@@ -795,7 +796,7 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.data.PinMessage(r.Context(), roomID, msgID, myID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, engine.ErrNotFound) {
 			render.Error(w, http.StatusNotFound, "message not found")
 			return
 		}

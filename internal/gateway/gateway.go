@@ -14,9 +14,9 @@ import (
 	"github.com/cloudwego/kitex/client"
 	"github.com/phuslu/log"
 
-	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 	"github.com/sanbei101/im/proto/pb"
 	"github.com/sanbei101/im/proto/pb/gatewayservice"
@@ -568,7 +568,7 @@ func (s *apiStream) handleRoomPush(batch *pb.RoomPushBatch) {
 			RoomID:       push.GetRoomId(),
 			RoomSeq:      push.GetRoomSeq(),
 			ServerTime:   push.GetServerTime(),
-			MsgType:      store.MsgType(push.GetMsgType()).String(),
+			MsgType:      engine.MsgType(push.GetMsgType()).String(),
 			Payload:      jsontext.Value(push.GetPayload()),
 			ReplyToMsgID: push.GetReplyToMsgId(),
 			Ext:          jsontext.Value(push.GetExt()),

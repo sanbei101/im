@@ -11,8 +11,8 @@ import (
 
 	"github.com/phuslu/log"
 
-	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/proto/pb"
 )
 
@@ -26,7 +26,7 @@ type sessionShard struct {
 }
 
 type StreamHandler struct {
-	store     *store.Store
+	store     *engine.Engine
 	members   *Membership
 	slots     int
 	nodeIndex int
@@ -99,7 +99,7 @@ func (h *StreamHandler) getSessionShard(userID uuid.UUID) *sessionShard {
 }
 
 func NewStreamHandler(
-	data *store.Store,
+	data *engine.Engine,
 	members *Membership,
 	slots, nodeIndex, nodeCount int,
 ) *StreamHandler {
@@ -201,10 +201,10 @@ func (h *StreamHandler) removeConnection(connection *apiConnection) {
 func (h *StreamHandler) writeBatch(
 	ctx context.Context,
 	batch *pb.SendBatch,
-) (*pb.SendResultBatch, []*store.Message, error) {
+) (*pb.SendResultBatch, []*engine.Message, error) {
 	result := &pb.SendResultBatch{BatchId: batch.GetBatchId()}
 	inputs := batch.GetMessages()
-	messages := make([]store.Message, 0, len(inputs))
+	messages := make([]engine.Message, 0, len(inputs))
 	resultIndexes := make([]int, 0, len(inputs))
 	for _, input := range inputs {
 		if input == nil {
@@ -229,7 +229,7 @@ func (h *StreamHandler) writeBatch(
 		messages = append(messages, message)
 		resultIndexes = append(resultIndexes, len(result.Results)-1)
 	}
-	written := make([]*store.Message, 0, len(messages))
+	written := make([]*engine.Message, 0, len(messages))
 	if len(messages) == 0 {
 		return result, written, nil
 	}
@@ -267,7 +267,7 @@ func (h *StreamHandler) checkRoomOwned(roomID uuid.UUID) error {
 	return nil
 }
 
-func (h *StreamHandler) push(ctx context.Context, message *store.Message, exclude uuid.UUID) error {
+func (h *StreamHandler) push(ctx context.Context, message *engine.Message, exclude uuid.UUID) error {
 	members, err := h.members.Members(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
@@ -329,34 +329,34 @@ func parseUUID(field, raw string) (uuid.UUID, error) {
 	return value, nil
 }
 
-func (h *StreamHandler) message(input *pb.SendMessage) (store.Message, error) {
+func (h *StreamHandler) message(input *pb.SendMessage) (engine.Message, error) {
 	sender, err := parseUUID("sender_id", input.GetSenderId())
 	if err != nil {
-		return store.Message{}, err
+		return engine.Message{}, err
 	}
 	room, err := parseUUID("room_id", input.GetRoomId())
 	if err != nil {
-		return store.Message{}, err
+		return engine.Message{}, err
 	}
 	client, err := parseUUID("client_msg_id", input.GetClientMsgId())
 	if err != nil {
-		return store.Message{}, err
+		return engine.Message{}, err
 	}
-	message := store.Message{
+	message := engine.Message{
 		ClientMsgID: client,
 		SenderID:    sender,
 		RoomID:      room,
-		MsgType:     store.MsgType(input.GetMsgType()),
+		MsgType:     engine.MsgType(input.GetMsgType()),
 		Payload:     input.GetPayload(),
 		Ext:         input.GetExt(),
 	}
 	if !message.MsgType.Valid() {
-		return store.Message{}, fmt.Errorf("invalid msg_type %d", input.GetMsgType())
+		return engine.Message{}, fmt.Errorf("invalid msg_type %d", input.GetMsgType())
 	}
 	if input.GetReplyToMsgId() != "" {
 		reply, err := parseUUID("reply_to_msg_id", input.GetReplyToMsgId())
 		if err != nil {
-			return store.Message{}, err
+			return engine.Message{}, err
 		}
 		message.ReplyToMsgID = reply
 	}
@@ -376,14 +376,14 @@ func (h *StreamHandler) IsOnline(userID uuid.UUID) bool {
 	return h.onlineConnection(userID) != nil
 }
 
-func (h *StreamHandler) Push(ctx context.Context, message *store.Message) error {
+func (h *StreamHandler) Push(ctx context.Context, message *engine.Message) error {
 	return h.push(ctx, message, message.SenderID)
 }
 
 // PushExcluding pushes a message to every online room member except the given
 // operator, who produced the event but is not the original sender (e.g. an
 // admin recalling another user's message).
-func (h *StreamHandler) PushExcluding(ctx context.Context, message *store.Message, operatorID uuid.UUID) error {
+func (h *StreamHandler) PushExcluding(ctx context.Context, message *engine.Message, operatorID uuid.UUID) error {
 	return h.push(ctx, message, operatorID)
 }
 
@@ -421,9 +421,9 @@ func (RoomMembersChanged) event() string { return roomMembersChangedEvent }
 
 // ReactionUpdated carries the current reaction groups of one message.
 type ReactionUpdated struct {
-	RoomID    uuid.UUID             `json:"room_id"`
-	MsgID     uuid.UUID             `json:"msg_id"`
-	Reactions []store.ReactionGroup `json:"reactions"`
+	RoomID    uuid.UUID              `json:"room_id"`
+	MsgID     uuid.UUID              `json:"msg_id"`
+	Reactions []engine.ReactionGroup `json:"reactions"`
 }
 
 func (ReactionUpdated) event() string { return "reaction" }

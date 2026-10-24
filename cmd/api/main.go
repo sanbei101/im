@@ -21,6 +21,7 @@ import (
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/logger"
 	"github.com/sanbei101/im/proto/pb/gatewayservice"
@@ -67,14 +68,13 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	}
 	defer db.Close()
 
-	data, err := store.Open(cfg.Store.Path)
+	data, err := engine.Open(cfg.Store.Path)
 	if err != nil {
-		return fmt.Errorf("open pebble store: %w", err)
+		return fmt.Errorf("open message engine: %w", err)
 	}
 	defer data.Close()
-	data.AttachDB(db)
 
-	objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
+	objects, err := engine.NewMinioObjectStore(engine.ObjectStoreConfig{
 		Endpoint:  cfg.Storage.Endpoint,
 		Bucket:    cfg.Storage.Bucket,
 		AccessKey: cfg.Storage.AccessKey,
@@ -135,7 +135,7 @@ func serve(ctx context.Context, cfg *config.Config) error {
 		})
 	})
 	tasks.Go(func() {
-		params := store.DefaultArchiveParams()
+		params := engine.DefaultArchiveParams()
 		params.Owns = ownsRoom(cfg)
 		every(runCtx, time.Minute, func(ctx context.Context, _ time.Time) {
 			if err := data.ArchiveOnce(ctx, objects, params); err != nil {

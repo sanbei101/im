@@ -69,7 +69,7 @@ bench:
 pprof:
 	@mkdir -p $(PPROF_DIR)
 	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p 4 ./internal/store -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
+		go test -p 4 ./pkg/engine -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
 		-cpuprofile $(PPROF_DIR)/cpu.prof \
 		-memprofile $(PPROF_DIR)/mem.prof \
 		-mutexprofile $(PPROF_DIR)/mutex.prof \

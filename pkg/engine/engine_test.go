@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"context"
@@ -11,36 +11,24 @@ import (
 	"uuid"
 )
 
-// newTestStore opens a throwaway store and registers its cleanup.
-func newTestStore(tb testing.TB) *Store {
+// newTestEngine opens a throwaway engine and registers its cleanup.
+func newTestEngine(tb testing.TB) *Engine {
 	tb.Helper()
-	data, err := Open(tb.TempDir() + "/store")
+	engine, err := Open(tb.TempDir() + "/engine")
 	if err != nil {
 		tb.Fatal(err)
 	}
 	tb.Cleanup(func() {
-		if err := data.Close(); err != nil {
-			tb.Errorf("close store: %v", err)
+		if err := engine.Close(); err != nil {
+			tb.Errorf("close engine: %v", err)
 		}
 	})
-	return data
+	return engine
 }
 
-func testUser(name string) User {
-	return User{UserID: uuid.NewV7(), Username: name, Nickname: name, CreatedAt: time.Now()}
-}
-
-func testRoom(chatType string) Room {
-	room := Room{RoomID: uuid.NewV7(), ChatType: chatType}
-	if chatType == ChatTypeGroup {
-		room.Name = "test room"
-	}
-	return room
-}
-
-func mustWriteMessage(t *testing.T, s *Store, roomID, senderID uuid.UUID, payload string) Message {
+func mustWriteMessage(t *testing.T, e *Engine, roomID, senderID uuid.UUID, payload string) Message {
 	t.Helper()
-	message, err := s.WriteMessage(context.Background(), Message{
+	message, err := e.WriteMessage(context.Background(), Message{
 		ClientMsgID: uuid.NewV7(),
 		SenderID:    senderID,
 		RoomID:      roomID,
@@ -102,7 +90,7 @@ func TestMessageCodec(t *testing.T) {
 		}
 	})
 	t.Run("dedup round trip", func(t *testing.T) {
-		want := Dedup{MsgID: uuid.NewV7(), RoomSeq: 7, ServerTime: 42, PayloadSum: [32]byte{1, 2, 3}}
+		want := dedup{MsgID: uuid.NewV7(), RoomSeq: 7, ServerTime: 42, PayloadSum: [32]byte{1, 2, 3}}
 		got, err := decodeDedup(appendDedup(nil, want))
 		if err != nil {
 			t.Fatal(err)
@@ -116,26 +104,26 @@ func TestMessageCodec(t *testing.T) {
 	})
 }
 
-func TestStoreMessages(t *testing.T) {
-	s := newTestStore(t)
+func TestEngineMessages(t *testing.T) {
+	e := newTestEngine(t)
 	ctx := context.Background()
-	sender := testUser("msg-sender")
-	room := testRoom(ChatTypeGroup)
+	sender := uuid.NewV7()
+	room := uuid.NewV7()
 
 	t.Run("write assigns identity", func(t *testing.T) {
-		msg := mustWriteMessage(t, s, room.RoomID, sender.UserID, "first")
+		msg := mustWriteMessage(t, e, room, sender, "first")
 		if msg.RoomSeq != 1 || msg.MsgID == uuid.Nil() || msg.ServerTime == 0 {
 			t.Fatalf("server did not stamp message: %+v", msg)
 		}
-		got, err := s.Room(ctx, room.RoomID)
-		if err != nil || got.LastSeq != 1 {
-			t.Fatalf("room last seq: room=%+v err=%v", got, err)
+		lastSeq, err := e.LastSeq(ctx, room)
+		if err != nil || lastSeq != 1 {
+			t.Fatalf("room last seq = %d, want 1; err=%v", lastSeq, err)
 		}
-		// Work lazily creates its message head; room metadata and membership
-		// live in PostgreSQL, so a missing Pebble room is not an error.
+		// The head is created lazily by the first committed message: writing
+		// to a room Pebble has never seen simply starts it at seq 1.
 		freshRoom := uuid.NewV7()
-		if _, err := s.WriteMessage(ctx, Message{
-			ClientMsgID: uuid.NewV7(), SenderID: sender.UserID, RoomID: freshRoom, MsgType: MsgTypeText,
+		if _, err := e.WriteMessage(ctx, Message{
+			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: freshRoom, MsgType: MsgTypeText,
 		}); err != nil {
 			t.Fatalf("write to fresh room: %v", err)
 		}
@@ -143,22 +131,22 @@ func TestStoreMessages(t *testing.T) {
 
 	t.Run("idempotent retry and conflict", func(t *testing.T) {
 		clientID := uuid.NewV7()
-		first, err := s.WriteMessage(ctx, Message{
-			ClientMsgID: clientID, SenderID: sender.UserID, RoomID: room.RoomID,
+		first, err := e.WriteMessage(ctx, Message{
+			ClientMsgID: clientID, SenderID: sender, RoomID: room,
 			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"same"}`),
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		retry, err := s.WriteMessage(ctx, Message{
-			ClientMsgID: clientID, SenderID: sender.UserID, RoomID: room.RoomID,
+		retry, err := e.WriteMessage(ctx, Message{
+			ClientMsgID: clientID, SenderID: sender, RoomID: room,
 			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"same"}`),
 		})
 		if err != nil || retry.MsgID != first.MsgID || retry.RoomSeq != first.RoomSeq {
 			t.Fatalf("retry changed result: first=%+v retry=%+v err=%v", first, retry, err)
 		}
-		if _, err := s.WriteMessage(ctx, Message{
-			ClientMsgID: clientID, SenderID: sender.UserID, RoomID: room.RoomID,
+		if _, err := e.WriteMessage(ctx, Message{
+			ClientMsgID: clientID, SenderID: sender, RoomID: room,
 			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"changed"}`),
 		}); !errors.Is(err, ErrConflict) {
 			t.Fatalf("changed payload error = %v, want %v", err, ErrConflict)
@@ -167,25 +155,25 @@ func TestStoreMessages(t *testing.T) {
 
 	t.Run("batch dedup within one commit", func(t *testing.T) {
 		clientID := uuid.NewV7()
-		results := s.WriteMessages(ctx, []Message{
+		results := e.WriteMessages(ctx, []Message{
 			{
 				ClientMsgID: clientID,
-				SenderID:    sender.UserID,
-				RoomID:      room.RoomID,
+				SenderID:    sender,
+				RoomID:      room,
 				MsgType:     MsgTypeText,
 				Payload:     []byte("dup"),
 			},
 			{
 				ClientMsgID: clientID,
-				SenderID:    sender.UserID,
-				RoomID:      room.RoomID,
+				SenderID:    sender,
+				RoomID:      room,
 				MsgType:     MsgTypeText,
 				Payload:     []byte("dup"),
 			},
 			{
 				ClientMsgID: uuid.NewV7(),
-				SenderID:    sender.UserID,
-				RoomID:      room.RoomID,
+				SenderID:    sender,
+				RoomID:      room,
 				MsgType:     MsgTypeText,
 				Payload:     []byte("other"),
 			},
@@ -207,12 +195,12 @@ func TestStoreMessages(t *testing.T) {
 	})
 
 	t.Run("pagination newest first with cursor", func(t *testing.T) {
-		paged := testRoom(ChatTypeGroup)
+		paged := uuid.NewV7()
 		for i := range 7 {
-			mustWriteMessage(t, s, paged.RoomID, sender.UserID, "m"+string(rune('a'+i)))
+			mustWriteMessage(t, e, paged, sender, "m"+string(rune('a'+i)))
 		}
 
-		newest, err := s.Messages(ctx, paged.RoomID, 0, 3)
+		newest, err := e.Messages(ctx, paged, 0, 3)
 		if err != nil || len(newest.Messages) != 3 || !newest.HasMore {
 			t.Fatalf("newest page: page=%+v err=%v", newest, err)
 		}
@@ -220,28 +208,28 @@ func TestStoreMessages(t *testing.T) {
 			t.Fatalf("newest page order wrong: %+v", newest.Messages)
 		}
 
-		next, err := s.Messages(ctx, paged.RoomID, newest.Messages[2].RoomSeq, 3)
+		next, err := e.Messages(ctx, paged, newest.Messages[2].RoomSeq, 3)
 		if err != nil || len(next.Messages) != 3 || next.Messages[0].RoomSeq != 4 {
 			t.Fatalf("cursor page: page=%+v err=%v", next, err)
 		}
-		tail, err := s.Messages(ctx, paged.RoomID, next.Messages[2].RoomSeq, 3)
+		tail, err := e.Messages(ctx, paged, next.Messages[2].RoomSeq, 3)
 		if err != nil || len(tail.Messages) != 1 || tail.HasMore {
 			t.Fatalf("tail page: page=%+v err=%v", tail, err)
 		}
 
-		whole, err := s.Messages(ctx, paged.RoomID, 0, 20)
+		whole, err := e.Messages(ctx, paged, 0, 20)
 		if err != nil || len(whole.Messages) != 7 || whole.HasMore {
 			t.Fatalf("full page: page=%+v err=%v", whole, err)
 		}
-		oversized, err := s.Messages(ctx, paged.RoomID, 0, 500)
+		oversized, err := e.Messages(ctx, paged, 0, 500)
 		if err != nil || len(oversized.Messages) != 7 {
 			t.Fatalf("oversized limit must clamp: page=%+v err=%v", oversized, err)
 		}
-		if empty, err := s.Messages(ctx, uuid.NewV7(), 0, 20); err != nil || len(empty.Messages) != 0 {
+		if empty, err := e.Messages(ctx, uuid.NewV7(), 0, 20); err != nil || len(empty.Messages) != 0 {
 			t.Fatalf("missing room page: page=%+v err=%v", empty, err)
 		}
 
-		afterPage, err := s.MessagesAfter(ctx, paged.RoomID, 4, 10)
+		afterPage, err := e.MessagesAfter(ctx, paged, 4, 10)
 		if err != nil || len(afterPage.Messages) != 3 {
 			t.Fatalf("after page: page=%+v err=%v", afterPage, err)
 		}
@@ -252,7 +240,7 @@ func TestStoreMessages(t *testing.T) {
 	})
 
 	t.Run("concurrent writes keep sequence dense", func(t *testing.T) {
-		room := testRoom(ChatTypeGroup)
+		room := uuid.NewV7()
 		const writers, perWriter = 4, 25
 		var wg sync.WaitGroup
 		wg.Add(writers)
@@ -260,8 +248,8 @@ func TestStoreMessages(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for range perWriter {
-					if _, err := s.WriteMessage(ctx, Message{
-						ClientMsgID: uuid.NewV7(), SenderID: sender.UserID, RoomID: room.RoomID,
+					if _, err := e.WriteMessage(ctx, Message{
+						ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
 						MsgType: MsgTypeText, Payload: []byte("concurrent"),
 					}); err != nil {
 						t.Errorf("concurrent write: %v", err)
@@ -272,7 +260,7 @@ func TestStoreMessages(t *testing.T) {
 		}
 		wg.Wait()
 
-		page, err := s.Messages(ctx, room.RoomID, 0, 100)
+		page, err := e.Messages(ctx, room, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -287,51 +275,51 @@ func TestStoreMessages(t *testing.T) {
 	})
 
 	t.Run("search skips recalled and honours cursor", func(t *testing.T) {
-		room := testRoom(ChatTypeGroup)
-		hit := mustWriteMessage(t, s, room.RoomID, sender.UserID, "Needle Here")
-		mustWriteMessage(t, s, room.RoomID, sender.UserID, "nothing special")
-		recalled := mustWriteMessage(t, s, room.RoomID, sender.UserID, "NEEDLE to remove")
-		if _, err := s.RecallMessage(ctx, room.RoomID, recalled.MsgID, sender.UserID, false); err != nil {
+		room := uuid.NewV7()
+		hit := mustWriteMessage(t, e, room, sender, "Needle Here")
+		mustWriteMessage(t, e, room, sender, "nothing special")
+		recalled := mustWriteMessage(t, e, room, sender, "NEEDLE to remove")
+		if _, err := e.RecallMessage(ctx, room, recalled.MsgID, sender, false); err != nil {
 			t.Fatal(err)
 		}
 
-		found, err := s.SearchRoomMessages(ctx, room.RoomID, "  NEEDLE  ", 0, 10)
+		found, err := e.SearchRoomMessages(ctx, room, "  NEEDLE  ", 0, 10)
 		if err != nil || len(found) != 1 || found[0].MsgID != hit.MsgID {
 			t.Fatalf("search: found=%+v err=%v", found, err)
 		}
-		if _, err := s.SearchRoomMessages(ctx, room.RoomID, "", 0, 10); err != nil || len(found) != 1 {
+		if _, err := e.SearchRoomMessages(ctx, room, "", 0, 10); err != nil || len(found) != 1 {
 			t.Fatalf("empty keyword must return nothing, got err=%v", err)
 		}
 	})
 
 	t.Run("message by id", func(t *testing.T) {
-		msg := mustWriteMessage(t, s, room.RoomID, sender.UserID, "byid")
-		got, err := s.MessageByID(ctx, room.RoomID, msg.MsgID)
+		msg := mustWriteMessage(t, e, room, sender, "byid")
+		got, err := e.MessageByID(ctx, room, msg.MsgID)
 		if err != nil || got.RoomSeq != msg.RoomSeq {
 			t.Fatalf("message by id: msg=%+v err=%v", got, err)
 		}
-		if _, err := s.MessageByID(ctx, room.RoomID, uuid.NewV7()); !errors.Is(err, ErrNotFound) {
+		if _, err := e.MessageByID(ctx, room, uuid.NewV7()); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("missing message error = %v, want %v", err, ErrNotFound)
 		}
 	})
 
 	t.Run("recall rules", func(t *testing.T) {
-		room := testRoom(ChatTypeGroup)
-		msg := mustWriteMessage(t, s, room.RoomID, sender.UserID, "recall me")
+		room := uuid.NewV7()
+		msg := mustWriteMessage(t, e, room, sender, "recall me")
 		outsider := uuid.NewV7()
 
-		if _, err := s.RecallMessage(ctx, room.RoomID, msg.MsgID, outsider, false); !errors.Is(err, ErrForbidden) {
+		if _, err := e.RecallMessage(ctx, room, msg.MsgID, outsider, false); !errors.Is(err, ErrForbidden) {
 			t.Fatalf("outsider recall error = %v, want %v", err, ErrForbidden)
 		}
-		stale := mustWriteMessage(t, s, room.RoomID, sender.UserID, "too old to recall")
-		if err := s.backdateMessage(stale, time.Hour); err != nil {
+		stale := mustWriteMessage(t, e, room, sender, "too old to recall")
+		if err := e.backdateMessage(stale, time.Hour); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.RecallMessage(
+		if _, err := e.RecallMessage(
 			ctx,
-			room.RoomID,
+			room,
 			stale.MsgID,
-			sender.UserID,
+			sender,
 			false,
 		); !errors.Is(
 			err,
@@ -339,26 +327,26 @@ func TestStoreMessages(t *testing.T) {
 		) {
 			t.Fatalf("stale recall error = %v, want %v", err, ErrRecallTimeout)
 		}
-		recalled, err := s.RecallMessage(ctx, room.RoomID, stale.MsgID, outsider, true)
+		recalled, err := e.RecallMessage(ctx, room, stale.MsgID, outsider, true)
 		if err != nil || recalled.MsgType != MsgTypeRecall {
 			t.Fatalf("owner recall: msg=%+v err=%v", recalled, err)
 		}
-		again, err := s.RecallMessage(ctx, room.RoomID, msg.MsgID, sender.UserID, false)
+		again, err := e.RecallMessage(ctx, room, msg.MsgID, sender, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.RecallMessage(
+		if _, err := e.RecallMessage(
 			ctx,
-			room.RoomID,
+			room,
 			msg.MsgID,
-			sender.UserID,
+			sender,
 			false,
 		); err != nil ||
 			again.MsgType != MsgTypeRecall {
 			t.Fatalf("repeat recall: msg=%+v err=%v", again, err)
 		}
 
-		page, err := s.Messages(ctx, room.RoomID, 0, 10)
+		page, err := e.Messages(ctx, room, 0, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -372,10 +360,10 @@ func TestStoreMessages(t *testing.T) {
 	t.Run("cancelled context fails fast", func(t *testing.T) {
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
-		if _, err := s.WriteMessage(cancelled, Message{RoomID: room.RoomID}); !errors.Is(err, context.Canceled) {
+		if _, err := e.WriteMessage(cancelled, Message{RoomID: room}); !errors.Is(err, context.Canceled) {
 			t.Fatalf("write error = %v, want %v", err, context.Canceled)
 		}
-		if _, err := s.Messages(cancelled, room.RoomID, 0, 10); !errors.Is(err, context.Canceled) {
+		if _, err := e.Messages(cancelled, room, 0, 10); !errors.Is(err, context.Canceled) {
 			t.Fatalf("read error = %v, want %v", err, context.Canceled)
 		}
 	})
@@ -383,12 +371,12 @@ func TestStoreMessages(t *testing.T) {
 
 // backdateMessage rewrites the stored message with an ancient ServerTime so
 // recall-window logic can be exercised without sleeping.
-func (s *Store) backdateMessage(message Message, age time.Duration) error {
+func (e *Engine) backdateMessage(message Message, age time.Duration) error {
 	message.ServerTime = time.Now().Add(-age).UnixMicro()
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
 	var keyBuf [25]byte
-	if err := s.setBytes(
+	if err := e.setBytes(
 		batch,
 		appendMessageKey(keyBuf[:0], message.RoomID, message.RoomSeq),
 		encodeMessage(message),
@@ -402,10 +390,10 @@ func benchIDs() (uuid.UUID, uuid.UUID) {
 	return uuid.NewV7(), uuid.NewV7()
 }
 
-func BenchmarkStoreMessageWrite(b *testing.B) {
+func BenchmarkEngineMessageWrite(b *testing.B) {
 	for _, batch := range []int{1, 32, 100} {
 		b.Run(fmt.Sprintf("batch-%d", batch), func(b *testing.B) {
-			s := newTestStore(b)
+			e := newTestEngine(b)
 			room, sender := benchIDs()
 			payload := []byte(`{"text":"benchmark payload"}`)
 
@@ -419,7 +407,7 @@ func BenchmarkStoreMessageWrite(b *testing.B) {
 						MsgType: MsgTypeText, Payload: payload,
 					}
 				}
-				results := s.WriteMessages(context.Background(), messages)
+				results := e.WriteMessages(context.Background(), messages)
 				for i := range results {
 					if results[i].Err != nil {
 						b.Fatal(results[i].Err)
@@ -430,10 +418,10 @@ func BenchmarkStoreMessageWrite(b *testing.B) {
 	}
 }
 
-func BenchmarkStoreMessageWriteParallel(b *testing.B) {
+func BenchmarkEngineMessageWriteParallel(b *testing.B) {
 	for name, rooms := range map[string]int{"single-room": 1, "multi-room": 64} {
 		b.Run(name, func(b *testing.B) {
-			s := newTestStore(b)
+			e := newTestEngine(b)
 			sender := uuid.NewV7()
 			roomIDs := make([]uuid.UUID, rooms)
 			for i := range roomIDs {
@@ -445,7 +433,7 @@ func BenchmarkStoreMessageWriteParallel(b *testing.B) {
 			b.ReportAllocs()
 			b.RunParallel(func(pb *testing.PB) {
 				for i := 0; pb.Next(); i++ {
-					if _, err := s.WriteMessage(context.Background(), Message{
+					if _, err := e.WriteMessage(context.Background(), Message{
 						ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: roomIDs[i%rooms],
 						MsgType: MsgTypeText, Payload: payload,
 					}); err != nil {
@@ -457,30 +445,30 @@ func BenchmarkStoreMessageWriteParallel(b *testing.B) {
 	}
 }
 
-func BenchmarkStoreRead(b *testing.B) {
+func BenchmarkEngineRead(b *testing.B) {
 	b.Run("newest-page", func(b *testing.B) {
-		s := newTestStore(b)
+		e := newTestEngine(b)
 		room, sender := benchIDs()
-		benchWrite(b, s, room, sender, 200)
+		benchWrite(b, e, room, sender, 200)
 
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			page, err := s.Messages(context.Background(), room, 0, 20)
+			page, err := e.Messages(context.Background(), room, 0, 20)
 			if err != nil || len(page.Messages) != 20 {
 				b.Fatalf("read messages: count=%d err=%v", len(page.Messages), err)
 			}
 		}
 	})
 	b.Run("sync-pull-after", func(b *testing.B) {
-		s := newTestStore(b)
+		e := newTestEngine(b)
 		room, sender := benchIDs()
-		benchWrite(b, s, room, sender, 50)
+		benchWrite(b, e, room, sender, 50)
 
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			page, err := s.MessagesAfter(context.Background(), room, 30, 20)
+			page, err := e.MessagesAfter(context.Background(), room, 30, 20)
 			if err != nil || len(page.Messages) != 20 {
 				b.Fatalf("sync pull after: count=%d err=%v", len(page.Messages), err)
 			}
@@ -488,11 +476,11 @@ func BenchmarkStoreRead(b *testing.B) {
 	})
 }
 
-func benchWrite(b *testing.B, s *Store, room, sender uuid.UUID, count int) []Message {
+func benchWrite(b *testing.B, e *Engine, room, sender uuid.UUID, count int) []Message {
 	b.Helper()
 	messages := make([]Message, count)
 	for i := range count {
-		message, err := s.WriteMessage(context.Background(), Message{
+		message, err := e.WriteMessage(context.Background(), Message{
 			ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
 			MsgType: MsgTypeText, Payload: []byte("payload"),
 		})
@@ -504,12 +492,12 @@ func benchWrite(b *testing.B, s *Store, room, sender uuid.UUID, count int) []Mes
 	return messages
 }
 
-func BenchmarkStoreSearch(b *testing.B) {
+func BenchmarkEngineSearch(b *testing.B) {
 	b.Run("recent-200", func(b *testing.B) {
-		s := newTestStore(b)
+		e := newTestEngine(b)
 		room, sender := benchIDs()
 		for i := range 200 {
-			if _, err := s.WriteMessage(context.Background(), Message{
+			if _, err := e.WriteMessage(context.Background(), Message{
 				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
 				MsgType: MsgTypeText,
 				Payload: jsontext.Value(`{"text":"message number ` + string(rune('a'+i%26)) + `"}`),
@@ -521,21 +509,21 @@ func BenchmarkStoreSearch(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			found, err := s.SearchRoomMessages(context.Background(), room, "number", 0, 20)
+			found, err := e.SearchRoomMessages(context.Background(), room, "number", 0, 20)
 			if err != nil || len(found) != 20 {
 				b.Fatalf("search: count=%d err=%v", len(found), err)
 			}
 		}
 	})
 	b.Run("deep-scan-5000", func(b *testing.B) {
-		s := newTestStore(b)
+		e := newTestEngine(b)
 		room, sender := benchIDs()
 		for i := range 5000 {
 			text := "filler"
 			if i < 20 {
 				text = "needle"
 			}
-			if _, err := s.WriteMessage(context.Background(), Message{
+			if _, err := e.WriteMessage(context.Background(), Message{
 				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
 				MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"` + text + `"}`),
 			}); err != nil {
@@ -546,7 +534,7 @@ func BenchmarkStoreSearch(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			found, err := s.SearchRoomMessages(context.Background(), room, "needle", 0, 20)
+			found, err := e.SearchRoomMessages(context.Background(), room, "needle", 0, 20)
 			if err != nil || len(found) != 20 {
 				b.Fatalf("search: count=%d err=%v", len(found), err)
 			}
@@ -554,22 +542,22 @@ func BenchmarkStoreSearch(b *testing.B) {
 	})
 }
 
-func BenchmarkStoreRecall(b *testing.B) {
+func BenchmarkEngineRecall(b *testing.B) {
 	b.Run("write-and-recall", func(b *testing.B) {
-		s := newTestStore(b)
+		e := newTestEngine(b)
 		room, sender := benchIDs()
 
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			message, err := s.WriteMessage(context.Background(), Message{
+			message, err := e.WriteMessage(context.Background(), Message{
 				ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
 				MsgType: MsgTypeText, Payload: []byte("recall bench"),
 			})
 			if err != nil {
 				b.Fatal(err)
 			}
-			if _, err := s.RecallMessage(context.Background(), room, message.MsgID, sender, false); err != nil {
+			if _, err := e.RecallMessage(context.Background(), room, message.MsgID, sender, false); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -588,17 +576,17 @@ func BenchmarkRoomHead(b *testing.B) {
 	b.Run("decode", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := decodeRoom(data); err != nil {
+			if _, err := decodeLastSeq(data); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 }
 
-// BenchmarkStoreReadWithReactions measures a newest-page history read while
+// BenchmarkEngineReadWithReactions measures a newest-page history read while
 // the room carries reactions across its lifetime: the page read must cost
 // what the page shows, not what the room accumulated.
-func BenchmarkStoreReadWithReactions(b *testing.B) {
+func BenchmarkEngineReadWithReactions(b *testing.B) {
 	for _, tc := range []struct {
 		name        string
 		messages    int
@@ -609,7 +597,7 @@ func BenchmarkStoreReadWithReactions(b *testing.B) {
 		{"reactions-everywhere", 500, 1, 4},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			s := newTestStore(b)
+			e := newTestEngine(b)
 			room, sender := benchIDs()
 			ctx := context.Background()
 			users := make([]uuid.UUID, tc.usersPerMsg)
@@ -617,7 +605,7 @@ func BenchmarkStoreReadWithReactions(b *testing.B) {
 				users[i] = uuid.NewV7()
 			}
 			for i := range tc.messages {
-				message, err := s.WriteMessage(ctx, Message{
+				message, err := e.WriteMessage(ctx, Message{
 					ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
 					MsgType: MsgTypeText, Payload: []byte("payload"),
 				})
@@ -626,14 +614,14 @@ func BenchmarkStoreReadWithReactions(b *testing.B) {
 				}
 				if i%tc.everyNth == 0 {
 					for _, user := range users {
-						if err := s.AddReaction(ctx, room, message.MsgID, user, "👍"); err != nil {
+						if err := e.AddReaction(ctx, room, message.MsgID, user, "👍"); err != nil {
 							b.Fatal(err)
 						}
 					}
 				}
 			}
 
-			page, err := s.Messages(ctx, room, 0, 20)
+			page, err := e.Messages(ctx, room, 0, 20)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -648,7 +636,7 @@ func BenchmarkStoreReadWithReactions(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for b.Loop() {
-				page, err := s.Messages(ctx, room, 0, 20)
+				page, err := e.Messages(ctx, room, 0, 20)
 				if err != nil || len(page.Messages) != 20 {
 					b.Fatalf("read messages: count=%d err=%v", len(page.Messages), err)
 				}

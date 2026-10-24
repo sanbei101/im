@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"bytes"
@@ -6,14 +6,137 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
 )
+
+type MsgType int8
+
+const (
+	MsgTypeText   MsgType = 1
+	MsgTypeImage  MsgType = 2
+	MsgTypeVideo  MsgType = 3
+	MsgTypeFile   MsgType = 4
+	MsgTypeSystem MsgType = 5
+	MsgTypeRecall MsgType = 6
+)
+
+func (t MsgType) String() string {
+	switch t {
+	case MsgTypeText:
+		return "text"
+	case MsgTypeImage:
+		return "image"
+	case MsgTypeVideo:
+		return "video"
+	case MsgTypeFile:
+		return "file"
+	case MsgTypeSystem:
+		return "system"
+	case MsgTypeRecall:
+		return "recall"
+	default:
+		return strconv.Itoa(int(t))
+	}
+}
+
+func (t MsgType) Valid() bool {
+	return t >= MsgTypeText && t <= MsgTypeRecall
+}
+
+func (t MsgType) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return json.MarshalEncode(enc, t.String())
+}
+
+func (t *MsgType) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	var s string
+	if err := json.UnmarshalDecode(dec, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseMsgType(s)
+	if err != nil {
+		return err
+	}
+	*t = parsed
+	return nil
+}
+
+func ParseMsgType(value string) (MsgType, error) {
+	for _, known := range []struct {
+		name string
+		typ  MsgType
+	}{
+		{"text", MsgTypeText},
+		{"image", MsgTypeImage},
+		{"video", MsgTypeVideo},
+		{"file", MsgTypeFile},
+		{"system", MsgTypeSystem},
+		{"recall", MsgTypeRecall},
+	} {
+		if value == known.name {
+			return known.typ, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid msg_type %q", value)
+}
+
+// Message is one committed room message. Payload and Ext are raw JSON
+// carried opaquely; RoomSeq is the room's dense commit order and the only
+// pagination cursor.
+type Message struct {
+	MsgID        uuid.UUID       `json:"msg_id"`
+	ClientMsgID  uuid.UUID       `json:"client_msg_id"`
+	SenderID     uuid.UUID       `json:"sender_id"`
+	RoomID       uuid.UUID       `json:"room_id"`
+	RoomSeq      uint64          `json:"room_seq"`
+	ServerTime   int64           `json:"server_time"`
+	ReplyToMsgID uuid.UUID       `json:"reply_to_msg_id,omitzero"`
+	MsgType      MsgType         `json:"msg_type"`
+	Payload      jsontext.Value  `json:"payload,omitzero"`
+	Ext          jsontext.Value  `json:"ext,omitzero"`
+	Reactions    []ReactionGroup `json:"reactions,omitempty"`
+}
+
+func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if len(m.Payload) == 0 {
+		m.Payload = nil
+	}
+	if len(m.Ext) == 0 {
+		m.Ext = nil
+	}
+	type plain Message
+	return json.MarshalEncode(enc, plain(m))
+}
+
+// ReactionGroup aggregates one emoji's reactions on a message.
+type ReactionGroup struct {
+	Emoji   string      `json:"emoji"`
+	Count   int         `json:"count"`
+	UserIDs []uuid.UUID `json:"user_ids"`
+}
+
+// MessagePage is one history page: messages in the page's order plus whether
+// an older (or newer, for incremental pulls) page exists.
+type MessagePage struct {
+	Messages []Message `json:"messages"`
+	HasMore  bool      `json:"has_more"`
+}
+
+// dedup is the idempotency record of room_id+sender_id+client_msg_id: the
+// identity a retry replays and the digest a conflicting payload violates.
+type dedup struct {
+	MsgID      uuid.UUID
+	RoomSeq    uint64
+	ServerTime int64
+	PayloadSum [32]byte
+}
 
 func encodeMessage(message Message) []byte {
 	return appendMessage(nil, message)
@@ -75,7 +198,7 @@ func ownedMessage(m Message) Message {
 
 // appendDedup encodes into dst; the record is fixed-size, so batch writes
 // pass a stack buffer and allocate nothing.
-func appendDedup(data []byte, value Dedup) []byte {
+func appendDedup(data []byte, value dedup) []byte {
 	var number [8]byte
 	data = putUUID(data, value.MsgID)
 	putU64(number[:], value.RoomSeq)
@@ -85,26 +208,18 @@ func appendDedup(data []byte, value Dedup) []byte {
 	return append(data, value.PayloadSum[:]...)
 }
 
-func decodeDedup(data []byte) (Dedup, error) {
+func decodeDedup(data []byte) (dedup, error) {
 	d := decoder{data: data}
-	value := Dedup{
+	value := dedup{
 		MsgID:      d.uuid(),
 		RoomSeq:    d.u64(),
 		ServerTime: d.i64(),
 	}
 	copy(value.PayloadSum[:], d.fixed(len(value.PayloadSum)))
 	if err := d.check("dedup"); err != nil {
-		return Dedup{}, err
+		return dedup{}, err
 	}
 	return value, nil
-}
-
-func (s *Store) WriteMessage(ctx context.Context, message Message) (Message, error) {
-	results := s.WriteMessages(ctx, []Message{message})
-	if len(results) == 0 {
-		return Message{}, ErrClosed
-	}
-	return results[0].Message, results[0].Err
 }
 
 type dedupLookupKey struct {
@@ -118,16 +233,16 @@ type dedupLookupKey struct {
 // covered by a successful ACK.
 type dedupEntry struct {
 	lookup dedupLookupKey
-	dedup  Dedup
+	dedup  dedup
 }
 
-func (s *Store) writeMessageBatch(
+func (e *Engine) writeMessageBatch(
 	messages []Message,
 	results []MessageWriteResult,
 ) {
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
-	rooms := make(map[uuid.UUID]Room)
+	lastSeqs := make(map[uuid.UUID]uint64)
 	digests := make([][32]byte, len(messages))
 	pending := make(map[dedupLookupKey]int, len(messages))
 	var allocated []int
@@ -136,9 +251,9 @@ func (s *Store) writeMessageBatch(
 
 	var keyBuf [64]byte
 	var msgKeyBuf [25]byte
-	recBuf := s.recordScratch
-	roomBuf := s.roomScratch
-	var digestInput []byte
+	recBuf := e.recordScratch
+	roomBuf := e.roomScratch
+	digestInput := e.digestScratch
 
 	for index := range messages {
 		if results[index].Err != nil {
@@ -146,24 +261,22 @@ func (s *Store) writeMessageBatch(
 		}
 		message := &messages[index]
 		results[index].Message = *message
-		room, ok := rooms[message.RoomID]
+		lastSeq, ok := lastSeqs[message.RoomID]
 		if !ok {
-			room, ok = s.getRoomShard(message.RoomID).rooms.Get(message.RoomID)
+			lastSeq, ok = e.getRoomShard(message.RoomID).rooms.Get(message.RoomID)
 		}
 		if !ok {
 			var err error
-			room, err = s.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeRoom)
+			lastSeq, err = e.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeLastSeq)
 			if errors.Is(err, ErrNotFound) {
-				// Room metadata lives in PostgreSQL. The store only keeps the
-				// message head, created lazily on the first committed message.
-				room = Room{RoomID: message.RoomID}
+				// A missing head is a fresh room: its first message takes seq 1.
+				lastSeq = 0
 			} else if err != nil {
 				results[index].Err = err
 				continue
 			}
-			room.RoomID = message.RoomID
 		}
-		rooms[message.RoomID] = room
+		lastSeqs[message.RoomID] = lastSeq
 
 		digestInput = append(digestInput[:0], byte(message.MsgType))
 		digestInput = append(digestInput, message.Payload...)
@@ -188,7 +301,7 @@ func (s *Store) writeMessageBatch(
 			continue
 		}
 
-		if old, ok := s.dedupCache.Get(lookup); ok {
+		if old, ok := e.dedupCache.Get(lookup); ok {
 			pending[lookup] = index
 			if old.PayloadSum != digests[index] {
 				results[index].Err = ErrConflict
@@ -200,8 +313,8 @@ func (s *Store) writeMessageBatch(
 
 		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		pending[lookup] = index
-		if old, err := s.getRecord(dedupKeyBytes, decodeDedup); err == nil {
-			s.dedupCache.Set(lookup, old)
+		if old, err := e.getRecord(dedupKeyBytes, decodeDedup); err == nil {
+			e.dedupCache.Set(lookup, old)
 			if old.PayloadSum != digests[index] {
 				results[index].Err = ErrConflict
 			} else {
@@ -213,17 +326,16 @@ func (s *Store) writeMessageBatch(
 			continue
 		}
 
-		room.LastSeq++
-		results[index].Message.RoomSeq = room.LastSeq
+		lastSeq++
+		results[index].Message.RoomSeq = lastSeq
 		results[index].Message.MsgID = uuid.NewV7()
 		results[index].Message.ServerTime = time.Now().UnixMicro()
-		room.UpdatedAt = time.Now()
-		rooms[message.RoomID] = room
+		lastSeqs[message.RoomID] = lastSeq
 		allocated = append(allocated, index)
 
 		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
 		recBuf = appendMessage(recBuf[:0], results[index].Message)
-		if err := s.setBytes(batch, msgKey, recBuf); err != nil {
+		if err := e.setBytes(batch, msgKey, recBuf); err != nil {
 			results[index].Err = err
 			continue
 		}
@@ -231,18 +343,18 @@ func (s *Store) writeMessageBatch(
 		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], message.RoomID, results[index].Message.MsgID)
 		var seqBytes [8]byte
 		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
-		if err := s.setBytes(batch, indexKey, seqBytes[:]); err != nil {
+		if err := e.setBytes(batch, indexKey, seqBytes[:]); err != nil {
 			results[index].Err = err
 			if delErr := batch.Delete(msgKey, nil); delErr != nil {
 				results[index].Err = errors.New("stage message index: " + err.Error() + "; rollback: " + delErr.Error())
 			}
 			continue
 		}
-		dedup := Dedup{
+		record := dedup{
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
 		}
-		if err := s.setBytes(batch, dedupKeyBytes, appendDedup(s.dedupScratch[:0], dedup)); err != nil {
+		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.dedupScratch[:0], record)); err != nil {
 			results[index].Err = err
 			if delErr := batch.Delete(msgKey, nil); delErr != nil {
 				results[index].Err = errors.New("stage dedup: " + err.Error() + "; rollback: " + delErr.Error())
@@ -253,13 +365,12 @@ func (s *Store) writeMessageBatch(
 			}
 			continue
 		}
-		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: dedup})
+		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: record})
 	}
-	for roomID := range rooms {
-		room := rooms[roomID]
+	for roomID := range lastSeqs {
 		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
-		roomBuf = appendRoomHead(roomBuf[:0], room.LastSeq)
-		if err := s.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
+		roomBuf = appendRoomHead(roomBuf[:0], lastSeqs[roomID])
+		if err := e.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
 			failedRooms[roomID] = struct{}{}
 			for index := range results {
 				if results[index].Message.RoomID == roomID && results[index].Err == nil {
@@ -276,37 +387,36 @@ func (s *Store) writeMessageBatch(
 		}
 		return
 	}
-	s.recordScratch, s.roomScratch, s.digestScratch = recBuf, roomBuf, digestInput
+	e.recordScratch, e.roomScratch, e.digestScratch = recBuf, roomBuf, digestInput
 	// Caches are filled only after the commit succeeded: a failed commit must
 	// not leave in-memory state ahead of disk.
-	for roomID := range rooms {
+	for roomID := range lastSeqs {
 		if _, ok := failedRooms[roomID]; ok {
 			continue
 		}
-		room := rooms[roomID]
-		s.getRoomShard(roomID).rooms.Set(roomID, room)
+		e.getRoomShard(roomID).rooms.Set(roomID, lastSeqs[roomID])
 	}
 	for _, entry := range dedupEntries {
-		s.dedupCache.Set(entry.lookup, entry.dedup)
+		e.dedupCache.Set(entry.lookup, entry.dedup)
 	}
 	// The cache is filled only after the commit succeeded, so a message in the
 	// tail cache is always covered by a successful ACK.
 	for _, index := range allocated {
 		if results[index].Err == nil {
-			s.cache.append(&results[index].Message)
+			e.cache.append(&results[index].Message)
 		}
 	}
 }
 
-func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, limit int) (MessagePage, error) {
+func (e *Engine) Messages(ctx context.Context, roomID uuid.UUID, before uint64, limit int) (MessagePage, error) {
 	if err := contextErr(ctx); err != nil {
 		return MessagePage{}, err
 	}
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	if messages, hasMore, ok := s.cache.page(roomID, before, limit); ok {
-		if err := s.populateReactions(ctx, roomID, messages); err != nil {
+	if messages, hasMore, ok := e.cache.page(roomID, before, limit); ok {
+		if err := e.populateReactions(ctx, roomID, messages); err != nil {
 			return MessagePage{}, err
 		}
 		return MessagePage{Messages: messages, HasMore: hasMore}, nil
@@ -317,25 +427,25 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	// page, as the plain Pebble scan of a missing prefix would be.
 	hi := before
 	if before == 0 {
-		room, err := s.Room(ctx, roomID)
+		lastSeq, err := e.LastSeq(ctx, roomID)
 		if errors.Is(err, ErrNotFound) {
 			return MessagePage{Messages: []Message{}}, nil
 		}
 		if err != nil {
 			return MessagePage{}, err
 		}
-		hi = room.LastSeq + 1
+		hi = lastSeq + 1
 	}
 	lo := uint64(1)
 	if hi > uint64(limit)+1 {
 		lo = hi - uint64(limit+1)
 	}
 
-	watermark, err := s.archiveWatermark(roomID)
+	watermark, err := e.archiveWatermark(roomID)
 	if err != nil {
 		return MessagePage{}, err
 	}
-	if s.remote == nil && lo <= watermark {
+	if e.remote == nil && lo <= watermark {
 		return MessagePage{}, fmt.Errorf(
 			"messages %d..%d are archived but no remote object store is configured",
 			lo,
@@ -346,11 +456,11 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 	if watermark >= warmLo {
 		warmLo = watermark + 1
 	}
-	warm, err := s.scanWarm(roomID, warmLo, hi)
+	warm, err := e.scanWarm(roomID, warmLo, hi)
 	if err != nil {
 		return MessagePage{}, err
 	}
-	cold, err := s.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
+	cold, err := e.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -376,16 +486,16 @@ func (s *Store) Messages(ctx context.Context, roomID uuid.UUID, before uint64, l
 		ascending := make([]Message, 0, total)
 		ascending = append(ascending, cold...)
 		ascending = append(ascending, warm...)
-		s.cache.put(roomID, ascending, hi-1)
+		e.cache.put(roomID, ascending, hi-1)
 	}
-	if err := s.populateReactions(ctx, roomID, messages); err != nil {
+	if err := e.populateReactions(ctx, roomID, messages); err != nil {
 		return MessagePage{}, err
 	}
 	return MessagePage{Messages: messages, HasMore: hasMore}, nil
 }
 
 // MessagesAfter returns messages with room_seq in (after, min(after+limit, LastSeq)] in ascending order.
-func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint64, limit int) (MessagePage, error) {
+func (e *Engine) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint64, limit int) (MessagePage, error) {
 	if err := contextErr(ctx); err != nil {
 		return MessagePage{}, err
 	}
@@ -393,7 +503,7 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 		limit = 50
 	}
 
-	room, err := s.Room(ctx, roomID)
+	lastSeq, err := e.LastSeq(ctx, roomID)
 	if errors.Is(err, ErrNotFound) {
 		return MessagePage{Messages: []Message{}}, nil
 	}
@@ -401,25 +511,25 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 		return MessagePage{}, err
 	}
 
-	if after >= room.LastSeq {
+	if after >= lastSeq {
 		return MessagePage{Messages: []Message{}}, nil
 	}
 
-	if cached, hasMore, ok := s.cache.after(roomID, after, limit); ok {
-		if err := s.populateReactions(ctx, roomID, cached); err != nil {
+	if cached, hasMore, ok := e.cache.after(roomID, after, limit); ok {
+		if err := e.populateReactions(ctx, roomID, cached); err != nil {
 			return MessagePage{}, err
 		}
 		return MessagePage{Messages: cached, HasMore: hasMore}, nil
 	}
 
 	lo := after + 1
-	hi := min(room.LastSeq+1, lo+uint64(limit))
+	hi := min(lastSeq+1, lo+uint64(limit))
 
-	watermark, err := s.archiveWatermark(roomID)
+	watermark, err := e.archiveWatermark(roomID)
 	if err != nil {
 		return MessagePage{}, err
 	}
-	if s.remote == nil && lo <= watermark {
+	if e.remote == nil && lo <= watermark {
 		return MessagePage{}, fmt.Errorf(
 			"messages %d..%d are archived but no remote object store is configured",
 			lo,
@@ -430,11 +540,11 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 	if watermark >= warmLo {
 		warmLo = watermark + 1
 	}
-	warm, err := s.scanWarm(roomID, warmLo, hi)
+	warm, err := e.scanWarm(roomID, warmLo, hi)
 	if err != nil {
 		return MessagePage{}, err
 	}
-	cold, err := s.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
+	cold, err := e.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -443,21 +553,21 @@ func (s *Store) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint6
 	ascending = append(ascending, cold...)
 	ascending = append(ascending, warm...)
 
-	if err := s.populateReactions(ctx, roomID, ascending); err != nil {
+	if err := e.populateReactions(ctx, roomID, ascending); err != nil {
 		return MessagePage{}, err
 	}
 
-	hasMore := room.LastSeq >= hi
+	hasMore := lastSeq >= hi
 	return MessagePage{Messages: ascending, HasMore: hasMore}, nil
 }
 
 // scanWarm returns the Pebble messages with seq in [lo, hi) in ascending order.
-func (s *Store) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
+func (e *Engine) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
 	if hi <= lo {
 		return nil, nil
 	}
 	var lowerBuf, upperBuf [25]byte
-	iter, err := s.db.NewIter(&pebble.IterOptions{
+	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: appendMessageKey(lowerBuf[:0], roomID, lo),
 		UpperBound: appendMessageKey(upperBuf[:0], roomID, hi),
 	})
@@ -489,7 +599,7 @@ func messageUpperBoundBuf(buf, prefix []byte, before uint64) []byte {
 	return append(buf, seq[:]...)
 }
 
-func (s *Store) SearchRoomMessages(
+func (e *Engine) SearchRoomMessages(
 	ctx context.Context,
 	roomID uuid.UUID,
 	keyword string,
@@ -511,7 +621,7 @@ func (s *Store) SearchRoomMessages(
 	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
 	var upBuf [40]byte
 	upperBound := messageUpperBoundBuf(upBuf[:0], prefix, before)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +649,7 @@ func (s *Store) SearchRoomMessages(
 	if err := iter.Error(); err != nil {
 		return nil, err
 	}
-	if err := s.populateReactions(ctx, roomID, messages); err != nil {
+	if err := e.populateReactions(ctx, roomID, messages); err != nil {
 		return nil, err
 	}
 	return messages, nil
@@ -571,19 +681,19 @@ func asciiLower(b byte) byte {
 	return b
 }
 
-func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Message, error) {
+func (e *Engine) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Message, error) {
 	if err := contextErr(ctx); err != nil {
 		return Message{}, err
 	}
-	seq, err := s.seqByMsgID(roomID, msgID)
+	seq, err := e.seqByMsgID(roomID, msgID)
 	if err != nil {
 		return Message{}, err
 	}
-	message, err := s.messageBySeq(ctx, roomID, seq)
+	message, err := e.messageBySeq(ctx, roomID, seq)
 	if err != nil {
 		return Message{}, err
 	}
-	reactions, err := s.Reactions(ctx, roomID, msgID)
+	reactions, err := e.Reactions(ctx, roomID, msgID)
 	if err != nil {
 		return Message{}, err
 	}
@@ -591,7 +701,7 @@ func (s *Store) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Messa
 	return message, nil
 }
 
-func (s *Store) RecallMessage(
+func (e *Engine) RecallMessage(
 	ctx context.Context,
 	roomID, msgID, operatorID uuid.UUID,
 	isOwnerOrAdmin bool,
@@ -599,9 +709,9 @@ func (s *Store) RecallMessage(
 	if err := contextErr(ctx); err != nil {
 		return Message{}, err
 	}
-	s.stateMu.RLock()
-	closed := s.closed
-	s.stateMu.RUnlock()
+	e.stateMu.RLock()
+	closed := e.closed
+	e.stateMu.RUnlock()
 	if closed {
 		return Message{}, ErrClosed
 	}
@@ -611,51 +721,59 @@ func (s *Store) RecallMessage(
 		msgID:          msgID,
 		operatorID:     operatorID,
 		isOwnerOrAdmin: isOwnerOrAdmin,
-		result:         make(chan RecallResult, 1),
+		result:         make(chan recallResult, 1),
 	}
 	select {
-	case s.recallQueue <- request:
+	case e.recallQueue <- request:
 	case <-ctx.Done():
 		return Message{}, ctx.Err()
 	}
 	result := <-request.result
-	return result.Message, result.Err
+	return result.message, result.err
 }
 
-// execRecall runs on the single writer goroutine: rewriting a recall also
-// rewrites the room record, so it must not interleave with message batches.
-func (s *Store) execRecall(request *recallRequest) {
-	result := RecallResult{Err: contextErr(request.ctx)}
-	if result.Err == nil {
-		result.Message, result.Err = s.recall(request)
+// runRecall wraps execRecall with a panic guarantee: the caller is answered
+// with an error instead of blocking forever.
+func (e *Engine) runRecall(request *recallRequest) {
+	defer func() {
+		if r := recover(); r != nil {
+			request.result <- recallResult{err: fmt.Errorf("recall failed: %v", r)}
+		}
+	}()
+	e.execRecall(request)
+}
+
+// execRecall runs on the single writer goroutine: a recall also rewrites the
+// room head, so it must not interleave with message batches.
+func (e *Engine) execRecall(request *recallRequest) {
+	result := recallResult{err: contextErr(request.ctx)}
+	if result.err == nil {
+		result.message, result.err = e.recall(request)
 	}
 	request.result <- result
 }
 
-func (s *Store) forgetDedup(roomID uuid.UUID, messages []Message) {
+func (e *Engine) forgetDedup(roomID uuid.UUID, messages []Message) {
 	for i := range messages {
-		s.dedupCache.Delete(dedupLookupKey{room: roomID, sender: messages[i].SenderID, client: messages[i].ClientMsgID})
+		e.dedupCache.Delete(dedupLookupKey{room: roomID, sender: messages[i].SenderID, client: messages[i].ClientMsgID})
 	}
 }
 
-// recallWindow bounds how long after ServerTime a non-admin may recall a message.
-const recallWindow = 2 * time.Minute
-
-func (s *Store) recall(request *recallRequest) (Message, error) {
+func (e *Engine) recall(request *recallRequest) (Message, error) {
 	roomID, msgID, operatorID := request.roomID, request.msgID, request.operatorID
 
-	seq, err := s.seqByMsgID(roomID, msgID)
+	seq, err := e.seqByMsgID(roomID, msgID)
 	if err != nil {
 		return Message{}, err
 	}
 
 	var msgKeyBuf [25]byte
 	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
-	msg, err := s.getRecord(msgKey, decodeMessage)
+	msg, err := e.getRecord(msgKey, decodeMessage)
 	if errors.Is(err, ErrNotFound) {
-		// The body is archived: it left the local store and cannot be
+		// The body is archived: it left the local tier and cannot be
 		// recalled anymore, no matter who asks.
-		if _, remoteErr := s.remoteMessage(request.ctx, roomID, seq); remoteErr == nil {
+		if _, remoteErr := e.remoteMessage(request.ctx, roomID, seq); remoteErr == nil {
 			return Message{}, ErrRecallTimeout
 		}
 		return Message{}, ErrNotFound
@@ -663,7 +781,7 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	// The recalled message lands in the rooms LRU and the tail cache, so it
+	// The recalled message lands in the tail cache, so it
 	// must not alias the pebble buffer.
 	msg = ownedMessage(msg)
 
@@ -675,16 +793,16 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 		return Message{}, ErrForbidden
 	}
 
-	if !request.isOwnerOrAdmin && time.Since(time.UnixMicro(msg.ServerTime)) > recallWindow {
+	if !request.isOwnerOrAdmin && time.Since(time.UnixMicro(msg.ServerTime)) > e.recallWindow {
 		return Message{}, ErrRecallTimeout
 	}
 
 	msg.MsgType = MsgTypeRecall
 	msg.Payload = jsontext.Value(fmt.Sprintf(`{"recalled_by":"%s"}`, operatorID))
 
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
-	if err := s.setBytes(batch, msgKey, encodeMessage(msg)); err != nil {
+	if err := e.setBytes(batch, msgKey, encodeMessage(msg)); err != nil {
 		return Message{}, err
 	}
 	if err := commit(batch); err != nil {
@@ -692,6 +810,6 @@ func (s *Store) recall(request *recallRequest) (Message, error) {
 	}
 	// A message inside the recall window is always in the tail cache; keep the
 	// cached copy in sync so reads do not serve stale content.
-	s.cache.replace(roomID, &msg)
+	e.cache.replace(roomID, &msg)
 	return msg, nil
 }

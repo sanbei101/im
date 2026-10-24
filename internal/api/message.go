@@ -11,13 +11,14 @@ import (
 	"github.com/phuslu/log"
 
 	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 )
 
 // MessageAPI serves the message plane. Room membership is resolved through
 // the shared roster cache, so no message-plane endpoint waits on PostgreSQL.
 type MessageAPI struct {
-	store         *store.Store
+	store         *engine.Engine
 	members       *Membership
 	streamHandler *StreamHandler
 }
@@ -118,11 +119,11 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 	recalled, err := a.store.RecallMessage(r.Context(), roomID, msgID, userID, isManager(member.Role))
 	if err != nil {
 		switch {
-		case errors.Is(err, store.ErrNotFound):
+		case errors.Is(err, engine.ErrNotFound):
 			render.Error(w, http.StatusNotFound, "message not found")
-		case errors.Is(err, store.ErrRecallTimeout):
+		case errors.Is(err, engine.ErrRecallTimeout):
 			render.Error(w, http.StatusBadRequest, "消息发送已超过2分钟,无法撤回")
-		case errors.Is(err, store.ErrForbidden):
+		case errors.Is(err, engine.ErrForbidden):
 			render.Error(w, http.StatusForbidden, "无权撤回该消息")
 		default:
 			render.Error(w, http.StatusInternalServerError, err.Error())
@@ -265,7 +266,11 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	users, err := a.store.ReadUsers(r.Context(), roomID, message.RoomSeq, members)
+	userIDs := make([]uuid.UUID, len(members))
+	for i := range members {
+		userIDs[i] = members[i].UserID
+	}
+	users, err := a.store.ReadUsers(r.Context(), roomID, message.RoomSeq, userIDs)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -287,7 +292,7 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 
 	keyword := r.URL.Query().Get("keyword")
 	if keyword == "" {
-		render.Success(w, "搜索聊天记录成功", []store.Message{})
+		render.Success(w, "搜索聊天记录成功", []engine.Message{})
 		return
 	}
 	before, ok := parseSeq(w, "before_seq", r.URL.Query().Get("before_seq"))
@@ -305,7 +310,7 @@ func (a *MessageAPI) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if messages == nil {
-		messages = []store.Message{}
+		messages = []engine.Message{}
 	}
 	render.Success(w, "搜索聊天记录成功", messages)
 }

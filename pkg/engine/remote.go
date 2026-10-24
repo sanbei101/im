@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"context"
@@ -58,7 +58,7 @@ type remoteReader struct {
 // the object store behind a local disk cache of cacheBytes. Without it the
 // store serves only the cached tail and Pebble, which keeps the rollout of
 // upload and deletion independent of the read path.
-func (s *Store) AttachRemote(objects ObjectStore, cacheDir string, cacheBytes int64) error {
+func (e *Engine) AttachRemote(objects ObjectStore, cacheDir string, cacheBytes int64) error {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return fmt.Errorf("create archive cache dir: %w", err)
 	}
@@ -79,7 +79,7 @@ func (s *Store) AttachRemote(objects ObjectStore, cacheDir string, cacheBytes in
 			reader.bytes += info.Size()
 		}
 	}
-	s.remote = reader
+	e.remote = reader
 	return nil
 }
 
@@ -87,13 +87,13 @@ func (s *Store) AttachRemote(objects ObjectStore, cacheDir string, cacheBytes in
 // ascending order, loading every covering manifest file through the disk cache.
 // Files are sorted by start seq and never overlap, but the file containing lo
 // starts before lo, so the manifest preceding the seek position is checked too.
-func (s *Store) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi uint64) ([]Message, error) {
-	if s.remote == nil || hi <= lo {
+func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi uint64) ([]Message, error) {
+	if e.remote == nil || hi <= lo {
 		return nil, nil
 	}
 	var prefixBuf [32]byte
 	prefix := appendArchiveIndexPrefix(prefixBuf[:0], room)
-	iter, err := s.db.NewIter(&pebble.IterOptions{
+	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: prefixUpperBound(prefix),
 	})
@@ -108,14 +108,14 @@ func (s *Store) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi ui
 		// No manifest starts at or above lo: only the newest one, whose start
 		// lies below lo, can still cover the window.
 		if valid := iter.Last(); valid {
-			if err := s.appendArchiveFile(ctx, iter, lo, hi, &messages); err != nil {
+			if err := e.appendArchiveFile(ctx, iter, lo, hi, &messages); err != nil {
 				return nil, err
 			}
 		}
 	} else {
 		if iter.Prev() {
 			// The predecessor may reach into the window from below.
-			if err := s.appendArchiveFile(ctx, iter, lo, hi, &messages); err != nil {
+			if err := e.appendArchiveFile(ctx, iter, lo, hi, &messages); err != nil {
 				return nil, err
 			}
 		}
@@ -130,7 +130,7 @@ func (s *Store) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi ui
 			if start >= hi {
 				break
 			}
-			if err := s.appendArchiveFile(ctx, iter, lo, hi, &messages); err != nil {
+			if err := e.appendArchiveFile(ctx, iter, lo, hi, &messages); err != nil {
 				return nil, err
 			}
 		}
@@ -144,7 +144,7 @@ func (s *Store) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi ui
 // appendArchiveFile loads the manifest's parquet file through the disk cache
 // and appends its rows that fall inside [lo, hi). iter is positioned on the
 // manifest record.
-func (s *Store) appendArchiveFile(
+func (e *Engine) appendArchiveFile(
 	ctx context.Context,
 	iter *pebble.Iterator,
 	lo, hi uint64,
@@ -160,9 +160,9 @@ func (s *Store) appendArchiveFile(
 	if manifest.EndSeq < lo {
 		return nil
 	}
-	decoded, ok := s.remote.decoded.Get(manifest.S3Key)
+	decoded, ok := e.remote.decoded.Get(manifest.S3Key)
 	if !ok {
-		data, err := s.remote.load(ctx, manifest.S3Key)
+		data, err := e.remote.load(ctx, manifest.S3Key)
 		if err != nil {
 			return fmt.Errorf("load archive %s: %w", manifest.S3Key, err)
 		}
@@ -172,7 +172,7 @@ func (s *Store) appendArchiveFile(
 		}
 		decoded = newDecodedArchive(rows)
 		if decoded.bytes <= decodedArchiveMaxBytes {
-			s.remote.decoded.Set(manifest.S3Key, decoded)
+			e.remote.decoded.Set(manifest.S3Key, decoded)
 		}
 	}
 	for i := range decoded.rows {
@@ -185,18 +185,18 @@ func (s *Store) appendArchiveFile(
 
 // remoteMessage fetches a single archived message by seq, used by MessageByID
 // once the local body is gone.
-func (s *Store) remoteMessage(ctx context.Context, roomID uuid.UUID, seq uint64) (Message, error) {
-	if s.remote == nil {
+func (e *Engine) remoteMessage(ctx context.Context, roomID uuid.UUID, seq uint64) (Message, error) {
+	if e.remote == nil {
 		return Message{}, ErrNotFound
 	}
-	watermark, err := s.archiveWatermark(roomID)
+	watermark, err := e.archiveWatermark(roomID)
 	if err != nil {
 		return Message{}, err
 	}
 	if seq > watermark {
 		return Message{}, ErrNotFound
 	}
-	messages, err := s.readArchivedRange(ctx, roomID, seq, seq+1)
+	messages, err := e.readArchivedRange(ctx, roomID, seq, seq+1)
 	if err != nil {
 		return Message{}, err
 	}

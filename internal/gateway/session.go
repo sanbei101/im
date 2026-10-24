@@ -12,7 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/phuslu/log"
 
-	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 	"github.com/sanbei101/im/proto/pb"
 )
@@ -136,7 +136,7 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	if requestID == "" {
 		requestID = uuid.NewV7().String()
 	}
-	msgType, err := store.ParseMsgType(input.MsgType)
+	msgType, err := engine.ParseMsgType(input.MsgType)
 	if err != nil {
 		return err
 	}

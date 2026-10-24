@@ -25,10 +25,13 @@ cmd/api          API 入口(控制面 + 消息面)
 cmd/gateway      Gateway 入口
 internal/api     HTTP Handler、Kitex Server 和 API 业务逻辑
 internal/gateway WebSocket、Kitex Client、会话和批量发送
-internal/store   Pebble 消息、PostgreSQL 控制面、迁移和备份
+internal/store   PostgreSQL 控制面、迁移
+pkg/engine       消息面引擎:Pebble 批量写入、内存尾缓存、reactions/pins/已读游标、Parquet 归档与冷读,可独立取用
 pkg              配置、分片、JWT、日志和通用工具
 proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 ```
+
+`pkg/engine` 是消息面的全部:不 import 本仓库任何其他包,分片归属、对象存储和 recall 窗口全部通过参数注入;业务侧(`internal/api`)只经由它的方法面读写消息,禁止绕过引擎直接触碰 Pebble。
 
 禁止重新引入 `internal/model`、`internal/domain`、`internal/repository`、`internal/usecase` 等层级。协议结构、存储记录和业务输入在可以复用时直接复用;只有在边界确实不同且转换有明确价值时才定义新结构。
 

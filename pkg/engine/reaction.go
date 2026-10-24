@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 // record, and reactions stay mutable forever even after the message body has
 // been frozen into the immutable parquet archive. The key IS the record.
 
-func (s *Store) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
+func (e *Engine) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
@@ -26,22 +26,22 @@ func (s *Store) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUID
 		return errors.New("emoji cannot be empty")
 	}
 
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
 
 	key := appendReactionKey(nil, roomID, msgID, userID, emoji)
-	if err := s.setBytes(batch, key, []byte{}); err != nil {
+	if err := e.setBytes(batch, key, []byte{}); err != nil {
 		return err
 	}
 	return commit(batch)
 }
 
-func (s *Store) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
+func (e *Engine) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
 
-	batch := s.db.NewBatch()
+	batch := e.db.NewBatch()
 	defer batch.Close()
 
 	key := appendReactionKey(nil, roomID, msgID, userID, emoji)
@@ -52,7 +52,7 @@ func (s *Store) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.U
 }
 
 // Reactions returns one message's reaction groups, largest group first.
-func (s *Store) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]ReactionGroup, error) {
+func (e *Engine) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]ReactionGroup, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (s *Store) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]React
 	prefix := appendReactionPrefix(prefixBuf[:0], roomID, msgID)
 	var upBuf [34]byte
 	upperBound := prefixUpperBoundBuf(upBuf[:0], prefix)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (s *Store) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]React
 // order, so every seek moves forward: the cost tracks what the page shows,
 // not what the room accumulated over its lifetime. A room without a single
 // reaction key is answered by one probe.
-func (s *Store) populateReactions(ctx context.Context, roomID uuid.UUID, messages []Message) error {
+func (e *Engine) populateReactions(ctx context.Context, roomID uuid.UUID, messages []Message) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -87,7 +87,7 @@ func (s *Store) populateReactions(ctx context.Context, roomID uuid.UUID, message
 	roomPrefix := appendReactionRoomPrefix(roomBuf[:0], roomID)
 	var upBuf [18]byte
 	upperBound := prefixUpperBoundBuf(upBuf[:0], roomPrefix)
-	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: roomPrefix, UpperBound: upperBound})
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: roomPrefix, UpperBound: upperBound})
 	if err != nil {
 		return err
 	}

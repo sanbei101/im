@@ -1,4 +1,4 @@
-package store
+package engine
 
 import (
 	"bytes"
@@ -64,30 +64,30 @@ func TestStoreArchive(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("cold reads across the archive boundary", func(t *testing.T) {
-		s := newTestStore(t)
-		if err := s.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
+		e := newTestEngine(t)
+		if err := e.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
 			t.Fatal(err)
 		}
-		sender := testUser("archive-sender")
-		room := testRoom(ChatTypeGroup)
+		sender := uuid.NewV7()
+		room := uuid.NewV7()
 		written := make([]Message, 10)
 		for i := range written {
-			written[i] = mustWriteMessage(t, s, room.RoomID, sender.UserID, fmt.Sprintf("m%d", i))
+			written[i] = mustWriteMessage(t, e, room, sender, fmt.Sprintf("m%d", i))
 		}
 
 		params := ArchiveParams{
 			MaxAge:      -time.Hour, // everything is instantly eligible
 			MaxMessages: 4, MaxBytes: 1 << 20, Prefix: "archives",
 		}
-		if err := s.ArchiveOnce(ctx, objects, params); err != nil {
+		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
 			t.Fatal(err)
 		}
-		watermark, err := s.archiveWatermark(room.RoomID)
+		watermark, err := e.archiveWatermark(room)
 		if err != nil || watermark != 4 {
 			t.Fatalf("watermark after first cycle: seq=%d err=%v", watermark, err)
 		}
 
-		page, err := s.Messages(ctx, room.RoomID, 0, 20)
+		page, err := e.Messages(ctx, room, 0, 20)
 		if err != nil || len(page.Messages) != 10 {
 			t.Fatalf("messages spanning tiers: page=%+v err=%v", page, err)
 		}
@@ -96,32 +96,32 @@ func TestStoreArchive(t *testing.T) {
 				t.Fatalf("mixed tier page broken at %d: seq=%d want %d", i, msg.RoomSeq, want)
 			}
 		}
-		cold, err := s.MessageByID(ctx, room.RoomID, written[0].MsgID)
-		if err != nil || cold.RoomSeq != written[0].RoomSeq || cold.SenderID != sender.UserID {
+		cold, err := e.MessageByID(ctx, room, written[0].MsgID)
+		if err != nil || cold.RoomSeq != written[0].RoomSeq || cold.SenderID != sender {
 			t.Fatalf("archived message by id: msg=%+v err=%v", cold, err)
 		}
 
 		// MaxMessages bounds every cycle to 4: the second cycle archives
 		// seqs 5..8, the third drains the remaining tail, the fourth is a no-op.
 		for cycle, want := range []uint64{8, 10, 10} {
-			if err := s.ArchiveOnce(ctx, objects, params); err != nil {
+			if err := e.ArchiveOnce(ctx, objects, params); err != nil {
 				t.Fatal(err)
 			}
-			watermark, err := s.archiveWatermark(room.RoomID)
+			watermark, err := e.archiveWatermark(room)
 			if err != nil || watermark != want {
 				t.Fatalf("watermark after cycle %d: seq=%d err=%v", cycle+2, watermark, err)
 			}
 		}
-		if drained, err := s.Messages(ctx, room.RoomID, 0, 20); err != nil || len(drained.Messages) != 10 {
+		if drained, err := e.Messages(ctx, room, 0, 20); err != nil || len(drained.Messages) != 10 {
 			t.Fatalf("fully archived room: page=%+v err=%v", drained, err)
 		}
 
 		// The body left Pebble: nobody can recall it, not even an owner.
-		if _, err := s.RecallMessage(
+		if _, err := e.RecallMessage(
 			ctx,
-			room.RoomID,
+			room,
 			written[3].MsgID,
-			sender.UserID,
+			sender,
 			true,
 		); !errors.Is(
 			err,
@@ -132,25 +132,25 @@ func TestStoreArchive(t *testing.T) {
 	})
 
 	t.Run("archived message is unresolvable without remote", func(t *testing.T) {
-		s := newTestStore(t)
-		sender := testUser("cold-sender")
-		room := testRoom(ChatTypeGroup)
-		msg := mustWriteMessage(t, s, room.RoomID, sender.UserID, "will go cold")
+		e := newTestEngine(t)
+		sender := uuid.NewV7()
+		room := uuid.NewV7()
+		msg := mustWriteMessage(t, e, room, sender, "will go cold")
 		params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives"}
-		if err := s.ArchiveOnce(ctx, objects, params); err != nil {
+		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
 			t.Fatal(err)
 		}
 		// No AttachRemote: the object store tier is not wired up yet.
-		if _, err := s.MessageByID(ctx, room.RoomID, msg.MsgID); !errors.Is(err, ErrNotFound) {
+		if _, err := e.MessageByID(ctx, room, msg.MsgID); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("archived message without remote error = %v, want %v", err, ErrNotFound)
 		}
-		if _, err := s.RecallMessage(ctx, room.RoomID, msg.MsgID, sender.UserID, false); !errors.Is(err, ErrNotFound) {
+		if _, err := e.RecallMessage(ctx, room, msg.MsgID, sender, false); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("recall without remote error = %v, want %v", err, ErrNotFound)
 		}
 	})
 
 	t.Run("disk cache evicts and survives stale tmp files", func(t *testing.T) {
-		s := newTestStore(t)
+		e := newTestEngine(t)
 		cacheDir := t.TempDir()
 		stale := filepath.Join(cacheDir, "deadbeef.tmp")
 		if err := os.WriteFile(stale, []byte("crashed upload"), 0o644); err != nil {
@@ -158,29 +158,29 @@ func TestStoreArchive(t *testing.T) {
 		}
 		// A one-byte budget forces eviction on every cached file: reads must
 		// still be correct by re-fetching from MinIO.
-		if err := s.AttachRemote(objects, cacheDir, 1); err != nil {
+		if err := e.AttachRemote(objects, cacheDir, 1); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("stale tmp file error = %v, want removed", err)
 		}
 
-		sender := testUser("evict-sender")
-		room := testRoom(ChatTypeGroup)
+		sender := uuid.NewV7()
+		room := uuid.NewV7()
 		written := make([]Message, 3)
 		for i := range written {
-			written[i] = mustWriteMessage(t, s, room.RoomID, sender.UserID, "evict me")
+			written[i] = mustWriteMessage(t, e, room, sender, "evict me")
 		}
 		params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives"}
-		if err := s.ArchiveOnce(ctx, objects, params); err != nil {
+		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
 			t.Fatal(err)
 		}
-		page, err := s.Messages(ctx, room.RoomID, 0, 20)
+		page, err := e.Messages(ctx, room, 0, 20)
 		if err != nil || len(page.Messages) != 3 {
 			t.Fatalf("messages after eviction: page=%+v err=%v", page, err)
 		}
 		for _, msg := range written {
-			got, err := s.MessageByID(ctx, room.RoomID, msg.MsgID)
+			got, err := e.MessageByID(ctx, room, msg.MsgID)
 			if err != nil || got.MsgID != msg.MsgID {
 				t.Fatalf("cold read after eviction: msg=%+v err=%v", got, err)
 			}
@@ -188,31 +188,31 @@ func TestStoreArchive(t *testing.T) {
 	})
 
 	t.Run("owns filter skips foreign rooms", func(t *testing.T) {
-		s := newTestStore(t)
-		if err := s.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
+		e := newTestEngine(t)
+		if err := e.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
 			t.Fatal(err)
 		}
-		sender := testUser("foreign-sender")
-		room := testRoom(ChatTypeGroup)
-		mustWriteMessage(t, s, room.RoomID, sender.UserID, "not mine")
+		sender := uuid.NewV7()
+		room := uuid.NewV7()
+		mustWriteMessage(t, e, room, sender, "not mine")
 
 		params := ArchiveParams{
 			Owns:   func(uuid.UUID) bool { return false },
 			MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives",
 		}
-		if err := s.ArchiveOnce(ctx, objects, params); err != nil {
+		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
 			t.Fatal(err)
 		}
-		watermark, err := s.archiveWatermark(room.RoomID)
+		watermark, err := e.archiveWatermark(room)
 		if err != nil || watermark != 0 {
 			t.Fatalf("foreign room watermark: seq=%d err=%v", watermark, err)
 		}
 	})
 
 	t.Run("invalid params rejected", func(t *testing.T) {
-		s := newTestStore(t)
+		e := newTestEngine(t)
 		params := ArchiveParams{MaxAge: time.Hour, MaxMessages: 0, MaxBytes: 1 << 20}
-		if err := s.ArchiveOnce(ctx, objects, params); err == nil {
+		if err := e.ArchiveOnce(ctx, objects, params); err == nil {
 			t.Fatal("expected error for MaxMessages=0")
 		}
 	})
@@ -293,14 +293,14 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 func BenchmarkStoreArchivedRead(b *testing.B) {
 	objects := newTestObjectStore(b)
 	ctx := context.Background()
-	s := newTestStore(b)
-	if err := s.AttachRemote(objects, b.TempDir(), 64<<20); err != nil {
+	e := newTestEngine(b)
+	if err := e.AttachRemote(objects, b.TempDir(), 64<<20); err != nil {
 		b.Fatal(err)
 	}
 	room, sender := benchIDs()
-	messages := benchWrite(b, s, room, sender, 2000)
+	messages := benchWrite(b, e, room, sender, 2000)
 	params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 2000, MaxBytes: 32 << 20, Prefix: "archives"}
-	if err := s.ArchiveOnce(ctx, objects, params); err != nil {
+	if err := e.ArchiveOnce(ctx, objects, params); err != nil {
 		b.Fatal(err)
 	}
 
@@ -308,7 +308,7 @@ func BenchmarkStoreArchivedRead(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			page, err := s.Messages(ctx, room, 1000, 20)
+			page, err := e.Messages(ctx, room, 1000, 20)
 			if err != nil || len(page.Messages) != 20 {
 				b.Fatalf("archived page: count=%d err=%v", len(page.Messages), err)
 			}
@@ -319,7 +319,7 @@ func BenchmarkStoreArchivedRead(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := s.MessageByID(ctx, room, target); err != nil {
+			if _, err := e.MessageByID(ctx, room, target); err != nil {
 				b.Fatal(err)
 			}
 		}

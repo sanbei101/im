@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
 )
@@ -42,10 +43,10 @@ func newBaseRouter() *chi.Mux {
 // (Pebble) into one API process. Every API node serves every HTTP route.
 func NewRouter(
 	db *store.DB,
-	data *store.Store,
+	data *engine.Engine,
 	streamHandler *StreamHandler,
 	members *Membership,
-	objects *store.MinioObjectStore,
+	objects *engine.MinioObjectStore,
 	publicBaseURL string,
 	nodeID string,
 ) http.Handler {
@@ -68,7 +69,7 @@ func NewRouter(
 	return r
 }
 
-func registerHealth(r chi.Router, db *store.DB, data *store.Store) {
+func registerHealth(r chi.Router, db *store.DB, data *engine.Engine) {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(r.Context()); err != nil {
 			render.Error(w, http.StatusServiceUnavailable, "postgres unavailable: "+err.Error())

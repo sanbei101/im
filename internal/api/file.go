@@ -9,16 +9,16 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 )
 
 type FileAPI struct {
-	objects       *store.MinioObjectStore
+	objects       *engine.MinioObjectStore
 	publicBaseURL string
 }
 
-func NewFileAPI(objects *store.MinioObjectStore, publicBaseURL string) *FileAPI {
+func NewFileAPI(objects *engine.MinioObjectStore, publicBaseURL string) *FileAPI {
 	return &FileAPI{objects: objects, publicBaseURL: publicBaseURL}
 }
 

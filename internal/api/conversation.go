@@ -5,12 +5,13 @@ import (
 	"net/http"
 
 	"github.com/sanbei101/im/internal/store"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 )
 
 type ConversationAPI struct {
 	db      *store.DB
-	data    *store.Store
+	data    *engine.Engine
 	members *Membership
 }
 
@@ -78,8 +79,8 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 	if !requireRoomMember(a.members, w, r, roomID) {
 		return
 	}
-	head, err := a.data.Room(r.Context(), roomID)
-	if errors.Is(err, store.ErrNotFound) {
+	lastSeq, err := a.data.LastSeq(r.Context(), roomID)
+	if errors.Is(err, engine.ErrNotFound) {
 		render.SuccessNoData(w, http.StatusOK, "清空未读成功")
 		return
 	}
@@ -87,7 +88,7 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.data.MarkRead(r.Context(), roomID, myID, head.LastSeq); err != nil {
+	if err := a.data.MarkRead(r.Context(), roomID, myID, lastSeq); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

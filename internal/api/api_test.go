@@ -18,6 +18,7 @@ import (
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
 	"github.com/sanbei101/im/proto/pb"
@@ -32,7 +33,7 @@ func TestMain(m *testing.M) {
 
 type testEnv struct {
 	db      *store.DB
-	data    *store.Store
+	data    *engine.Engine
 	stream  *StreamHandler
 	members *Membership
 	handler http.Handler
@@ -64,14 +65,13 @@ func newTestEnv(tb testing.TB) *testEnv {
 	}
 	admin.Close()
 
-	data, err := store.Open(tb.TempDir())
+	data, err := engine.Open(tb.TempDir())
 	if err != nil {
 		tb.Fatal(err)
 	}
-	data.AttachDB(db)
 	tb.Cleanup(func() {
 		if err := data.Close(); err != nil {
-			tb.Errorf("close pebble: %v", err)
+			tb.Errorf("close engine: %v", err)
 		}
 	})
 	members := NewMembership(db)
@@ -367,7 +367,7 @@ func TestStreamHandler(t *testing.T) {
 			ClientMsgId: clientMsgID.String(),
 			SenderId:    sender.UserID.String(),
 			RoomId:      room.RoomID.String(),
-			MsgType:     int32(store.MsgTypeText),
+			MsgType:     int32(engine.MsgTypeText),
 			Payload:     []byte(`{"text":"hello"}`),
 			Ext:         []byte(`{}`),
 		}
@@ -436,11 +436,11 @@ func TestStreamHandler(t *testing.T) {
 		bob, _ := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		message, err := env.data.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), engine.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,
-			MsgType:     store.MsgTypeText,
+			MsgType:     engine.MsgTypeText,
 			Payload:     []byte(`{"text":"hello"}`),
 			Ext:         []byte(`{}`),
 		})
@@ -630,11 +630,11 @@ func TestRoomHTTP(t *testing.T) {
 			t.Fatalf("members = %d, want 3", len(members.Data))
 		}
 
-		message, err := env.data.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), engine.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      roomID,
-			MsgType:     store.MsgTypeText,
+			MsgType:     engine.MsgTypeText,
 			Payload:     []byte(`{"text":"hello"}`),
 			Ext:         []byte(`{}`),
 		})
@@ -645,7 +645,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodGet,
 			"/api/v1/messages/history?room_id="+roomID.String()+"&page_size=10", bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		page := decodeResponse[store.MessagePage](t, recorder)
+		page := decodeResponse[engine.MessagePage](t, recorder)
 		if len(page.Data.Messages) != 1 || page.Data.Messages[0].MsgID != message.MsgID {
 			t.Fatalf("history = %+v", page.Data.Messages)
 		}
@@ -658,7 +658,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodGet,
 			reactionPath+"?room_id="+roomID.String(), bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		groups := decodeResponse[[]store.ReactionGroup](t, recorder)
+		groups := decodeResponse[[]engine.ReactionGroup](t, recorder)
 		if len(groups.Data) != 1 || groups.Data[0].Emoji != "👍" || groups.Data[0].Count != 1 {
 			t.Fatalf("reaction groups = %+v", groups.Data)
 		}
@@ -706,11 +706,11 @@ func TestRoomHTTP(t *testing.T) {
 		bob, _ := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		message, err := env.data.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), engine.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,
-			MsgType:     store.MsgTypeText,
+			MsgType:     engine.MsgTypeText,
 			Payload:     []byte(`{"text":"hello"}`),
 			Ext:         []byte(`{}`),
 		})
@@ -755,11 +755,11 @@ func TestRoomHTTP(t *testing.T) {
 		bob, bobToken := env.addUser(t, "bob")
 		room := env.addRoom(t, alice, bob)
 
-		message, err := env.data.WriteMessage(context.Background(), store.Message{
+		message, err := env.data.WriteMessage(context.Background(), engine.Message{
 			ClientMsgID: uuid.NewV7(),
 			SenderID:    alice.UserID,
 			RoomID:      room.RoomID,
-			MsgType:     store.MsgTypeText,
+			MsgType:     engine.MsgTypeText,
 			Payload:     []byte(`{"text":"hello"}`),
 			Ext:         []byte(`{}`),
 		})
@@ -779,7 +779,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodGet,
 			"/api/v1/messages/search?room_id="+room.RoomID.String()+"&keyword=hello", aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		found := decodeResponse[[]store.Message](t, recorder)
+		found := decodeResponse[[]engine.Message](t, recorder)
 		if len(found.Data) != 1 || found.Data[0].MsgID != message.MsgID {
 			t.Fatalf("search results = %+v", found.Data)
 		}
@@ -794,7 +794,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodGet,
 			reactionPath+"?room_id="+room.RoomID.String(), bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		groups := decodeResponse[[]store.ReactionGroup](t, recorder)
+		groups := decodeResponse[[]engine.ReactionGroup](t, recorder)
 		if len(groups.Data) != 0 {
 			t.Fatalf("reaction groups = %+v", groups.Data)
 		}
@@ -806,7 +806,7 @@ func TestRoomHTTP(t *testing.T) {
 		recorder = doRequest(t, env.handler, http.MethodGet,
 			"/api/v1/rooms/"+room.RoomID.String()+"/pins", bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
-		pins := decodeResponse[[]store.Message](t, recorder)
+		pins := decodeResponse[[]engine.Message](t, recorder)
 		if len(pins.Data) != 1 || pins.Data[0].MsgID != message.MsgID {
 			t.Fatalf("pins = %+v", pins.Data)
 		}
@@ -818,8 +818,8 @@ func TestRoomHTTP(t *testing.T) {
 			"/api/v1/messages/recall?room_id="+room.RoomID.String(), aliceToken,
 			jsonBody(t, RecallReq{MsgID: message.MsgID.String()}))
 		requireStatus(t, recorder, http.StatusOK)
-		recalled := decodeResponse[store.Message](t, recorder)
-		if recalled.Data.MsgType != store.MsgTypeRecall {
+		recalled := decodeResponse[engine.Message](t, recorder)
+		if recalled.Data.MsgType != engine.MsgTypeRecall {
 			t.Fatalf("recalled msg type = %s", recalled.Data.MsgType)
 		}
 	})
@@ -1034,7 +1034,7 @@ func TestFileHTTP(t *testing.T) {
 		env := newTestEnv(t)
 		_, token := env.addUser(t, "alice")
 
-		objects, err := store.NewMinioObjectStore(store.ObjectStoreConfig{
+		objects, err := engine.NewMinioObjectStore(engine.ObjectStoreConfig{
 			Endpoint:  "127.0.0.1:9000",
 			Bucket:    "im-media",
 			AccessKey: "access",
@@ -1074,13 +1074,13 @@ func TestFileHTTP(t *testing.T) {
 }
 
 // benchMessage seeds one message and returns it.
-func (e *testEnv) benchMessage(tb testing.TB, roomID, senderID uuid.UUID) store.Message {
+func (e *testEnv) benchMessage(tb testing.TB, roomID, senderID uuid.UUID) engine.Message {
 	tb.Helper()
-	message, err := e.data.WriteMessage(context.Background(), store.Message{
+	message, err := e.data.WriteMessage(context.Background(), engine.Message{
 		ClientMsgID: uuid.NewV7(),
 		SenderID:    senderID,
 		RoomID:      roomID,
-		MsgType:     store.MsgTypeText,
+		MsgType:     engine.MsgTypeText,
 		Payload:     []byte(`{"text":"bench"}`),
 		Ext:         []byte(`{}`),
 	})
@@ -1130,7 +1130,7 @@ func BenchmarkAPISendBatch(b *testing.B) {
 				ClientMsgId: uuid.NewV7().String(),
 				SenderId:    sender.UserID.String(),
 				RoomId:      room.RoomID.String(),
-				MsgType:     int32(store.MsgTypeText),
+				MsgType:     int32(engine.MsgTypeText),
 				Payload:     []byte(`{"text":"bench"}`),
 			}
 		}
