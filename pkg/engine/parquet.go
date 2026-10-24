@@ -19,7 +19,7 @@ type ParquetMessage struct {
 	RoomSeq      uint64   `parquet:"room_seq,delta"`
 	ServerTime   int64    `parquet:"server_time,delta"`
 	ReplyToMsgID [16]byte `parquet:"reply_to_msg_id,dict"`
-	MsgType      int32    `parquet:"msg_type"`
+	MsgType      int32    `parquet:"msg_type,dict"`
 	Payload      []byte   `parquet:"payload,zstd"`
 	Ext          []byte   `parquet:"ext,zstd"`
 }
