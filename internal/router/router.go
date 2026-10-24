@@ -2,7 +2,7 @@ package router
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,11 +19,9 @@ import (
 	"github.com/sanbei101/im/pkg/render"
 )
 
-const (
-	// maxSniffBody bounds the body room_id probe; file uploads never pass
-	// through this path, and room_id is always a short JSON string.
-	maxSniffBody = 1 << 20
-)
+// maxSingleChatBody bounds the one route whose room id must be derived from
+// its JSON body: the peer id of a single-chat creation request.
+const maxSingleChatBody = 4 << 10
 
 // EdgeConfig describes the public HTTP edge. Every room-scoped request is
 // forwarded to the owning API node; all other requests go to next.
@@ -80,9 +78,10 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	e.proxies[owner].ServeHTTP(w, r)
 }
 
-// roomIDFromRequest finds the room id in the query, path, or JSON body. Body
-// probing only runs for methods that can carry one, and the body is restored
-// before forwarding so the upstream handler sees the original bytes.
+// roomIDFromRequest finds the room id in the query or the path. Every
+// room-scoped route carries the id in its path or as the room_id query
+// parameter, so routing never buffers or parses a request body - except the
+// single-chat creation route, whose room id is derived before the room exists.
 func roomIDFromRequest(r *http.Request) (uuid.UUID, bool) {
 	if raw := r.URL.Query().Get("room_id"); raw != "" {
 		if id, err := uuid.Parse(raw); err == nil {
@@ -92,15 +91,7 @@ func roomIDFromRequest(r *http.Request) (uuid.UUID, bool) {
 	if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/rooms/single" {
 		return roomIDFromSingleChat(r)
 	}
-	if id, ok := roomIDFromPath(r.URL.Path); ok {
-		return id, true
-	}
-	switch r.Method {
-	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-		return roomIDFromBody(r)
-	default:
-		return uuid.Nil(), false
-	}
+	return roomIDFromPath(r.URL.Path)
 }
 
 func roomIDFromPath(path string) (uuid.UUID, bool) {
@@ -124,26 +115,9 @@ func roomIDFromPath(path string) (uuid.UUID, bool) {
 	}
 }
 
-func roomIDFromBody(r *http.Request) (uuid.UUID, bool) {
-	body, ok := readBody(r)
-	if !ok {
-		return uuid.Nil(), false
-	}
-	var payload struct {
-		RoomID string `json:"room_id"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return uuid.Nil(), false
-	}
-	id, err := uuid.Parse(payload.RoomID)
-	if err != nil {
-		return uuid.Nil(), false
-	}
-	return id, true
-}
-
 // roomIDFromSingleChat derives the deterministic one-to-one room id so a
-// creation request can be routed before the room exists.
+// creation request can be routed before the room exists. The body is restored
+// before forwarding so the upstream handler sees the original bytes.
 func roomIDFromSingleChat(r *http.Request) (uuid.UUID, bool) {
 	token := bearerToken(r)
 	if token == "" {
@@ -158,10 +132,18 @@ func roomIDFromSingleChat(r *http.Request) (uuid.UUID, bool) {
 		return uuid.Nil(), false
 	}
 
-	body, ok := readBody(r)
-	if !ok {
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength > maxSingleChatBody {
 		return uuid.Nil(), false
 	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxSingleChatBody+1))
+	if err != nil || len(body) > maxSingleChatBody {
+		return uuid.Nil(), false
+	}
+	if err := r.Body.Close(); err != nil {
+		return uuid.Nil(), false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
 	var payload struct {
 		UserID2 string `json:"user_id_2"`
 	}
@@ -173,24 +155,6 @@ func roomIDFromSingleChat(r *http.Request) (uuid.UUID, bool) {
 		return uuid.Nil(), false
 	}
 	return pkg.SingleRoomID(myID, otherID), true
-}
-
-func readBody(r *http.Request) ([]byte, bool) {
-	if r.Body == nil || r.Body == http.NoBody || r.ContentLength > maxSniffBody {
-		return nil, false
-	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxSniffBody+1))
-	if err != nil {
-		return nil, false
-	}
-	if err := r.Body.Close(); err != nil {
-		return nil, false
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	if len(body) > maxSniffBody {
-		return nil, false
-	}
-	return body, true
 }
 
 func bearerToken(r *http.Request) string {

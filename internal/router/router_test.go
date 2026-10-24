@@ -80,15 +80,15 @@ func testEdgeRoutesRoomRequests(t *testing.T) {
 		defer upstream.Close()
 
 		edge := newEdge(t, upstream.Listener.Addr().String(), localHandler(t, "next"))
-		body := `{"room_id":"` + roomID.String() + `","msg_id":"00000000-0000-0000-0000-000000000000"}`
+		body := `{"member_ids":["00000000-0000-0000-0000-000000000000"]}`
 		recorder := httptest.NewRecorder()
 		edge.ServeHTTP(recorder, httptest.NewRequest(
 			http.MethodPost,
-			"/api/v1/messages/recall",
+			"/api/v1/rooms/"+roomID.String()+"/members",
 			strings.NewReader(body),
 		))
 		if recorder.Code != http.StatusOK || recorder.Body.String() != body {
-			t.Fatalf("response = %d %q", recorder.Code, recorder.Body.String())
+			t.Fatalf("response = %d %q", recorder.Code, recorder.Body)
 		}
 	})
 
@@ -184,7 +184,7 @@ func writeBody(t *testing.T, w http.ResponseWriter, body string) {
 	}
 }
 
-func singleChatPairForNode(t *testing.T, slots, nodes, want int) (uuid.UUID, uuid.UUID) {
+func singleChatPairForNode(t testing.TB, slots, nodes, want int) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	for range 100_000 {
 		a, b := uuid.NewV7(), uuid.NewV7()
@@ -205,7 +205,7 @@ func singleChatPairForNode(t *testing.T, slots, nodes, want int) (uuid.UUID, uui
 	return uuid.Nil(), uuid.Nil()
 }
 
-func roomForNode(t *testing.T, slots, nodes, want int) uuid.UUID {
+func roomForNode(t testing.TB, slots, nodes, want int) uuid.UUID {
 	t.Helper()
 	for range 100_000 {
 		roomID := uuid.NewV7()
@@ -223,4 +223,55 @@ func roomForNode(t *testing.T, slots, nodes, want int) uuid.UUID {
 	}
 	t.Fatalf("could not find a room owned by node %d", want)
 	return uuid.Nil()
+}
+
+// BenchmarkEdgeRoute measures the routing decision itself, including whatever
+// the edge must do to find the room id of a request.
+func BenchmarkEdgeRoute(b *testing.B) {
+	const slots, nodes = 1024, 2
+	roomID := roomForNode(b, slots, nodes, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	edge, err := NewEdge(EdgeConfig{
+		Slots:     slots,
+		HTTPAddrs: []string{"127.0.0.1:1", upstream.Listener.Addr().String()},
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	benches := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		// room id in the path: the contract every room-scoped write uses.
+		{
+			"room-post-path", http.MethodPost, "/api/v1/rooms/" + roomID.String() + "/members",
+			`{"member_ids":["11111111-1111-1111-1111-111111111111"]}`,
+		},
+		// no room at all: a control-plane write must not pay for room routing.
+		{
+			"plain-post-body", http.MethodPost, "/api/v1/friends/apply",
+			`{"target_id":"22222222-2222-2222-2222-222222222222","greeting":"hello"}`,
+		},
+	}
+	for _, bench := range benches {
+		b.Run(bench.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				recorder := httptest.NewRecorder()
+				edge.ServeHTTP(recorder, httptest.NewRequest(bench.method, bench.path, strings.NewReader(bench.body)))
+				if recorder.Code != http.StatusOK {
+					b.Fatalf("%s: status %d", bench.name, recorder.Code)
+				}
+			}
+		})
+	}
 }
