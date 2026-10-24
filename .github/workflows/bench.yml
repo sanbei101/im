@@ -5,6 +5,10 @@ on:
     branches:
       - dev
 
+permissions:
+  contents: write
+  deployments: write
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -27,7 +31,7 @@ jobs:
 
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18
@@ -70,20 +74,20 @@ jobs:
         shell: bash
         env:
           TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/im_test?sslmode=disable
-        run: set -o pipefail; make bench 2>&1 | tee bench.txt
+        run: set -o pipefail; make bench P=1 COUNT=10 2>&1 | tee bench.txt
 
-      - name: Publish benchmark summary
-        if: always()
-        run: |
-          echo "### 🚀 Benchmark" >> $GITHUB_STEP_SUMMARY
-          echo '```log' >> $GITHUB_STEP_SUMMARY
-          grep -E "^(Benchmark|ok|FAIL)" bench.txt >> $GITHUB_STEP_SUMMARY || echo "no bench output" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload bench results
-        if: always()
-        uses: actions/upload-artifact@v7
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: bench-results
-          path: bench.txt
-          retention-days: 7
+          name: GoBench
+          tool: go
+          output-file-path: bench.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          max-items-in-chart: 100
+          summary-always: true
+          alert-threshold: '130%'
+          fail-on-alert: true
+          comment-on-alert: true
