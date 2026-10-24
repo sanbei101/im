@@ -77,15 +77,21 @@ type roomShard struct {
 	rooms *lru.LRUCache[uuid.UUID, Room]
 }
 
+// archiveMarkRooms bounds the archive watermark cache. Entries never go
+// stale: only this node's archiver moves a room's watermark, and it updates
+// the cache in the same breath.
+const archiveMarkRooms = 4096
+
 type Store struct {
 	db *pebble.DB
 	pg *DB
 
-	roomShards [roomShardCount]roomShard
-	readLocks  [readLockCount]sync.Mutex
-	dedupCache *lru.LRUCache[dedupLookupKey, Dedup]
-	cache      *messageCache
-	remote     *remoteReader
+	roomShards   [roomShardCount]roomShard
+	readLocks    [readLockCount]sync.Mutex
+	dedupCache   *lru.LRUCache[dedupLookupKey, Dedup]
+	archiveMarks *lru.LRUCache[uuid.UUID, uint64]
+	cache        *messageCache
+	remote       *remoteReader
 
 	messageQueue chan messageWriteRequest
 	recallQueue  chan *recallRequest
@@ -288,11 +294,6 @@ type Dedup struct {
 	PayloadSum [32]byte
 }
 
-type RoomInfo struct {
-	Room   Room
-	Member Member
-}
-
 type MessagePage struct {
 	Messages []Message `json:"messages"`
 	HasMore  bool      `json:"has_more"`
@@ -335,6 +336,10 @@ func Open(path string) (*Store, error) {
 		store.roomShards[i].rooms = lru.NewLRUCache[uuid.UUID, Room](roomCachePerShard)
 	}
 	store.dedupCache = lru.NewLRUCache[dedupLookupKey, Dedup](32768)
+	store.archiveMarks = lru.NewLRUCache[uuid.UUID, uint64](
+		archiveMarkRooms,
+		lru.WithShards[uuid.UUID, uint64](64),
+	)
 	go store.runMessageWriter()
 	return store, nil
 }

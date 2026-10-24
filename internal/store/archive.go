@@ -91,9 +91,7 @@ func (s *Store) ArchiveOnce(ctx context.Context, objects ObjectStore, params Arc
 	// Room scan is key-first: the room id comes straight from the key so the
 	// ownership filter runs before any decode, and only the last sequence is
 	// parsed for the surviving rooms.
-	var prefixBuf [1]byte
-	prefixBuf[0] = 'r'
-	prefix := appendRoomPrefix(prefixBuf[:0])
+	prefix := appendRoomPrefix(nil)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
 		return fmt.Errorf("scan rooms: %w", err)
@@ -189,6 +187,7 @@ func (s *Store) archiveRoom(ctx context.Context, objects ObjectStore, params Arc
 	if err := commit(batch); err != nil {
 		return fmt.Errorf("commit archive manifest: %w", err)
 	}
+	s.archiveMarks.Set(room.RoomID, manifest.EndSeq)
 	s.forgetDedup(room.RoomID, messages)
 	return nil
 }
@@ -239,8 +238,12 @@ func (s *Store) collectArchivable(room uuid.UUID, start, lastSeq uint64, params 
 }
 
 // archiveWatermark returns the room's archived-through seq, 0 when the room
-// has never been archived.
+// has never been archived. Only this node's archiver moves a watermark, and
+// it refreshes the cache on every archive, so a cached mark never goes stale.
 func (s *Store) archiveWatermark(room uuid.UUID) (uint64, error) {
+	if mark, ok := s.archiveMarks.Get(room); ok {
+		return mark, nil
+	}
 	var keyBuf [32]byte
 	prefix := appendArchiveIndexPrefix(keyBuf[:0], room)
 	iter, err := s.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
@@ -255,5 +258,6 @@ func (s *Store) archiveWatermark(room uuid.UUID) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	s.archiveMarks.Set(room, manifest.EndSeq)
 	return manifest.EndSeq, nil
 }

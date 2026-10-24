@@ -14,7 +14,6 @@ const (
 	prefixMsgIDIndex = 'i'
 	prefixReaction   = 'R'
 	prefixPin        = 'P'
-	prefixDevice     = 't'
 	prefixRead       = 'u'
 )
 
@@ -74,10 +73,6 @@ func appendPinKey(dst []byte, room, msgID uuid.UUID) []byte {
 
 func appendPinPrefix(dst []byte, room uuid.UUID) []byte {
 	return append(append(dst, prefixPin), room[:]...)
-}
-
-func appendDeviceKey(dst []byte, user uuid.UUID) []byte {
-	return append(append(dst, prefixDevice), user[:]...)
 }
 
 func appendReadKey(dst []byte, room, user uuid.UUID) []byte {

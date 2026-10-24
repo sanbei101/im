@@ -362,9 +362,9 @@ func TestStoreMessages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range page.Messages {
-			if m.MsgID == msg.MsgID && m.MsgType != MsgTypeRecall {
-				t.Fatalf("recall not visible in tail cache: %+v", m)
+		for i := range page.Messages {
+			if page.Messages[i].MsgID == msg.MsgID && page.Messages[i].MsgType != MsgTypeRecall {
+				t.Fatalf("recall not visible in tail cache: %+v", page.Messages[i])
 			}
 		}
 	})
@@ -593,4 +593,66 @@ func BenchmarkRoomHead(b *testing.B) {
 			}
 		}
 	})
+}
+
+// BenchmarkStoreReadWithReactions measures a newest-page history read while
+// the room carries reactions across its lifetime: the page read must cost
+// what the page shows, not what the room accumulated.
+func BenchmarkStoreReadWithReactions(b *testing.B) {
+	for _, tc := range []struct {
+		name        string
+		messages    int
+		everyNth    int // every n-th seeded message carries reactions
+		usersPerMsg int
+	}{
+		{"reactions-on-old-messages", 1000, 10, 4},
+		{"reactions-everywhere", 500, 1, 4},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			s := newTestStore(b)
+			room, sender := benchIDs()
+			ctx := context.Background()
+			users := make([]uuid.UUID, tc.usersPerMsg)
+			for i := range users {
+				users[i] = uuid.NewV7()
+			}
+			for i := range tc.messages {
+				message, err := s.WriteMessage(ctx, Message{
+					ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: room,
+					MsgType: MsgTypeText, Payload: []byte("payload"),
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+				if i%tc.everyNth == 0 {
+					for _, user := range users {
+						if err := s.AddReaction(ctx, room, message.MsgID, user, "👍"); err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+			}
+
+			page, err := s.Messages(ctx, room, 0, 20)
+			if err != nil {
+				b.Fatal(err)
+			}
+			visible := 0
+			for i := range page.Messages {
+				visible += len(page.Messages[i].Reactions)
+			}
+			if visible == 0 {
+				b.Fatal("page carries no reactions; benchmark would measure nothing")
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for b.Loop() {
+				page, err := s.Messages(ctx, room, 0, 20)
+				if err != nil || len(page.Messages) != 20 {
+					b.Fatalf("read messages: count=%d err=%v", len(page.Messages), err)
+				}
+			}
+		})
+	}
 }

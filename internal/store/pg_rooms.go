@@ -212,45 +212,6 @@ func (db *DB) Member(ctx context.Context, roomID, userID uuid.UUID) (Member, err
 	return member, nil
 }
 
-func (db *DB) RoomsByUser(ctx context.Context, userID uuid.UUID) ([]RoomInfo, error) {
-	rows, err := db.pool.Query(ctx, `
-		SELECT r.room_id::text, r.chat_type, r.name, r.avatar_url, r.notice,
-		       r.single_chat_hash, r.created_at, r.updated_at,
-		       m.room_id::text, m.user_id::text, m.role, m.is_hidden, m.is_muted, m.is_pinned
-		FROM room_members m
-		JOIN rooms r ON r.room_id = m.room_id
-		WHERE m.user_id = $1::uuid
-		ORDER BY r.updated_at DESC`, userID.String())
-	if err != nil {
-		return nil, fmt.Errorf("list user rooms: %w", err)
-	}
-	defer rows.Close()
-	var result []RoomInfo
-	for rows.Next() {
-		var room Room
-		var member Member
-		var roomID, memberRoomID, memberUserID string
-		if err := rows.Scan(
-			&roomID, &room.ChatType, &room.Name, &room.AvatarURL, &room.Notice,
-			&room.SingleChatHash, &room.CreatedAt, &room.UpdatedAt,
-			&memberRoomID, &memberUserID, &member.Role, &member.IsHidden, &member.IsMuted, &member.IsPinned,
-		); err != nil {
-			return nil, fmt.Errorf("scan user room: %w", err)
-		}
-		if room.RoomID, err = uuid.Parse(roomID); err != nil {
-			return nil, err
-		}
-		if member.RoomID, err = uuid.Parse(memberRoomID); err != nil {
-			return nil, err
-		}
-		if member.UserID, err = uuid.Parse(memberUserID); err != nil {
-			return nil, err
-		}
-		result = append(result, RoomInfo{Room: room, Member: member})
-	}
-	return result, rows.Err()
-}
-
 func (db *DB) UpdateRoom(
 	ctx context.Context,
 	roomID uuid.UUID,
