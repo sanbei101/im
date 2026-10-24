@@ -34,6 +34,7 @@ type testEnv struct {
 	db      *store.DB
 	data    *store.Store
 	stream  *StreamHandler
+	members *Membership
 	handler http.Handler
 }
 
@@ -44,73 +45,75 @@ func testDBURL() string {
 	return "postgres://127.0.0.1:5432/im_api_test?sslmode=disable"
 }
 
-func newTestEnv(t *testing.T) *testEnv {
-	t.Helper()
+func newTestEnv(tb testing.TB) *testEnv {
+	tb.Helper()
 	ctx := context.Background()
 	db, err := store.OpenDB(ctx, testDBURL())
 	if err != nil {
-		t.Fatalf("open postgres: %v", err)
+		tb.Fatalf("open postgres: %v", err)
 	}
-	t.Cleanup(db.Close)
+	tb.Cleanup(db.Close)
 
 	admin, err := pgxpool.New(ctx, testDBURL())
 	if err != nil {
-		t.Fatalf("open postgres admin: %v", err)
+		tb.Fatalf("open postgres admin: %v", err)
 	}
 	if _, err := admin.Exec(ctx, `TRUNCATE users, rooms CASCADE`); err != nil {
 		admin.Close()
-		t.Fatalf("truncate test database: %v", err)
+		tb.Fatalf("truncate test database: %v", err)
 	}
 	admin.Close()
 
-	data, err := store.Open(t.TempDir())
+	data, err := store.Open(tb.TempDir())
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	data.AttachDB(db)
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		if err := data.Close(); err != nil {
-			t.Errorf("close pebble: %v", err)
+			tb.Errorf("close pebble: %v", err)
 		}
 	})
-	stream := NewStreamHandler(data, db, 1024, 0, 1)
+	members := NewMembership(db)
+	stream := NewStreamHandler(data, members, 1024, 0, 1)
 	return &testEnv{
 		db:      db,
 		data:    data,
 		stream:  stream,
-		handler: NewRouter(db, data, stream, nil, "https://cdn.example.test", "test-node"),
+		members: members,
+		handler: NewRouter(db, data, stream, members, nil, "https://cdn.example.test", "test-node"),
 	}
 }
 
-func (e *testEnv) addUser(t *testing.T, name string) (store.User, string) {
-	t.Helper()
+func (e *testEnv) addUser(tb testing.TB, name string) (store.User, string) {
+	tb.Helper()
 	hashed, err := bcrypt.GenerateFromPassword([]byte("secret1"), bcrypt.MinCost)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	user, err := e.db.CreateUser(context.Background(), name, string(hashed))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	token, err := jwt.GenerateToken(user.UserID.String())
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return user, token
 }
 
-func (e *testEnv) addRoom(t *testing.T, owner store.User, members ...store.User) store.Room {
-	t.Helper()
-	return e.createRoom(t, uuid.NewV7(), owner, members...)
+func (e *testEnv) addRoom(tb testing.TB, owner store.User, members ...store.User) store.Room {
+	tb.Helper()
+	return e.createRoom(tb, uuid.NewV7(), owner, members...)
 }
 
 func (e *testEnv) createRoom(
-	t *testing.T,
+	tb testing.TB,
 	roomID uuid.UUID,
 	owner store.User,
 	members ...store.User,
 ) store.Room {
-	t.Helper()
+	tb.Helper()
 	list := make([]store.Member, 0, len(members)+1)
 	list = append(list, store.Member{UserID: owner.UserID, Role: store.RoleOwner})
 	for _, member := range members {
@@ -118,38 +121,38 @@ func (e *testEnv) createRoom(
 	}
 	room := store.Room{RoomID: roomID, ChatType: store.ChatTypeGroup, Name: "test-room"}
 	if err := e.db.CreateRoom(context.Background(), room, list); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return room
 }
 
-func roomIDForNode(t *testing.T, nodeIndex int) uuid.UUID {
-	t.Helper()
+func roomIDForNode(tb testing.TB, nodeIndex int) uuid.UUID {
+	tb.Helper()
 	for range 10_000 {
 		roomID := uuid.NewV7()
 		slot, err := pkg.RoomSlot(roomID, 1024)
 		if err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		index, err := pkg.NodeIndex(slot, 1024, 2)
 		if err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		if index == nodeIndex {
 			return roomID
 		}
 	}
-	t.Fatal("could not find a room for the requested node")
+	tb.Fatal("could not find a room for the requested node")
 	return uuid.Nil()
 }
 
 func doRequest(
-	t *testing.T,
+	tb testing.TB,
 	handler http.Handler,
 	method, path, token string,
 	body []byte,
 ) *httptest.ResponseRecorder {
-	t.Helper()
+	tb.Helper()
 	request := httptest.NewRequest(method, path, bytes.NewReader(body))
 	if len(body) > 0 {
 		request.Header.Set("Content-Type", "application/json")
@@ -162,33 +165,33 @@ func doRequest(
 	return recorder
 }
 
-func jsonBody[T any](t *testing.T, value T) []byte {
-	t.Helper()
+func jsonBody[T any](tb testing.TB, value T) []byte {
+	tb.Helper()
 	body, err := json.Marshal(value)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return body
 }
 
-func decode[T any](t *testing.T, recorder *httptest.ResponseRecorder) T {
-	t.Helper()
+func decode[T any](tb testing.TB, recorder *httptest.ResponseRecorder) T {
+	tb.Helper()
 	var out T
 	if err := json.Unmarshal(recorder.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode response: %v; body=%s", err, recorder.Body.String())
+		tb.Fatalf("decode response: %v; body=%s", err, recorder.Body.String())
 	}
 	return out
 }
 
-func decodeResponse[T any](t *testing.T, recorder *httptest.ResponseRecorder) render.Response[T] {
-	t.Helper()
-	return decode[render.Response[T]](t, recorder)
+func decodeResponse[T any](tb testing.TB, recorder *httptest.ResponseRecorder) render.Response[T] {
+	tb.Helper()
+	return decode[render.Response[T]](tb, recorder)
 }
 
-func requireStatus(t *testing.T, recorder *httptest.ResponseRecorder, want int) {
-	t.Helper()
+func requireStatus(tb testing.TB, recorder *httptest.ResponseRecorder, want int) {
+	tb.Helper()
 	if recorder.Code != want {
-		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, want, recorder.Body.String())
+		tb.Fatalf("status = %d, want %d; body=%s", recorder.Code, want, recorder.Body.String())
 	}
 }
 
@@ -196,7 +199,7 @@ func newConnection() *apiConnection {
 	return &apiConnection{
 		outbox: make(chan *pb.APIFrame, 8),
 		quit:   make(chan struct{}),
-		users:  make(map[string]struct{}),
+		users:  make(map[uuid.UUID]struct{}),
 	}
 }
 
@@ -214,11 +217,11 @@ func nextFrame(t *testing.T, connection *apiConnection) *pb.APIFrame {
 func TestStreamHandler(t *testing.T) {
 	t.Run("sessions", func(t *testing.T) {
 		env := newTestEnv(t)
-		userID := uuid.NewV7().String()
+		userID := uuid.NewV7()
 		connection := newConnection()
 
 		env.stream.updateSessions(connection, &pb.SessionBatch{Sessions: []*pb.Session{{
-			UserId: userID,
+			UserId: userID.String(),
 			Online: true,
 		}}})
 		if !env.stream.IsOnline(userID) {
@@ -230,7 +233,7 @@ func TestStreamHandler(t *testing.T) {
 
 		stale := newConnection()
 		env.stream.updateSessions(stale, &pb.SessionBatch{Sessions: []*pb.Session{{
-			UserId: userID,
+			UserId: userID.String(),
 			Online: false,
 		}}})
 		if !env.stream.IsOnline(userID) {
@@ -238,7 +241,7 @@ func TestStreamHandler(t *testing.T) {
 		}
 
 		env.stream.updateSessions(connection, &pb.SessionBatch{Sessions: []*pb.Session{{
-			UserId: userID,
+			UserId: userID.String(),
 			Online: false,
 		}}})
 		if env.stream.IsOnline(userID) {
@@ -246,7 +249,7 @@ func TestStreamHandler(t *testing.T) {
 		}
 
 		env.stream.updateSessions(connection, &pb.SessionBatch{Sessions: []*pb.Session{{
-			UserId: userID,
+			UserId: userID.String(),
 			Online: true,
 		}}})
 		env.stream.removeConnection(connection)
@@ -318,7 +321,7 @@ func TestStreamHandler(t *testing.T) {
 		carol, _ := env.addUser(t, "carol")
 		room := env.addRoom(t, alice, bob)
 
-		members, err := env.stream.getRoomMembers(context.Background(), room.RoomID)
+		members, err := env.members.Members(context.Background(), room.RoomID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -333,7 +336,7 @@ func TestStreamHandler(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		members, err = env.stream.getRoomMembers(context.Background(), room.RoomID)
+		members, err = env.members.Members(context.Background(), room.RoomID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -341,8 +344,8 @@ func TestStreamHandler(t *testing.T) {
 			t.Fatalf("cached members = %d, want 2", len(members))
 		}
 
-		env.stream.InvalidateRoomMembers(room.RoomID)
-		members, err = env.stream.getRoomMembers(context.Background(), room.RoomID)
+		env.members.Invalidate(room.RoomID)
+		members, err = env.members.Members(context.Background(), room.RoomID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -355,8 +358,8 @@ func TestStreamHandler(t *testing.T) {
 		env := newTestEnv(t)
 		sender, _ := env.addUser(t, "sender")
 		room := env.createRoom(t, roomIDForNode(t, 0), sender)
-		owner := NewStreamHandler(env.data, env.db, 1024, 0, 2)
-		foreign := NewStreamHandler(env.data, env.db, 1024, 1, 2)
+		owner := NewStreamHandler(env.data, env.members, 1024, 0, 2)
+		foreign := NewStreamHandler(env.data, env.members, 1024, 1, 2)
 
 		clientMsgID := uuid.NewV7()
 		input := &pb.SendMessage{
@@ -648,8 +651,8 @@ func TestRoomHTTP(t *testing.T) {
 		}
 
 		reactionPath := "/api/v1/messages/" + message.MsgID.String() + "/reactions"
-		recorder = doRequest(t, env.handler, http.MethodPost, reactionPath, bobToken,
-			jsonBody(t, ReactionReq{RoomID: roomID.String(), Emoji: "👍"}))
+		recorder = doRequest(t, env.handler, http.MethodPost, reactionPath+"?room_id="+roomID.String(), bobToken,
+			jsonBody(t, ReactionReq{Emoji: "👍"}))
 		requireStatus(t, recorder, http.StatusOK)
 
 		recorder = doRequest(t, env.handler, http.MethodGet,
@@ -782,8 +785,8 @@ func TestRoomHTTP(t *testing.T) {
 		}
 
 		reactionPath := messagePath + "/reactions"
-		recorder = doRequest(t, env.handler, http.MethodPost, reactionPath, bobToken,
-			jsonBody(t, ReactionReq{RoomID: room.RoomID.String(), Emoji: "👍"}))
+		recorder = doRequest(t, env.handler, http.MethodPost, reactionPath+"?room_id="+room.RoomID.String(), bobToken,
+			jsonBody(t, ReactionReq{Emoji: "👍"}))
 		requireStatus(t, recorder, http.StatusOK)
 		recorder = doRequest(t, env.handler, http.MethodDelete,
 			reactionPath+"?room_id="+room.RoomID.String()+"&emoji=%F0%9F%91%8D", bobToken, nil)
@@ -811,8 +814,9 @@ func TestRoomHTTP(t *testing.T) {
 			"/api/v1/rooms/"+room.RoomID.String()+"/pins/"+message.MsgID.String(), aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
 
-		recorder = doRequest(t, env.handler, http.MethodPost, "/api/v1/messages/recall", aliceToken,
-			jsonBody(t, RecallReq{RoomID: room.RoomID.String(), MsgID: message.MsgID.String()}))
+		recorder = doRequest(t, env.handler, http.MethodPost,
+			"/api/v1/messages/recall?room_id="+room.RoomID.String(), aliceToken,
+			jsonBody(t, RecallReq{MsgID: message.MsgID.String()}))
 		requireStatus(t, recorder, http.StatusOK)
 		recalled := decodeResponse[store.Message](t, recorder)
 		if recalled.Data.MsgType != store.MsgTypeRecall {
@@ -1041,7 +1045,15 @@ func TestFileHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		handler := NewRouter(env.db, env.data, env.stream, objects, "https://cdn.example.test", "test-node")
+		handler := NewRouter(
+			env.db,
+			env.data,
+			env.stream,
+			env.members,
+			objects,
+			"https://cdn.example.test",
+			"test-node",
+		)
 
 		recorder := doRequest(t, handler, http.MethodPost, "/api/v1/files/presign", token,
 			jsonBody(t, PresignUploadReq{FileName: "photo.PNG", ContentType: "image/png"}))
@@ -1056,7 +1068,99 @@ func TestFileHTTP(t *testing.T) {
 		}
 		wantDownload := "https://cdn.example.test/" + response.Data.FileKey
 		if response.Data.DownloadURL != wantDownload {
-			t.Fatalf("download url = %q, want %q", response.Data.DownloadURL, wantDownload)
+			t.Fatalf("download url = %q", response.Data.DownloadURL)
 		}
 	})
+}
+
+// benchMessage seeds one message and returns it.
+func (e *testEnv) benchMessage(tb testing.TB, roomID, senderID uuid.UUID) store.Message {
+	tb.Helper()
+	message, err := e.data.WriteMessage(context.Background(), store.Message{
+		ClientMsgID: uuid.NewV7(),
+		SenderID:    senderID,
+		RoomID:      roomID,
+		MsgType:     store.MsgTypeText,
+		Payload:     []byte(`{"text":"bench"}`),
+		Ext:         []byte(`{}`),
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return message
+}
+
+// BenchmarkAPIHistory measures the highest-QPS message-plane endpoint end to
+// end: JWT auth, membership authorization, Pebble read, JSON render.
+func BenchmarkAPIHistory(b *testing.B) {
+	env := newTestEnv(b)
+	alice, _ := env.addUser(b, "bench-alice")
+	bob, bobToken := env.addUser(b, "bench-bob")
+	room := env.addRoom(b, alice, bob)
+	for range 50 {
+		env.benchMessage(b, room.RoomID, alice.UserID)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		recorder := doRequest(b, env.handler, http.MethodGet,
+			"/api/v1/messages/history?room_id="+room.RoomID.String()+"&page_size=20", bobToken, nil)
+		if recorder.Code != http.StatusOK {
+			b.Fatalf("history: %d %s", recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+// BenchmarkAPISendBatch measures the WebSocket send hot path: per-message
+// admission checks plus one batched Pebble commit per gateway batch.
+func BenchmarkAPISendBatch(b *testing.B) {
+	env := newTestEnv(b)
+	sender, _ := env.addUser(b, "bench-sender")
+	room := env.createRoom(b, roomIDForNode(b, 0), sender)
+	owner := NewStreamHandler(env.data, env.members, 1024, 0, 1)
+	ctx := context.Background()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		messages := make([]*pb.SendMessage, 32)
+		for i := range messages {
+			messages[i] = &pb.SendMessage{
+				ClientMsgId: uuid.NewV7().String(),
+				SenderId:    sender.UserID.String(),
+				RoomId:      room.RoomID.String(),
+				MsgType:     int32(store.MsgTypeText),
+				Payload:     []byte(`{"text":"bench"}`),
+			}
+		}
+		result, written, err := owner.writeBatch(ctx, &pb.SendBatch{Messages: messages})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(written) != 32 {
+			b.Fatalf("written = %d, want 32; results = %+v", len(written), result.GetResults())
+		}
+	}
+}
+
+// BenchmarkAPIAddReaction measures a room-wide-fanout write endpoint: auth,
+// membership, reaction commit, and the reaction broadcast.
+func BenchmarkAPIAddReaction(b *testing.B) {
+	env := newTestEnv(b)
+	alice, _ := env.addUser(b, "bench-alice")
+	bob, bobToken := env.addUser(b, "bench-bob")
+	room := env.addRoom(b, alice, bob)
+	message := env.benchMessage(b, room.RoomID, alice.UserID)
+	body := jsonBody(b, ReactionReq{Emoji: "👍"})
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		recorder := doRequest(b, env.handler, http.MethodPost,
+			"/api/v1/messages/"+message.MsgID.String()+"/reactions?room_id="+room.RoomID.String(), bobToken, body)
+		if recorder.Code != http.StatusOK {
+			b.Fatalf("add reaction: %d %s", recorder.Code, recorder.Body.String())
+		}
+	}
 }

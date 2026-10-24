@@ -93,7 +93,8 @@ func serve(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("attach remote archive: %w", err)
 	}
 
-	streamHandler := api.NewStreamHandler(data, db, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
+	members := api.NewMembership(db)
+	streamHandler := api.NewStreamHandler(data, members, cfg.Shard.Slots, cfg.API.NodeIndex, cfg.API.NodeCount)
 	notifyDone := make(chan struct{})
 	go func() {
 		defer close(notifyDone)
@@ -101,10 +102,10 @@ func serve(ctx context.Context, cfg *config.Config) error {
 			if notification.Origin == cfg.API.NodeID {
 				return // the publishing node already delivered it synchronously
 			}
-			streamHandler.NotifyRaw(notification.Event, notification.UserIDs, notification.Data)
+			streamHandler.DeliverNotification(notification.Event, notification.UserIDs, notification.Data)
 		})
 	}()
-	handler := api.NewRouter(db, data, streamHandler, objects, cfg.Storage.PublicBaseURL, cfg.API.NodeID)
+	handler := api.NewRouter(db, data, streamHandler, members, objects, cfg.Storage.PublicBaseURL, cfg.API.NodeID)
 	streamAddr, err := net.ResolveTCPAddr("tcp", cfg.API.Addr)
 	if err != nil {
 		return fmt.Errorf("resolve api stream address: %w", err)

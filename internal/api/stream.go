@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 	"uuid"
 
 	"github.com/phuslu/log"
-	"github.com/phuslu/lru"
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
@@ -24,23 +22,17 @@ const (
 
 type sessionShard struct {
 	mu       sync.RWMutex
-	sessions map[string]*apiConnection
+	sessions map[uuid.UUID]*apiConnection
 }
 
 type StreamHandler struct {
 	store     *store.Store
-	db        *store.DB
+	members   *Membership
 	slots     int
 	nodeIndex int
 	nodeCount int
 
 	sessionShards [sessionShardCount]sessionShard
-	memberCache   *lru.TTLCache[uuid.UUID, []cachedMember]
-}
-
-type cachedMember struct {
-	userID    uuid.UUID
-	userIDStr string
 }
 
 type apiConnection struct {
@@ -52,7 +44,7 @@ type apiConnection struct {
 	quit chan struct{}
 
 	mu    sync.Mutex // guards users
-	users map[string]struct{}
+	users map[uuid.UUID]struct{}
 }
 
 // connectionOutboxSize bounds a gateway connection's queued frames; beyond it
@@ -67,7 +59,7 @@ var (
 func newAPIConnection(stream pb.GatewayService_ConnectServer) *apiConnection {
 	return &apiConnection{
 		stream: stream,
-		users:  make(map[string]struct{}),
+		users:  make(map[uuid.UUID]struct{}),
 		outbox: make(chan *pb.APIFrame, connectionOutboxSize),
 		quit:   make(chan struct{}),
 	}
@@ -102,54 +94,26 @@ func (c *apiConnection) writeOutbox(ctx context.Context) {
 	}
 }
 
-func (h *StreamHandler) getSessionShard(userID string) *sessionShard {
-	return &h.sessionShards[pkg.StringShard(userID, sessionShardCount)]
+func (h *StreamHandler) getSessionShard(userID uuid.UUID) *sessionShard {
+	return &h.sessionShards[pkg.UUIDShard(userID, sessionShardCount)]
 }
 
 func NewStreamHandler(
 	data *store.Store,
-	db *store.DB,
+	members *Membership,
 	slots, nodeIndex, nodeCount int,
 ) *StreamHandler {
 	handler := &StreamHandler{
 		store:     data,
-		db:        db,
+		members:   members,
 		slots:     slots,
 		nodeIndex: nodeIndex,
 		nodeCount: nodeCount,
-		memberCache: lru.NewTTLCache[uuid.UUID, []cachedMember](
-			4096,
-			lru.WithShards[uuid.UUID, []cachedMember](64),
-		),
 	}
 	for i := range handler.sessionShards {
-		handler.sessionShards[i].sessions = make(map[string]*apiConnection)
+		handler.sessionShards[i].sessions = make(map[uuid.UUID]*apiConnection)
 	}
 	return handler
-}
-
-func (h *StreamHandler) InvalidateRoomMembers(roomID uuid.UUID) {
-	h.memberCache.Delete(roomID)
-}
-
-func (h *StreamHandler) getRoomMembers(ctx context.Context, roomID uuid.UUID) ([]cachedMember, error) {
-	if cached, ok := h.memberCache.Get(roomID); ok {
-		return cached, nil
-	}
-
-	rawMembers, err := h.db.Members(ctx, roomID)
-	if err != nil {
-		return nil, err
-	}
-	cached := make([]cachedMember, len(rawMembers))
-	for i, m := range rawMembers {
-		cached[i] = cachedMember{
-			userID:    m.UserID,
-			userIDStr: m.UserID.String(),
-		}
-	}
-	h.memberCache.Set(roomID, cached, 30*time.Second)
-	return cached, nil
 }
 
 func (h *StreamHandler) Connect(ctx context.Context, stream pb.GatewayService_ConnectServer) error {
@@ -195,7 +159,10 @@ func (h *StreamHandler) updateSessions(connection *apiConnection, batch *pb.Sess
 		if session == nil {
 			continue
 		}
-		userID := session.GetUserId()
+		userID, err := uuid.Parse(session.GetUserId())
+		if err != nil {
+			continue
+		}
 		shard := h.getSessionShard(userID)
 		shard.mu.Lock()
 		if session.GetOnline() {
@@ -215,7 +182,7 @@ func (h *StreamHandler) updateSessions(connection *apiConnection, batch *pb.Sess
 
 func (h *StreamHandler) removeConnection(connection *apiConnection) {
 	connection.mu.Lock()
-	users := make([]string, 0, len(connection.users))
+	users := make([]uuid.UUID, 0, len(connection.users))
 	for userID := range connection.users {
 		users = append(users, userID)
 	}
@@ -252,9 +219,7 @@ func (h *StreamHandler) writeBatch(
 			err = h.checkRoomOwned(message.RoomID)
 		}
 		if err == nil {
-			if _, memberErr := h.db.Member(ctx, message.RoomID, message.SenderID); memberErr != nil {
-				err = memberErr
-			}
+			_, err = h.members.Member(ctx, message.RoomID, message.SenderID)
 		}
 		if err != nil {
 			item.Code = 1
@@ -303,7 +268,7 @@ func (h *StreamHandler) checkRoomOwned(roomID uuid.UUID) error {
 }
 
 func (h *StreamHandler) push(ctx context.Context, message *store.Message, exclude uuid.UUID) error {
-	members, err := h.getRoomMembers(ctx, message.RoomID)
+	members, err := h.members.Members(ctx, message.RoomID)
 	if err != nil {
 		return fmt.Errorf("load room members: %w", err)
 	}
@@ -320,11 +285,11 @@ func (h *StreamHandler) push(ctx context.Context, message *store.Message, exclud
 	// Group online recipients per gateway connection; payload is sent once per gateway.
 	targets := make(map[*apiConnection][]string)
 	for _, member := range members {
-		if exclude != uuid.Nil() && member.userID == exclude {
+		if exclude != uuid.Nil() && member.UserID == exclude {
 			continue
 		}
-		if connection := h.onlineConnection(member.userIDStr); connection != nil {
-			targets[connection] = append(targets[connection], member.userIDStr)
+		if connection := h.onlineConnection(member.UserID); connection != nil {
+			targets[connection] = append(targets[connection], member.UserID.String())
 		}
 	}
 
@@ -400,14 +365,14 @@ func (h *StreamHandler) message(input *pb.SendMessage) (store.Message, error) {
 
 // onlineConnection returns the gateway connection carrying the user's
 // session, or nil when the user is offline on this node.
-func (h *StreamHandler) onlineConnection(userID string) *apiConnection {
+func (h *StreamHandler) onlineConnection(userID uuid.UUID) *apiConnection {
 	shard := h.getSessionShard(userID)
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
 	return shard.sessions[userID]
 }
 
-func (h *StreamHandler) IsOnline(userID string) bool {
+func (h *StreamHandler) IsOnline(userID uuid.UUID) bool {
 	return h.onlineConnection(userID) != nil
 }
 
@@ -450,7 +415,9 @@ type RoomMembersChanged struct {
 	Action string    `json:"action"`
 }
 
-func (RoomMembersChanged) event() string { return "room_members_changed" }
+const roomMembersChangedEvent = "room_members_changed"
+
+func (RoomMembersChanged) event() string { return roomMembersChangedEvent }
 
 // ReactionUpdated carries the current reaction groups of one message.
 type ReactionUpdated struct {
@@ -509,14 +476,13 @@ func (h *StreamHandler) NotifyRaw(event string, userIDs []uuid.UUID, payload []b
 	}
 	targets := make(map[*apiConnection][]string)
 	for _, uid := range userIDs {
-		uidStr := uid.String()
 		// Every API node knows every gateway session, so elect exactly one
 		// node per user; otherwise PostgreSQL fan-out duplicates the frame.
-		if pkg.StringShard(uidStr, h.nodeCount) != h.nodeIndex {
+		if pkg.UUIDShard(uid, h.nodeCount) != h.nodeIndex {
 			continue
 		}
-		if conn := h.onlineConnection(uidStr); conn != nil {
-			targets[conn] = append(targets[conn], uidStr)
+		if conn := h.onlineConnection(uid); conn != nil {
+			targets[conn] = append(targets[conn], uid.String())
 		}
 	}
 	h.fanOut(targets, event, payload)
@@ -525,19 +491,33 @@ func (h *StreamHandler) NotifyRaw(event string, userIDs []uuid.UUID, payload []b
 // NotifyRoom delivers one notification to every online room member except
 // excludeUserID.
 func (h *StreamHandler) NotifyRoom(ctx context.Context, roomID, excludeUserID uuid.UUID, n Notification) {
-	members, err := h.getRoomMembers(ctx, roomID)
+	members, err := h.members.Members(ctx, roomID)
 	if err != nil {
 		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load room members for notification failed")
 		return
 	}
 	userIDs := make([]uuid.UUID, 0, len(members))
 	for _, member := range members {
-		if excludeUserID != uuid.Nil() && member.userID == excludeUserID {
+		if excludeUserID != uuid.Nil() && member.UserID == excludeUserID {
 			continue
 		}
-		userIDs = append(userIDs, member.userID)
+		userIDs = append(userIDs, member.UserID)
 	}
 	h.NotifyUsers(userIDs, n)
+}
+
+// DeliverNotification fans a notification published by another node out to
+// local gateway connections. Membership events also drop the room's roster
+// cache, so a remote mutation takes effect here immediately instead of
+// waiting out the membership TTL.
+func (h *StreamHandler) DeliverNotification(event string, userIDs []uuid.UUID, data []byte) {
+	if event == roomMembersChangedEvent {
+		var payload RoomMembersChanged
+		if err := json.Unmarshal(data, &payload); err == nil && payload.RoomID != uuid.Nil() {
+			h.members.Invalidate(payload.RoomID)
+		}
+	}
+	h.NotifyRaw(event, userIDs, data)
 }
 
 // fanOut enqueues one notification frame per gateway connection; a stalled

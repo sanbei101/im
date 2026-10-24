@@ -14,13 +14,14 @@ import (
 // through PostgreSQL. Local delivery is synchronous so the request handler
 // cannot race its own response.
 type Notifier struct {
-	db     *store.DB
-	stream *StreamHandler
-	origin string
+	db      *store.DB
+	members *Membership
+	stream  *StreamHandler
+	origin  string
 }
 
-func NewNotifier(db *store.DB, stream *StreamHandler, origin string) *Notifier {
-	return &Notifier{db: db, stream: stream, origin: origin}
+func NewNotifier(db *store.DB, members *Membership, stream *StreamHandler, origin string) *Notifier {
+	return &Notifier{db: db, members: members, stream: stream, origin: origin}
 }
 
 func (n *Notifier) Notify(
@@ -58,10 +59,10 @@ func (n *Notifier) NotifyRoom(
 	if n == nil {
 		return
 	}
-	if n.db == nil {
+	if n.members == nil {
 		return
 	}
-	members, err := n.db.Members(ctx, roomID)
+	members, err := n.members.Members(ctx, roomID)
 	if err != nil {
 		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load room members for notification failed")
 		return

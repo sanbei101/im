@@ -226,11 +226,7 @@ func (a *UserAPI) Presence(w http.ResponseWriter, r *http.Request) {
 			render.Error(w, http.StatusBadRequest, "invalid user_id: "+raw)
 			return
 		}
-		online := false
-		if a.streamHandler != nil {
-			online = a.streamHandler.IsOnline(uid.String())
-		}
-		result[uid.String()] = online
+		result[raw] = a.streamHandler.IsOnline(uid)
 	}
 	render.Success(w, "获取在线状态成功", PresenceResp{Presence: result})
 }

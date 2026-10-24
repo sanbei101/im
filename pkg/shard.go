@@ -43,3 +43,14 @@ func StringShard(key string, shards int) int {
 	}
 	return int(h % uint32(shards))
 }
+
+// UUIDShard hashes a UUID key into [0, shards), the uuid counterpart of
+// StringShard. Used to elect exactly one API node per user for notification
+// fan-out, so every node must agree on the result.
+func UUIDShard(id uuid.UUID, shards int) int {
+	fold := binary.BigEndian.Uint32(id[:4]) ^
+		binary.BigEndian.Uint32(id[4:8]) ^
+		binary.BigEndian.Uint32(id[8:12]) ^
+		binary.BigEndian.Uint32(id[12:])
+	return int(fold % uint32(shards))
+}

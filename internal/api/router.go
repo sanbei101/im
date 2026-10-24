@@ -44,17 +44,18 @@ func NewRouter(
 	db *store.DB,
 	data *store.Store,
 	streamHandler *StreamHandler,
+	members *Membership,
 	objects *store.MinioObjectStore,
 	publicBaseURL string,
 	nodeID string,
 ) http.Handler {
 	r := newBaseRouter()
-	notifier := NewNotifier(db, streamHandler, nodeID)
+	notifier := NewNotifier(db, members, streamHandler, nodeID)
 	userAPI := &UserAPI{store: db, streamHandler: streamHandler}
-	roomAPI := &RoomAPI{db: db, data: data, streamHandler: streamHandler, notifier: notifier}
-	messageAPI := &MessageAPI{store: data, db: db, streamHandler: streamHandler}
+	roomAPI := &RoomAPI{db: db, data: data, streamHandler: streamHandler, notifier: notifier, members: members}
+	messageAPI := &MessageAPI{store: data, members: members, streamHandler: streamHandler}
 	friendAPI := &FriendAPI{store: db, notifier: notifier}
-	conversationAPI := &ConversationAPI{db: db, data: data}
+	conversationAPI := &ConversationAPI{db: db, data: data, members: members}
 	fileAPI := NewFileAPI(objects, publicBaseURL)
 
 	registerHealth(r, db, data)
@@ -203,12 +204,12 @@ func isManager(role string) bool {
 	return role == store.RoleOwner || role == store.RoleAdmin
 }
 
-func requireRoomMember(db *store.DB, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
+func requireRoomMember(m *Membership, w http.ResponseWriter, r *http.Request, roomID uuid.UUID) bool {
 	userID, ok := requireUser(w, r)
 	if !ok {
 		return false
 	}
-	_, err := db.Member(r.Context(), roomID, userID)
+	_, err := m.Member(r.Context(), roomID, userID)
 	if errors.Is(err, store.ErrNotFound) {
 		render.Error(w, http.StatusForbidden, "not a member of this room")
 		return false

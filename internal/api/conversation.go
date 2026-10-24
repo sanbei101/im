@@ -9,8 +9,9 @@ import (
 )
 
 type ConversationAPI struct {
-	db   *store.DB
-	data *store.Store
+	db      *store.DB
+	data    *store.Store
+	members *Membership
 }
 
 type MarkReadReq struct {
@@ -51,7 +52,7 @@ func (a *ConversationAPI) MarkRead(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !requireRoomMember(a.db, w, r, roomID) {
+	if !requireRoomMember(a.members, w, r, roomID) {
 		return
 	}
 	req, err := render.ReadBody[MarkReadReq](w, r)
@@ -74,7 +75,7 @@ func (a *ConversationAPI) ClearUnread(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !requireRoomMember(a.db, w, r, roomID) {
+	if !requireRoomMember(a.members, w, r, roomID) {
 		return
 	}
 	head, err := a.data.Room(r.Context(), roomID)
