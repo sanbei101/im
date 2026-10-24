@@ -477,7 +477,7 @@ func benchIDs() (uuid.UUID, uuid.UUID) {
 }
 
 func BenchmarkEngineMessageWrite(b *testing.B) {
-	for _, batch := range []int{1, 32, 100} {
+	for _, batch := range []int{1, 32, 100, 1000} {
 		b.Run(fmt.Sprintf("batch-%d", batch), func(b *testing.B) {
 			e := newTestEngine(b)
 			room, sender := benchIDs()
@@ -505,11 +505,20 @@ func BenchmarkEngineMessageWrite(b *testing.B) {
 }
 
 func BenchmarkEngineMessageWriteParallel(b *testing.B) {
-	for name, rooms := range map[string]int{"single-room": 1, "multi-room": 64} {
-		b.Run(name, func(b *testing.B) {
+	for _, tc := range []struct {
+		name      string
+		rooms     int
+		producers int // multiplier over GOMAXPROCS
+	}{
+		{"single-room", 1, 1},
+		{"multi-room", 64, 1},
+		{"saturated-128-producers", 64, 8},
+		{"saturated-512-producers", 64, 32},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
 			e := newTestEngine(b)
 			sender := uuid.NewV7()
-			roomIDs := make([]uuid.UUID, rooms)
+			roomIDs := make([]uuid.UUID, tc.rooms)
 			for i := range roomIDs {
 				roomIDs[i] = uuid.NewV7()
 			}
@@ -517,10 +526,11 @@ func BenchmarkEngineMessageWriteParallel(b *testing.B) {
 
 			b.ResetTimer()
 			b.ReportAllocs()
+			b.SetParallelism(tc.producers)
 			b.RunParallel(func(pb *testing.PB) {
 				for i := 0; pb.Next(); i++ {
 					if _, err := e.WriteMessage(context.Background(), Message{
-						ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: roomIDs[i%rooms],
+						ClientMsgID: uuid.NewV7(), SenderID: sender, RoomID: roomIDs[i%tc.rooms],
 						MsgType: MsgTypeText, Payload: payload,
 					}); err != nil {
 						b.Fatal(err)

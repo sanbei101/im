@@ -67,7 +67,7 @@ func Logger(l *log.Logger) Option {
 
 const (
 	messageQueueSize   = 4096
-	messageBatchSize   = 128
+	messageBatchSize   = 512
 	messageBatchWindow = time.Millisecond
 	recallQueueSize    = 256
 	roomShardCount     = 64
