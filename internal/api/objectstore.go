@@ -1,27 +1,14 @@
-package engine
+package api
 
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/url"
 	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
-
-// ObjectStore is the remote archive destination. MinIO covers any
-// S3-compatible endpoint, including Cloudflare R2.
-type ObjectStore interface {
-	Put(ctx context.Context, key string, reader io.Reader, size int64) error
-	Get(ctx context.Context, key string) ([]byte, error)
-}
-
-type MinioObjectStore struct {
-	client *minio.Client
-	bucket string
-}
 
 // ObjectStoreConfig describes an S3-compatible endpoint. PathStyle selects
 // path-style addressing (MinIO, rustfs, local endpoints); the default is
@@ -34,6 +21,14 @@ type ObjectStoreConfig struct {
 	Region    string
 	UseSSL    bool
 	PathStyle bool
+}
+
+// MinioObjectStore serves the business-side object storage needs: presigned
+// media uploads and durability shipping of the engine's exported archive
+// files. The message engine itself never talks to it.
+type MinioObjectStore struct {
+	client *minio.Client
+	bucket string
 }
 
 func NewMinioObjectStore(cfg ObjectStoreConfig) (*MinioObjectStore, error) {
@@ -63,7 +58,7 @@ func (m *MinioObjectStore) PresignPut(ctx context.Context, key string, expiry ti
 	return m.client.PresignedPutObject(ctx, m.bucket, key, expiry)
 }
 
-// EnsureBucket creates the archive bucket when missing.
+// EnsureBucket creates the bucket when missing.
 func (m *MinioObjectStore) EnsureBucket(ctx context.Context) error {
 	exists, err := m.client.BucketExists(ctx, m.bucket)
 	if err != nil {
@@ -78,22 +73,11 @@ func (m *MinioObjectStore) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
-func (m *MinioObjectStore) Put(ctx context.Context, key string, reader io.Reader, size int64) error {
-	if _, err := m.client.PutObject(ctx, m.bucket, key, reader, size, minio.PutObjectOptions{}); err != nil {
+// PutFile uploads one local file, used to mirror the engine's exported
+// archive directory into durable storage.
+func (m *MinioObjectStore) PutFile(ctx context.Context, key, path string) error {
+	if _, err := m.client.FPutObject(ctx, m.bucket, key, path, minio.PutObjectOptions{}); err != nil {
 		return fmt.Errorf("put object %s: %w", key, err)
 	}
 	return nil
-}
-
-func (m *MinioObjectStore) Get(ctx context.Context, key string) ([]byte, error) {
-	object, err := m.client.GetObject(ctx, m.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("get object %s: %w", key, err)
-	}
-	defer object.Close()
-	data, err := io.ReadAll(object)
-	if err != nil {
-		return nil, fmt.Errorf("read object %s: %w", key, err)
-	}
-	return data, nil
 }

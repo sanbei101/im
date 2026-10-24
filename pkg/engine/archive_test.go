@@ -1,48 +1,24 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 	"uuid"
-
-	"github.com/sanbei101/im/pkg/config"
 )
 
-func newTestObjectStore(tb testing.TB) *MinioObjectStore {
-	tb.Helper()
-	cfg := config.NewTest()
-	objects, err := NewMinioObjectStore(ObjectStoreConfig{
-		Endpoint:  cfg.Storage.Endpoint,
-		Bucket:    cfg.Storage.Bucket,
-		AccessKey: cfg.Storage.AccessKey,
-		SecretKey: cfg.Storage.SecretKey,
-		Region:    cfg.Storage.Region,
-		UseSSL:    cfg.Storage.UseSSL,
-		PathStyle: cfg.Storage.PathStyle,
-	})
-	if err != nil {
-		tb.Fatalf("create minio client for %s: %v", cfg.Storage.Endpoint, err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := objects.EnsureBucket(ctx); err != nil {
-		tb.Skipf("object store %s unreachable, start it with `make test-storage`: %v", cfg.Storage.Endpoint, err)
-	}
-	return objects
+// instantArchive makes every message eligible and bounds one export to n messages.
+func instantArchive(n int) ArchiveParams {
+	return ArchiveParams{MaxAge: -time.Hour, MaxMessages: n, MaxBytes: 1 << 20}
 }
 
 func TestManifestCodec(t *testing.T) {
 	want := ArchiveManifest{
 		EndSeq: 42, MsgCount: 7, MinTime: -1000, MaxTime: 2000,
-		S3Key: "archives/rooms/abc/000001_000042.parquet",
+		File: "rooms/00000000-0000-0000-0000-000000000000/000001_000042.parquet",
 	}
 
 	t.Run("round trip", func(t *testing.T) {
@@ -59,15 +35,11 @@ func TestManifestCodec(t *testing.T) {
 	})
 }
 
-func TestStoreArchive(t *testing.T) {
-	objects := newTestObjectStore(t)
+func TestEngineArchive(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("cold reads across the archive boundary", func(t *testing.T) {
-		e := newTestEngine(t)
-		if err := e.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
-			t.Fatal(err)
-		}
+		e := newTestEngine(t, ArchiveDir(t.TempDir()))
 		sender := uuid.NewV7()
 		room := uuid.NewV7()
 		written := make([]Message, 10)
@@ -75,11 +47,8 @@ func TestStoreArchive(t *testing.T) {
 			written[i] = mustWriteMessage(t, e, room, sender, fmt.Sprintf("m%d", i))
 		}
 
-		params := ArchiveParams{
-			MaxAge:      -time.Hour, // everything is instantly eligible
-			MaxMessages: 4, MaxBytes: 1 << 20, Prefix: "archives",
-		}
-		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
+		params := instantArchive(4)
+		if err := e.ArchiveOnce(ctx, params); err != nil {
 			t.Fatal(err)
 		}
 		watermark, err := e.archiveWatermark(room)
@@ -104,7 +73,7 @@ func TestStoreArchive(t *testing.T) {
 		// MaxMessages bounds every cycle to 4: the second cycle archives
 		// seqs 5..8, the third drains the remaining tail, the fourth is a no-op.
 		for cycle, want := range []uint64{8, 10, 10} {
-			if err := e.ArchiveOnce(ctx, objects, params); err != nil {
+			if err := e.ArchiveOnce(ctx, params); err != nil {
 				t.Fatal(err)
 			}
 			watermark, err := e.archiveWatermark(room)
@@ -117,90 +86,89 @@ func TestStoreArchive(t *testing.T) {
 		}
 
 		// The body left Pebble: nobody can recall it, not even an owner.
-		if _, err := e.RecallMessage(
-			ctx,
-			room,
-			written[3].MsgID,
-			sender,
-			true,
-		); !errors.Is(
-			err,
-			ErrRecallTimeout,
-		) {
+		if _, err := e.RecallMessage(ctx, room, written[3].MsgID, sender, true); !errors.Is(err, ErrRecallTimeout) {
 			t.Fatalf("recall of archived message error = %v, want %v", err, ErrRecallTimeout)
 		}
 	})
 
-	t.Run("archived message is unresolvable without remote", func(t *testing.T) {
-		e := newTestEngine(t)
+	t.Run("cold history survives a restart", func(t *testing.T) {
+		dir := t.TempDir()
+		e := openTestEngine(t, dir+"/engine", ArchiveDir(dir+"/archive"))
 		sender := uuid.NewV7()
 		room := uuid.NewV7()
-		msg := mustWriteMessage(t, e, room, sender, "will go cold")
-		params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives"}
-		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
+		written := make([]Message, 5)
+		for i := range written {
+			written[i] = mustWriteMessage(t, e, room, sender, "cold restart")
+		}
+		if err := e.ArchiveOnce(ctx, instantArchive(10)); err != nil {
 			t.Fatal(err)
 		}
-		// No AttachRemote: the object store tier is not wired up yet.
-		if _, err := e.MessageByID(ctx, room, msg.MsgID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("archived message without remote error = %v, want %v", err, ErrNotFound)
+		if err := e.Close(); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := e.RecallMessage(ctx, room, msg.MsgID, sender, false); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("recall without remote error = %v, want %v", err, ErrNotFound)
+
+		// A fresh process reopens the same store: the watermark and the
+		// parquet files are all it needs to serve cold history again.
+		reopened := openTestEngine(t, dir+"/engine", ArchiveDir(dir+"/archive"))
+		page, err := reopened.Messages(ctx, room, 0, 20)
+		if err != nil || len(page.Messages) != 5 {
+			t.Fatalf("cold history after restart: page=%+v err=%v", page, err)
+		}
+		for i, msg := range page.Messages {
+			if want := uint64(5 - i); msg.RoomSeq != want {
+				t.Fatalf("cold order broken at %d: seq=%d want %d", i, msg.RoomSeq, want)
+			}
+			if string(msg.Payload) == "" {
+				t.Fatalf("cold payload lost at seq %d", msg.RoomSeq)
+			}
+		}
+		cold, err := reopened.MessageByID(ctx, room, written[0].MsgID)
+		if err != nil || cold.MsgID != written[0].MsgID {
+			t.Fatalf("cold by-id after restart: msg=%+v err=%v", cold, err)
+		}
+		// New writes continue the sequence where the old engine left off.
+		fresh := mustWriteMessage(t, reopened, room, sender, "after restart")
+		if fresh.RoomSeq != 6 {
+			t.Fatalf("seq after restart = %d, want 6", fresh.RoomSeq)
 		}
 	})
 
-	t.Run("disk cache evicts and survives stale tmp files", func(t *testing.T) {
-		e := newTestEngine(t)
-		cacheDir := t.TempDir()
-		stale := filepath.Join(cacheDir, "deadbeef.tmp")
-		if err := os.WriteFile(stale, []byte("crashed upload"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		// A one-byte budget forces eviction on every cached file: reads must
-		// still be correct by re-fetching from MinIO.
-		if err := e.AttachRemote(objects, cacheDir, 1); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("stale tmp file error = %v, want removed", err)
-		}
-
+	t.Run("archived message is unresolvable without an archive dir", func(t *testing.T) {
+		dir := t.TempDir()
+		e := openTestEngine(t, dir+"/engine", ArchiveDir(dir+"/archive"))
 		sender := uuid.NewV7()
 		room := uuid.NewV7()
-		written := make([]Message, 3)
-		for i := range written {
-			written[i] = mustWriteMessage(t, e, room, sender, "evict me")
-		}
-		params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives"}
-		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
+		msg := mustWriteMessage(t, e, room, sender, "will go cold")
+		if err := e.ArchiveOnce(ctx, instantArchive(10)); err != nil {
 			t.Fatal(err)
 		}
-		page, err := e.Messages(ctx, room, 0, 20)
-		if err != nil || len(page.Messages) != 3 {
-			t.Fatalf("messages after eviction: page=%+v err=%v", page, err)
+		if err := e.Close(); err != nil {
+			t.Fatal(err)
 		}
-		for _, msg := range written {
-			got, err := e.MessageByID(ctx, room, msg.MsgID)
-			if err != nil || got.MsgID != msg.MsgID {
-				t.Fatalf("cold read after eviction: msg=%+v err=%v", got, err)
-			}
+
+		// Reopened without ArchiveDir: the tier is not wired up, so archived
+		// bodies stay gone and warm history still works.
+		bare := openTestEngine(t, dir+"/engine")
+		if _, err := bare.MessageByID(ctx, room, msg.MsgID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("archived message without dir error = %v, want %v", err, ErrNotFound)
+		}
+		if _, err := bare.RecallMessage(ctx, room, msg.MsgID, sender, false); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("recall without dir error = %v, want %v", err, ErrNotFound)
+		}
+		if err := bare.ArchiveOnce(ctx, instantArchive(10)); err == nil {
+			t.Fatal("expected ArchiveOnce to fail without an archive dir")
 		}
 	})
 
 	t.Run("owns filter skips foreign rooms", func(t *testing.T) {
-		e := newTestEngine(t)
-		if err := e.AttachRemote(objects, t.TempDir(), 8<<20); err != nil {
-			t.Fatal(err)
-		}
+		e := newTestEngine(t, ArchiveDir(t.TempDir()))
 		sender := uuid.NewV7()
 		room := uuid.NewV7()
 		mustWriteMessage(t, e, room, sender, "not mine")
 
-		params := ArchiveParams{
-			Owns:   func(uuid.UUID) bool { return false },
-			MaxAge: -time.Hour, MaxMessages: 10, MaxBytes: 1 << 20, Prefix: "archives",
-		}
-		if err := e.ArchiveOnce(ctx, objects, params); err != nil {
+		params := instantArchive(10)
+		params.Owns = func(uuid.UUID) bool { return false }
+		if err := e.ArchiveOnce(ctx, params); err != nil {
 			t.Fatal(err)
 		}
 		watermark, err := e.archiveWatermark(room)
@@ -210,44 +178,10 @@ func TestStoreArchive(t *testing.T) {
 	})
 
 	t.Run("invalid params rejected", func(t *testing.T) {
-		e := newTestEngine(t)
+		e := newTestEngine(t, ArchiveDir(t.TempDir()))
 		params := ArchiveParams{MaxAge: time.Hour, MaxMessages: 0, MaxBytes: 1 << 20}
-		if err := e.ArchiveOnce(ctx, objects, params); err == nil {
+		if err := e.ArchiveOnce(ctx, params); err == nil {
 			t.Fatal("expected error for MaxMessages=0")
-		}
-	})
-
-	t.Run("object store put get and presign", func(t *testing.T) {
-		key := "archives/rooms/probe/probe.bin"
-		payload := []byte("archive probe payload")
-		if err := objects.Put(ctx, key, bytes.NewReader(payload), int64(len(payload))); err != nil {
-			t.Fatal(err)
-		}
-		got, err := objects.Get(ctx, key)
-		if err != nil || !bytes.Equal(got, payload) {
-			t.Fatalf("get object: data=%q err=%v", got, err)
-		}
-
-		// The media upload path: clients PUT straight to the presigned URL.
-		url, err := objects.PresignPut(ctx, "media/probe.bin", time.Minute)
-		if err != nil {
-			t.Fatal(err)
-		}
-		request, err := http.NewRequest(http.MethodPut, url.String(), bytes.NewReader(payload))
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := http.DefaultClient.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Fatalf("presigned upload status = %d", response.StatusCode)
-		}
-		uploaded, err := objects.Get(ctx, "media/probe.bin")
-		if err != nil || !bytes.Equal(uploaded, payload) {
-			t.Fatalf("presigned upload read back: data=%q err=%v", uploaded, err)
 		}
 	})
 }
@@ -290,17 +224,14 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 	})
 }
 
-func BenchmarkStoreArchivedRead(b *testing.B) {
-	objects := newTestObjectStore(b)
+// BenchmarkEngineArchivedRead serves a page from the exported parquet files:
+// the decoded cache makes the second read of the same file free.
+func BenchmarkEngineArchivedRead(b *testing.B) {
 	ctx := context.Background()
-	e := newTestEngine(b)
-	if err := e.AttachRemote(objects, b.TempDir(), 64<<20); err != nil {
-		b.Fatal(err)
-	}
+	e := newTestEngine(b, ArchiveDir(b.TempDir()))
 	room, sender := benchIDs()
 	messages := benchWrite(b, e, room, sender, 2000)
-	params := ArchiveParams{MaxAge: -time.Hour, MaxMessages: 2000, MaxBytes: 32 << 20, Prefix: "archives"}
-	if err := e.ArchiveOnce(ctx, objects, params); err != nil {
+	if err := e.ArchiveOnce(ctx, instantArchive(2000)); err != nil {
 		b.Fatal(err)
 	}
 

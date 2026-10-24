@@ -35,11 +35,11 @@ func (e *Engine) messageBySeq(ctx context.Context, roomID uuid.UUID, seq uint64)
 	var msgKeyBuf [25]byte
 	message, err := e.getRecord(appendMessageKey(msgKeyBuf[:0], roomID, seq), decodeMessage)
 	if errors.Is(err, ErrNotFound) {
-		remote, remoteErr := e.remoteMessage(ctx, roomID, seq)
-		if remoteErr != nil {
-			return Message{}, remoteErr
+		archived, archivedErr := e.archivedMessage(ctx, roomID, seq)
+		if archivedErr != nil {
+			return Message{}, archivedErr
 		}
-		return remote, nil
+		return archived, nil
 	}
 	if err != nil {
 		return Message{}, err

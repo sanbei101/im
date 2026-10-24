@@ -1034,7 +1034,7 @@ func TestFileHTTP(t *testing.T) {
 		env := newTestEnv(t)
 		_, token := env.addUser(t, "alice")
 
-		objects, err := engine.NewMinioObjectStore(engine.ObjectStoreConfig{
+		objects, err := NewMinioObjectStore(ObjectStoreConfig{
 			Endpoint:  "127.0.0.1:9000",
 			Bucket:    "im-media",
 			AccessKey: "access",

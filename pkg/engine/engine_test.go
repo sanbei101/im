@@ -3,18 +3,21 @@ package engine
 import (
 	"context"
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 	"uuid"
+
+	"github.com/phuslu/log"
 )
 
-// newTestEngine opens a throwaway engine and registers its cleanup.
-func newTestEngine(tb testing.TB) *Engine {
+// openTestEngine opens an engine at path and registers its cleanup.
+func openTestEngine(tb testing.TB, path string, opts ...Option) *Engine {
 	tb.Helper()
-	engine, err := Open(tb.TempDir() + "/engine")
+	engine, err := Open(path, opts...)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -24,6 +27,12 @@ func newTestEngine(tb testing.TB) *Engine {
 		}
 	})
 	return engine
+}
+
+// newTestEngine opens a throwaway engine and registers its cleanup.
+func newTestEngine(tb testing.TB, opts ...Option) *Engine {
+	tb.Helper()
+	return openTestEngine(tb, tb.TempDir()+"/engine", opts...)
 }
 
 func mustWriteMessage(t *testing.T, e *Engine, roomID, senderID uuid.UUID, payload string) Message {
@@ -102,6 +111,83 @@ func TestMessageCodec(t *testing.T) {
 			t.Fatal("expected error for short dedup record")
 		}
 	})
+}
+
+func TestMsgTypeCodec(t *testing.T) {
+	for _, name := range []string{"text", "image", "video", "file", "system", "recall"} {
+		parsed, err := ParseMsgType(name)
+		if err != nil || !parsed.Valid() || parsed.String() != name {
+			t.Fatalf("msg type %q: parsed=%v err=%v", name, parsed, err)
+		}
+	}
+	if _, err := ParseMsgType("sticker"); err == nil {
+		t.Fatal("expected error for unknown msg type")
+	}
+	// The wire form is the string, on every engine boundary.
+	encoded, err := json.Marshal(MsgTypeImage)
+	if err != nil || string(encoded) != `"image"` {
+		t.Fatalf("marshal msg type: %s err=%v", encoded, err)
+	}
+	var decoded MsgType
+	if err := json.Unmarshal([]byte(`"recall"`), &decoded); err != nil || decoded != MsgTypeRecall {
+		t.Fatalf("unmarshal msg type: %v err=%v", decoded, err)
+	}
+}
+
+// TestEngineOptions pins the guards: a zero or nil option value keeps the
+// production default instead of degrading the engine.
+func TestEngineOptions(t *testing.T) {
+	e := newTestEngine(t, RecallWindow(0), Logger(nil))
+	if e.recallWindow != defaultRecallWindow {
+		t.Fatalf("recall window = %v, want default %v", e.recallWindow, defaultRecallWindow)
+	}
+	if e.logger != &log.DefaultLogger {
+		t.Fatal("nil logger must keep the default logger")
+	}
+	custom := newTestEngine(t, RecallWindow(time.Hour))
+	if custom.recallWindow != time.Hour {
+		t.Fatalf("recall window = %v, want 1h", custom.recallWindow)
+	}
+}
+
+// TestEngineLifecycle covers the two operational endpoints: Ping as the
+// health probe and Checkpoint as the backup primitive — a checkpoint of a
+// live engine is a complete, readable store.
+func TestEngineLifecycle(t *testing.T) {
+	e := newTestEngine(t)
+	ctx := context.Background()
+	if err := e.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	room, sender := uuid.NewV7(), uuid.NewV7()
+	mustWriteMessage(t, e, room, sender, "checkpointed")
+
+	snapshot := t.TempDir() + "/snapshot"
+	if err := e.Checkpoint(ctx, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	restored := openTestEngine(t, snapshot)
+	defer restored.Close()
+	if err := restored.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	page, err := restored.Messages(ctx, room, 0, 20)
+	if err != nil || len(page.Messages) != 1 || page.Messages[0].RoomSeq != 1 {
+		t.Fatalf("restored store: page=%+v err=%v", page, err)
+	}
+	// The restored store continues the sequence from the snapshot.
+	next := mustWriteMessage(t, restored, room, sender, "after restore")
+	if next.RoomSeq != 2 {
+		t.Fatalf("seq after restore = %d, want 2", next.RoomSeq)
+	}
+
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Ping(ctx); !errors.Is(err, ErrClosed) {
+		t.Fatalf("ping after close = %v, want %v", err, ErrClosed)
+	}
 }
 
 func TestEngineMessages(t *testing.T) {
@@ -457,6 +543,22 @@ func BenchmarkEngineRead(b *testing.B) {
 			page, err := e.Messages(context.Background(), room, 0, 20)
 			if err != nil || len(page.Messages) != 20 {
 				b.Fatalf("read messages: count=%d err=%v", len(page.Messages), err)
+			}
+		}
+	})
+	// A page older than the memory tail: this is the Pebble scan-and-decode
+	// path every deeper history request takes.
+	b.Run("deep-page", func(b *testing.B) {
+		e := newTestEngine(b)
+		room, sender := benchIDs()
+		benchWrite(b, e, room, sender, 500)
+
+		b.ResetTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			page, err := e.Messages(context.Background(), room, 350, 20)
+			if err != nil || len(page.Messages) != 20 {
+				b.Fatalf("deep page: count=%d err=%v", len(page.Messages), err)
 			}
 		}
 	})

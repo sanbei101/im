@@ -1,32 +1,62 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
 )
 
-// ArchiveManifest describes one uploaded parquet file. The manifest key embeds
-// StartSeq and manifests are written in seq order, so the newest manifest of a
-// room is its archive watermark: seqs <= EndSeq live in the object store,
-// seqs above it live in Pebble. Manifests and message deletes commit in the
-// same batch, which keeps the two tiers disjoint at all times.
+// The archive tier: messages past the retention window are exported to
+// parquet files under the archive directory and deleted from Pebble in the
+// same batch that records their manifest, so the two tiers stay disjoint at
+// all times. The engine only owns the files on local disk; shipping them to
+// remote storage is the caller's business.
+
+const (
+	// Decoded archive files kept in memory: repeated cold paging re-filters
+	// the same rows instead of re-decoding the whole parquet file. Entries
+	// larger than decodedArchiveMaxBytes are never admitted, bounding the
+	// cache at maxFiles * maxBytes.
+	decodedArchiveMaxFiles = 8
+	decodedArchiveMaxBytes = 4 << 20
+)
+
+// decodedArchive is a decoded parquet file. bytes is the rough decoded size
+// used for the admission cap.
+type decodedArchive struct {
+	rows  []ParquetMessage
+	bytes int64
+}
+
+func newDecodedArchive(rows []ParquetMessage) *decodedArchive {
+	var bytes int64
+	for i := range rows {
+		bytes += int64(len(rows[i].Payload) + len(rows[i].Ext) + 64)
+	}
+	return &decodedArchive{rows: rows, bytes: bytes}
+}
+
+// ArchiveManifest describes one exported parquet file. The manifest key embeds
+// StartSeq and manifests are written in seq order, so the newest manifest of
+// a room is its archive watermark: seqs <= EndSeq live in the archive
+// directory, seqs above it live in Pebble.
 type ArchiveManifest struct {
 	EndSeq   uint64
 	MsgCount uint32
 	MinTime  int64
 	MaxTime  int64
-	S3Key    string
+	File     string // parquet path relative to the archive directory
 }
 
 func encodeManifest(manifest ArchiveManifest) []byte {
-	data := make([]byte, 0, 8+4+8+8+4+len(manifest.S3Key))
+	data := make([]byte, 0, 8+4+8+8+4+len(manifest.File))
 	var number [8]byte
 	putU64(number[:], manifest.EndSeq)
 	data = append(data, number[:]...)
@@ -36,7 +66,7 @@ func encodeManifest(manifest ArchiveManifest) []byte {
 	data = append(data, number[:]...)
 	putI64(number[:], manifest.MaxTime)
 	data = append(data, number[:]...)
-	return appendString(data, manifest.S3Key)
+	return appendString(data, manifest.File)
 }
 
 func decodeManifest(data []byte) (ArchiveManifest, error) {
@@ -46,7 +76,7 @@ func decodeManifest(data []byte) (ArchiveManifest, error) {
 		MsgCount: d.u32(),
 		MinTime:  d.i64(),
 		MaxTime:  d.i64(),
-		S3Key:    d.string(),
+		File:     d.string(),
 	}
 	if err := d.check("manifest"); err != nil {
 		return ArchiveManifest{}, err
@@ -55,14 +85,13 @@ func decodeManifest(data []byte) (ArchiveManifest, error) {
 }
 
 // ArchiveParams bounds and eligibility rules of the archiver. Injected by the
-// caller so tests can shrink them; defaults keep the last 7 days on local disk.
+// caller so tests can shrink them; defaults keep the last 7 days in Pebble.
 type ArchiveParams struct {
 	// Owns filters rooms down to the slots of this API node; nil keeps all.
 	Owns        func(uuid.UUID) bool
 	MaxAge      time.Duration // messages older than this become eligible
 	MaxMessages int           // max messages archived per room per cycle
 	MaxBytes    int           // soft bound of one parquet file
-	Prefix      string        // object key prefix, e.g. "archives"
 }
 
 func DefaultArchiveParams() ArchiveParams {
@@ -70,18 +99,19 @@ func DefaultArchiveParams() ArchiveParams {
 		MaxAge:      7 * 24 * time.Hour,
 		MaxMessages: 2000,
 		MaxBytes:    32 << 20,
-		Prefix:      "archives",
 	}
 }
 
-// ArchiveOnce archives the eligible message prefix of every owned room: it
-// uploads a parquet file and then atomically records the manifest. Failed
-// uploads are reported and retried on the next cycle; a crashed cycle leaves
-// at worst an orphan object that the deterministic seq-range key lets the
-// next run overwrite.
-func (e *Engine) ArchiveOnce(ctx context.Context, objects ObjectStore, params ArchiveParams) error {
+// ArchiveOnce exports the eligible message prefix of every owned room: it
+// writes a parquet file into the archive directory and atomically records the
+// manifest. Failed exports are reported and retried on the next cycle; a
+// crashed cycle leaves at worst a .tmp file that the next run overwrites.
+func (e *Engine) ArchiveOnce(ctx context.Context, params ArchiveParams) error {
 	if err := contextErr(ctx); err != nil {
 		return err
+	}
+	if e.archiveDir == "" {
+		return errors.New("engine: no archive directory configured")
 	}
 	if params.MaxMessages <= 0 || params.MaxBytes <= 0 {
 		return errors.New("invalid archive params")
@@ -113,20 +143,14 @@ func (e *Engine) ArchiveOnce(ctx context.Context, objects ObjectStore, params Ar
 		if err != nil {
 			return fmt.Errorf("decode room %s: %w", roomID, err)
 		}
-		if err := e.archiveRoom(ctx, objects, params, roomID, lastSeq); err != nil {
+		if err := e.archiveRoom(params, roomID, lastSeq); err != nil {
 			e.logger.Warn().Err(err).Str("room", roomID.String()).Msg("archive room failed")
 		}
 	}
 	return iter.Error()
 }
 
-func (e *Engine) archiveRoom(
-	ctx context.Context,
-	objects ObjectStore,
-	params ArchiveParams,
-	roomID uuid.UUID,
-	lastSeq uint64,
-) error {
+func (e *Engine) archiveRoom(params ArchiveParams, roomID uuid.UUID, lastSeq uint64) error {
 	watermark, err := e.archiveWatermark(roomID)
 	if err != nil {
 		return err
@@ -152,10 +176,10 @@ func (e *Engine) archiveRoom(
 		return err
 	}
 
-	// Deterministic seq-range key: re-uploads after a crash overwrite the
-	// orphan instead of accumulating duplicates.
-	key := fmt.Sprintf("%s/rooms/%s/%012d_%012d.parquet", params.Prefix, roomID, start, end)
-	if err := objects.Put(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {
+	// Deterministic seq-range name: re-exports after a crash overwrite the
+	// leftover file instead of accumulating duplicates.
+	file := fmt.Sprintf("rooms/%s/%012d_%012d.parquet", roomID, start, end)
+	if err := writeFile(filepath.Join(e.archiveDir, file), data); err != nil {
 		return err
 	}
 
@@ -163,15 +187,15 @@ func (e *Engine) archiveRoom(
 	defer batch.Close()
 	manifest := ArchiveManifest{
 		EndSeq: end, MsgCount: uint32(len(rows)),
-		MinTime: minTime, MaxTime: maxTime, S3Key: key,
+		MinTime: minTime, MaxTime: maxTime, File: file,
 	}
 	if err := e.setBytes(batch, appendArchiveIndexKey(nil, roomID, start), encodeManifest(manifest)); err != nil {
 		return err
 	}
 	// Range tombstone over the archived message bodies plus per-key dedup
 	// records, atomically with the manifest: after this commit the range lives
-	// only in the object store. The 'i' index is kept so MessageByID can still
-	// resolve archived messages by id.
+	// only in the archive directory. The 'i' index is kept so MessageByID can
+	// still resolve archived messages by id.
 	if err := batch.DeleteRange(
 		appendMessageKey(nil, roomID, start),
 		appendMessageKey(nil, roomID, end+1),
@@ -193,6 +217,23 @@ func (e *Engine) archiveRoom(
 	}
 	e.archiveMarks.Set(roomID, manifest.EndSeq)
 	e.forgetDedup(roomID, messages)
+	return nil
+}
+
+// writeFile lands data at path atomically: a crash mid-write leaves the .tmp
+// behind and the real file absent, so a reader never sees a torn parquet.
+func writeFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create archive dir: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("write archive file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("land archive file: %w", err)
+	}
 	return nil
 }
 
@@ -264,4 +305,138 @@ func (e *Engine) archiveWatermark(room uuid.UUID) (uint64, error) {
 	}
 	e.archiveMarks.Set(room, manifest.EndSeq)
 	return manifest.EndSeq, nil
+}
+
+// readArchivedRange returns the archived messages with seq in [lo, hi) in
+// ascending order, loading every covering file through the decoded cache.
+// Files are sorted by start seq and never overlap, but the file containing lo
+// starts before lo, so the manifest preceding the seek position is checked too.
+func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi uint64) ([]Message, error) {
+	if e.archiveDir == "" || hi <= lo {
+		return nil, nil
+	}
+	var prefixBuf [32]byte
+	prefix := appendArchiveIndexPrefix(prefixBuf[:0], room)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: prefixUpperBound(prefix),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var messages []Message
+	loKey := appendArchiveIndexKey(nil, room, lo)
+	if valid := iter.SeekGE(loKey); !valid {
+		// No manifest starts at or above lo: only the newest one, whose start
+		// lies below lo, can still cover the window.
+		if valid := iter.Last(); valid {
+			if err := e.appendArchiveFile(iter, lo, hi, &messages); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		if iter.Prev() {
+			// The predecessor may reach into the window from below.
+			if err := e.appendArchiveFile(iter, lo, hi, &messages); err != nil {
+				return nil, err
+			}
+		}
+		for seek := iter.SeekGE(loKey); seek; seek = iter.Next() {
+			if err := contextErr(ctx); err != nil {
+				return nil, err
+			}
+			start, ok := archiveIndexStart(iter.Key())
+			if !ok {
+				continue
+			}
+			if start >= hi {
+				break
+			}
+			if err := e.appendArchiveFile(iter, lo, hi, &messages); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+// appendArchiveFile decodes the manifest's parquet file through the cache and
+// appends its rows that fall inside [lo, hi). iter is positioned on the
+// manifest record.
+func (e *Engine) appendArchiveFile(iter *pebble.Iterator, lo, hi uint64, messages *[]Message) error {
+	manifest, err := decodeManifest(iter.Value())
+	if err != nil {
+		return err
+	}
+	if start, ok := archiveIndexStart(iter.Key()); ok && start >= hi {
+		return nil
+	}
+	if manifest.EndSeq < lo {
+		return nil
+	}
+	decoded, err := e.archiveFile(manifest.File)
+	if err != nil {
+		return err
+	}
+	for i := range decoded.rows {
+		if decoded.rows[i].RoomSeq >= lo && decoded.rows[i].RoomSeq < hi {
+			*messages = append(*messages, decoded.rows[i].message())
+		}
+	}
+	return nil
+}
+
+// archiveFile loads and decodes one parquet file, caching the decoded rows.
+func (e *Engine) archiveFile(file string) (*decodedArchive, error) {
+	if decoded, ok := e.decodedCache.Get(file); ok {
+		return decoded, nil
+	}
+	data, err := os.ReadFile(filepath.Join(e.archiveDir, file))
+	if err != nil {
+		return nil, fmt.Errorf("read archive %s: %w", file, err)
+	}
+	rows, err := decodeParquet(data)
+	if err != nil {
+		return nil, err
+	}
+	decoded := newDecodedArchive(rows)
+	if decoded.bytes <= decodedArchiveMaxBytes {
+		e.decodedCache.Set(file, decoded)
+	}
+	return decoded, nil
+}
+
+// archivedMessage fetches a single archived message by seq, used by
+// MessageByID once the local body is gone.
+func (e *Engine) archivedMessage(ctx context.Context, roomID uuid.UUID, seq uint64) (Message, error) {
+	if e.archiveDir == "" {
+		return Message{}, ErrNotFound
+	}
+	watermark, err := e.archiveWatermark(roomID)
+	if err != nil {
+		return Message{}, err
+	}
+	if seq > watermark {
+		return Message{}, ErrNotFound
+	}
+	messages, err := e.readArchivedRange(ctx, roomID, seq, seq+1)
+	if err != nil {
+		return Message{}, err
+	}
+	if len(messages) == 0 {
+		return Message{}, ErrNotFound
+	}
+	return messages[0], nil
+}
+
+func archiveIndexStart(key []byte) (uint64, bool) {
+	if len(key) != 25 {
+		return 0, false
+	}
+	return binary.BigEndian.Uint64(key[17:]), true
 }

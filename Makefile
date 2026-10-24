@@ -1,8 +1,6 @@
 BENCH ?= .
 PPROF_DIR := .tmp/pprof
 BIN_DIR := bin
-RUSTFS_PORT := 19901
-RUSTFS_DATA := .tmp/rustfs/data
 
 .PHONY: gen lint test bench verify pprof analyze clean build dev stop
 
@@ -33,38 +31,20 @@ lint:
 	golangci-lint run
 
 test:
-	@mkdir -p $(RUSTFS_DATA)
-	@if ! curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; then \
-		RUSTFS_CONSOLE_ENABLE=false rustfs server --address 127.0.0.1:$(RUSTFS_PORT) \
-			--access-key rustfsadmin --secret-key rustfsadmin $(RUSTFS_DATA) \
-			>.tmp/rustfs.log 2>&1 & echo $$! > .tmp/rustfs.pid; \
-	fi
-	@until curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; do sleep 0.2; done
 	@if test -z "$$TEST_POSTGRES_URL"; then \
 		for db in im_test im_api_test im_store_test; do \
 			psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 || createdb $$db; \
 		done; \
 	fi
 	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p 1 -race ./...; status=$$?; \
-		if test -f .tmp/rustfs.pid; then kill $$(cat .tmp/rustfs.pid) 2>/dev/null; rm -f .tmp/rustfs.pid; fi; \
-		exit $$status
+		go test -p 1 -race ./...
 
 bench:
-	@mkdir -p $(RUSTFS_DATA)
-	@if ! curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; then \
-		RUSTFS_CONSOLE_ENABLE=false rustfs server --address 127.0.0.1:$(RUSTFS_PORT) \
-			--access-key rustfsadmin --secret-key rustfsadmin $(RUSTFS_DATA) \
-			>.tmp/rustfs.log 2>&1 & echo $$! > .tmp/rustfs.pid; \
-	fi
-	@until curl -s --max-time 1 -o /dev/null http://127.0.0.1:$(RUSTFS_PORT)/; do sleep 0.2; done
 	@if test -z "$$TEST_POSTGRES_URL"; then \
 		psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='im_test'" | grep -q 1 || createdb im_test; \
 	fi
 	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p 4 ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1; status=$$?; \
-		if test -f .tmp/rustfs.pid; then kill $$(cat .tmp/rustfs.pid) 2>/dev/null; rm -f .tmp/rustfs.pid; fi; \
-		exit $$status
+		go test -p 4 ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
 
 pprof:
 	@mkdir -p $(PPROF_DIR)

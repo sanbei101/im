@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -68,13 +70,14 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	}
 	defer db.Close()
 
-	data, err := engine.Open(cfg.Store.Path)
+	archiveDir := filepath.Join(cfg.Store.Path, "archive")
+	data, err := engine.Open(cfg.Store.Path, engine.ArchiveDir(archiveDir))
 	if err != nil {
 		return fmt.Errorf("open message engine: %w", err)
 	}
 	defer data.Close()
 
-	objects, err := engine.NewMinioObjectStore(engine.ObjectStoreConfig{
+	objects, err := api.NewMinioObjectStore(api.ObjectStoreConfig{
 		Endpoint:  cfg.Storage.Endpoint,
 		Bucket:    cfg.Storage.Bucket,
 		AccessKey: cfg.Storage.AccessKey,
@@ -88,9 +91,6 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	}
 	if err := objects.EnsureBucket(runCtx); err != nil {
 		return fmt.Errorf("ensure archive bucket: %w", err)
-	}
-	if err := data.AttachRemote(objects, filepath.Join(cfg.Store.Path, "archive-cache"), 512<<20); err != nil {
-		return fmt.Errorf("attach remote archive: %w", err)
 	}
 
 	members := api.NewMembership(db)
@@ -138,8 +138,14 @@ func serve(ctx context.Context, cfg *config.Config) error {
 		params := engine.DefaultArchiveParams()
 		params.Owns = ownsRoom(cfg)
 		every(runCtx, time.Minute, func(ctx context.Context, _ time.Time) {
-			if err := data.ArchiveOnce(ctx, objects, params); err != nil {
+			if err := data.ArchiveOnce(ctx, params); err != nil {
 				log.Error().Err(err).Msg("message archive failed")
+				return
+			}
+			// Durability shipping is the operator's business, not the
+			// engine's: mirror the exported files into object storage.
+			if err := uploadArchiveDir(ctx, objects, "archives", archiveDir); err != nil {
+				log.Error().Err(err).Msg("archive upload failed")
 			}
 		})
 	})
@@ -228,6 +234,29 @@ func ownsRoom(cfg *config.Config) func(uuid.UUID) bool {
 		index, err := pkg.NodeIndex(slot, cfg.Shard.Slots, cfg.API.NodeCount)
 		return err == nil && index == cfg.API.NodeIndex
 	}
+}
+
+// uploadArchiveDir mirrors the engine's exported parquet files into object
+// storage under prefix. File names are deterministic seq ranges, so
+// re-uploads overwrite the same keys instead of accumulating duplicates.
+func uploadArchiveDir(ctx context.Context, objects *api.MinioObjectStore, prefix, dir string) error {
+	return filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".parquet") {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		key := prefix + "/" + filepath.ToSlash(rel)
+		if err := objects.PutFile(ctx, key, path); err != nil {
+			return fmt.Errorf("upload %s: %w", key, err)
+		}
+		return nil
+	})
 }
 
 func newHTTPServer(addr string, handler http.Handler) *http.Server {

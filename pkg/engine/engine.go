@@ -1,11 +1,13 @@
 // Package engine is a self-contained message-plane storage engine: it keeps
 // room-sequenced messages in Pebble, commits them through a single batching
 // writer with room+sender+client idempotency, serves hot tails from memory,
-// and freezes cold history into parquet files on an object store.
+// and freezes cold history into parquet files in a local archive directory.
 //
 // The engine knows nothing about room metadata or membership: a room exists
 // here from its first committed message, and callers decide who may write,
-// read, or recall. That boundary keeps the package reusable on its own — it
+// read, or recall. It also knows nothing about remote storage: the archive
+// directory is plain local files, and shipping those files elsewhere is the
+// caller's business. That boundary keeps the package reusable on its own — it
 // depends on nothing from this repository.
 package engine
 
@@ -33,18 +35,34 @@ var (
 	ErrRecallTimeout = errors.New("engine: recall timeout")
 )
 
-// Option tunes Open; every option has a production-ready default.
+// Option tunes Open; every option has a production-ready default and refuses
+// values that would degrade one.
 type Option func(*Engine)
 
 // RecallWindow bounds how long after ServerTime a non-admin may recall a
-// message. The default is two minutes.
+// message. Zero or negative keeps the default of two minutes.
 func RecallWindow(d time.Duration) Option {
-	return func(e *Engine) { e.recallWindow = d }
+	return func(e *Engine) {
+		if d > 0 {
+			e.recallWindow = d
+		}
+	}
 }
 
-// Logger receives archiver warnings. The default is phuslu/log's default logger.
-func Logger(l log.Logger) Option {
-	return func(e *Engine) { e.logger = l }
+// ArchiveDir sets the directory the archiver exports parquet files to and
+// cold reads serve them from. Without it the engine keeps everything in
+// Pebble and refuses to archive.
+func ArchiveDir(dir string) Option {
+	return func(e *Engine) { e.archiveDir = dir }
+}
+
+// Logger receives archiver warnings. Nil keeps phuslu/log's default logger.
+func Logger(l *log.Logger) Option {
+	return func(e *Engine) {
+		if l != nil {
+			e.logger = l
+		}
+	}
 }
 
 const (
@@ -89,7 +107,10 @@ type Engine struct {
 	dedupCache   *lru.LRUCache[dedupLookupKey, dedup]
 	archiveMarks *lru.LRUCache[uuid.UUID, uint64]
 	cache        *messageCache
-	remote       *remoteReader
+	// The archive tier: parquet files under archiveDir, with the most
+	// recently decoded files kept whole in memory.
+	archiveDir   string
+	decodedCache *lru.LRUCache[string, *decodedArchive]
 
 	messageQueue chan messageWriteRequest
 	recallQueue  chan *recallRequest
@@ -101,7 +122,7 @@ type Engine struct {
 	digestScratch []byte
 
 	recallWindow time.Duration
-	logger       log.Logger
+	logger       *log.Logger
 
 	closeSignal chan struct{}
 	writerDone  chan struct{}
@@ -141,16 +162,23 @@ func Open(path string, opts ...Option) (*Engine, error) {
 	e := &Engine{
 		db:           db,
 		cache:        newMessageCache(),
+		decodedCache: lru.NewLRUCache[string, *decodedArchive](decodedArchiveMaxFiles),
 		messageQueue: make(chan messageWriteRequest, messageQueueSize),
 		recallQueue:  make(chan *recallRequest, recallQueueSize),
 		recallWindow: defaultRecallWindow,
-		logger:       log.DefaultLogger,
+		logger:       &log.DefaultLogger,
 		closeSignal:  make(chan struct{}),
 		writerDone:   make(chan struct{}),
 		closeDone:    make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(e)
+	}
+	if e.archiveDir != "" {
+		if err := os.MkdirAll(e.archiveDir, 0o755); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("create archive directory: %w", err)
+		}
 	}
 	for i := range e.roomShards {
 		e.roomShards[i].rooms = lru.NewLRUCache[uuid.UUID, uint64](roomCachePerShard)

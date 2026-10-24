@@ -46,7 +46,7 @@ func NewRouter(
 	data *engine.Engine,
 	streamHandler *StreamHandler,
 	members *Membership,
-	objects *engine.MinioObjectStore,
+	objects *MinioObjectStore,
 	publicBaseURL string,
 	nodeID string,
 ) http.Handler {

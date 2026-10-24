@@ -31,7 +31,7 @@ pkg              配置、分片、JWT、日志和通用工具
 proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 ```
 
-`pkg/engine` 是消息面的全部:不 import 本仓库任何其他包,分片归属、对象存储和 recall 窗口全部通过参数注入;业务侧(`internal/api`)只经由它的方法面读写消息,禁止绕过引擎直接触碰 Pebble。
+`pkg/engine` 是消息面的全部:不 import 本仓库任何其他包,分片归属和 recall 窗口通过参数注入;归档只负责把冷历史正确导出为本地 Parquet 文件并透明回读,不依赖任何对象存储(上传备份是上层的事)。业务侧(`internal/api`)只经由它的方法面读写消息,禁止绕过引擎直接触碰 Pebble。
 
 禁止重新引入 `internal/model`、`internal/domain`、`internal/repository`、`internal/usecase` 等层级。协议结构、存储记录和业务输入在可以复用时直接复用;只有在边界确实不同且转换有明确价值时才定义新结构。
 
@@ -88,7 +88,8 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
   - 单调递增序号与时间戳(`RoomSeq`、`ServerTime`)采用 Delta 增量压缩;
   - 变长二进制内容(`Payload`、`Ext`)采用 ZSTD 块级压缩;
   - 体积较原始行存压缩 60%~80%,大幅降低长期存储成本。
-- **透明分层读取 (`remoteReader`)**:当客户端请求早于 Pebble 本地保留范围的历史消息时,存储层自动向对象存储拉取对应 Parquet 数据块解码并拼接,上层 API 与前端无感知。
+- **透明分层读取**:当客户端请求早于 Pebble 本地保留范围的历史消息时,引擎自动从归档目录解码对应 Parquet 文件并拼接(解码结果驻留内存 LRU),上层 API 与前端无感知。
+- **引擎不依赖对象存储**:归档目录只是本地文件;API 进程负责把导出的 Parquet 文件镜像上传到对象存储做持久化,引擎对上传无感知。
 
 ## 验证
 

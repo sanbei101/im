@@ -445,9 +445,9 @@ func (e *Engine) Messages(ctx context.Context, roomID uuid.UUID, before uint64, 
 	if err != nil {
 		return MessagePage{}, err
 	}
-	if e.remote == nil && lo <= watermark {
+	if e.archiveDir == "" && lo <= watermark {
 		return MessagePage{}, fmt.Errorf(
-			"messages %d..%d are archived but no remote object store is configured",
+			"messages %d..%d are archived but no archive directory is configured",
 			lo,
 			min(hi, watermark+1),
 		)
@@ -529,9 +529,9 @@ func (e *Engine) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint
 	if err != nil {
 		return MessagePage{}, err
 	}
-	if e.remote == nil && lo <= watermark {
+	if e.archiveDir == "" && lo <= watermark {
 		return MessagePage{}, fmt.Errorf(
-			"messages %d..%d are archived but no remote object store is configured",
+			"messages %d..%d are archived but no archive directory is configured",
 			lo,
 			min(hi, watermark+1),
 		)
@@ -773,7 +773,7 @@ func (e *Engine) recall(request *recallRequest) (Message, error) {
 	if errors.Is(err, ErrNotFound) {
 		// The body is archived: it left the local tier and cannot be
 		// recalled anymore, no matter who asks.
-		if _, remoteErr := e.remoteMessage(request.ctx, roomID, seq); remoteErr == nil {
+		if _, remoteErr := e.archivedMessage(request.ctx, roomID, seq); remoteErr == nil {
 			return Message{}, ErrRecallTimeout
 		}
 		return Message{}, ErrNotFound
