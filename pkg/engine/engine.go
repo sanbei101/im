@@ -114,12 +114,9 @@ type Engine struct {
 
 	messageQueue chan messageWriteRequest
 	recallQueue  chan *recallRequest
-	// Encode scratches reused across batches. Only the single writer
-	// goroutine touches them, so they need no locking.
-	recordScratch []byte
-	dedupScratch  [64]byte
-	roomScratch   []byte
-	digestScratch []byte
+	// Encode scratch reused across batches. Only the single writer goroutine
+	// touches it, so it needs no locking.
+	scratch writeScratch
 
 	recallWindow time.Duration
 	logger       *log.Logger

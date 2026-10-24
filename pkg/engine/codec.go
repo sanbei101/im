@@ -130,6 +130,10 @@ type dedup struct {
 	PayloadSum [32]byte
 }
 
+// dedupRecordLen is the fixed encoded size of a dedup record: UUID, seq,
+// time, and digest.
+const dedupRecordLen = 16 + 8 + 8 + 32
+
 func encodeMessage(message Message) []byte {
 	return appendMessage(nil, message)
 }

@@ -13,7 +13,7 @@ import (
 // seqByMsgID resolves a message's seq through the msg-id index. The index
 // survives archival precisely so messages stay addressable by id.
 func (e *Engine) seqByMsgID(roomID, msgID uuid.UUID) (uint64, error) {
-	var indexKeyBuf [33]byte
+	var indexKeyBuf [msgIDIndexKeyLen]byte
 	data, closer, err := e.db.Get(appendMsgIDIndexKey(indexKeyBuf[:0], roomID, msgID))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
@@ -32,7 +32,7 @@ func (e *Engine) seqByMsgID(roomID, msgID uuid.UUID) (uint64, error) {
 // the archive when the local record has been archived away. The result is
 // owned: it never aliases a pebble buffer.
 func (e *Engine) messageBySeq(ctx context.Context, roomID uuid.UUID, seq uint64) (Message, error) {
-	var msgKeyBuf [25]byte
+	var msgKeyBuf [messageKeyLen]byte
 	message, err := e.getRecord(appendMessageKey(msgKeyBuf[:0], roomID, seq), decodeMessage)
 	if errors.Is(err, ErrNotFound) {
 		archived, archivedErr := e.archivedMessage(ctx, roomID, seq)

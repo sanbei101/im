@@ -461,7 +461,7 @@ func (e *Engine) backdateMessage(message Message, age time.Duration) error {
 	message.ServerTime = time.Now().Add(-age).UnixMicro()
 	batch := e.db.NewBatch()
 	defer batch.Close()
-	var keyBuf [25]byte
+	var keyBuf [messageKeyLen]byte
 	if err := e.setBytes(
 		batch,
 		appendMessageKey(keyBuf[:0], message.RoomID, message.RoomSeq),

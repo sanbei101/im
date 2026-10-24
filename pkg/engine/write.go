@@ -231,6 +231,15 @@ type dedupEntry struct {
 	dedup  dedup
 }
 
+// writeScratch holds the writer goroutine's reusable encode buffers. Only the
+// single writer goroutine touches it, so it needs no locking.
+type writeScratch struct {
+	record []byte
+	room   []byte
+	digest []byte
+	dedup  [dedupRecordLen]byte
+}
+
 func (e *Engine) writeMessageBatch(
 	messages []Message,
 	results []MessageWriteResult,
@@ -244,10 +253,11 @@ func (e *Engine) writeMessageBatch(
 	var dedupEntries []dedupEntry
 	failedRooms := make(map[uuid.UUID]struct{})
 
-	var keyBuf [64]byte
-	var msgKeyBuf [25]byte
-	recBuf := e.recordScratch
-	roomBuf := e.roomScratch
+	var dedupKeyBuf [dedupKeyLen]byte
+	var roomKeyBuf [roomKeyLen]byte
+	var msgKeyBuf [messageKeyLen]byte
+	recBuf := e.scratch.record
+	roomBuf := e.scratch.room
 
 	for index := range messages {
 		if results[index].Err != nil {
@@ -280,7 +290,7 @@ func (e *Engine) writeMessageBatch(
 			replayDedup(&results[index], old, digests[index])
 			continue
 		}
-		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
+		dedupKeyBytes := appendDedupKey(dedupKeyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
 		if old, err := e.getRecord(dedupKeyBytes, decodeDedup); err == nil {
 			e.dedupCache.Set(lookup, old)
 			replayDedup(&results[index], old, digests[index])
@@ -303,7 +313,7 @@ func (e *Engine) writeMessageBatch(
 			results[index].Err = err
 			continue
 		}
-		var indexKeyBuf [33]byte
+		var indexKeyBuf [msgIDIndexKeyLen]byte
 		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], message.RoomID, results[index].Message.MsgID)
 		var seqBytes [8]byte
 		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
@@ -315,14 +325,14 @@ func (e *Engine) writeMessageBatch(
 			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
 		}
-		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.dedupScratch[:0], record)); err != nil {
+		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.scratch.dedup[:], record)); err != nil {
 			results[index].Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(batch, msgKey, indexKey))
 			continue
 		}
 		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: record})
 	}
 	for roomID := range lastSeqs {
-		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
+		roomKeyBytes := appendRoomKey(roomKeyBuf[:0], roomID)
 		roomBuf = appendRoomHead(roomBuf[:0], lastSeqs[roomID])
 		if err := e.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
 			failedRooms[roomID] = struct{}{}
@@ -341,7 +351,7 @@ func (e *Engine) writeMessageBatch(
 		}
 		return
 	}
-	e.recordScratch, e.roomScratch = recBuf, roomBuf
+	e.scratch.record, e.scratch.room = recBuf, roomBuf
 	// Caches are filled only after the commit succeeded: a failed commit must
 	// not leave in-memory state ahead of disk.
 	for roomID := range lastSeqs {
@@ -372,7 +382,7 @@ func (e *Engine) loadLastSeq(room uuid.UUID, lastSeqs map[uuid.UUID]uint64) (uin
 	if seq, ok := e.getRoomShard(room).rooms.Get(room); ok {
 		return seq, nil
 	}
-	var keyBuf [32]byte
+	var keyBuf [roomKeyLen]byte
 	seq, err := e.getRecord(appendRoomKey(keyBuf[:0], room), decodeLastSeq)
 	if errors.Is(err, ErrNotFound) {
 		return 0, nil
@@ -384,7 +394,7 @@ func (e *Engine) loadLastSeq(room uuid.UUID, lastSeqs map[uuid.UUID]uint64) (uin
 // on type, payload, ext, and reply target to replay. Runs on the single
 // writer goroutine, so the scratch buffer needs no locking.
 func (e *Engine) messageDigest(message *Message) [32]byte {
-	input := e.digestScratch[:0]
+	input := e.scratch.digest[:0]
 	input = append(input, byte(message.MsgType))
 	input = append(input, message.Payload...)
 	input = append(input, 0)
@@ -392,7 +402,7 @@ func (e *Engine) messageDigest(message *Message) [32]byte {
 	if message.ReplyToMsgID != uuid.Nil() {
 		input = append(input, message.ReplyToMsgID[:]...)
 	}
-	e.digestScratch = input
+	e.scratch.digest = input
 	return sha256.Sum256(input)
 }
 

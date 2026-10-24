@@ -30,7 +30,7 @@ func (e *Engine) LastSeq(ctx context.Context, roomID uuid.UUID) (uint64, error) 
 	if seq, ok := e.getRoomShard(roomID).rooms.Get(roomID); ok {
 		return seq, nil
 	}
-	var buf [32]byte
+	var buf [roomKeyLen]byte
 	seq, err := e.getRecord(appendRoomKey(buf[:0], roomID), decodeLastSeq)
 	if err != nil {
 		return 0, err

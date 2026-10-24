@@ -57,9 +57,9 @@ func (e *Engine) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]Reac
 		return nil, err
 	}
 
-	var prefixBuf [33]byte
+	var prefixBuf [reactionPrefixLen]byte
 	prefix := appendReactionPrefix(prefixBuf[:0], roomID, msgID)
-	var upBuf [34]byte
+	var upBuf [reactionPrefixLen + 1]byte
 	upperBound := prefixUpperBoundBuf(upBuf[:0], prefix)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
@@ -83,9 +83,9 @@ func (e *Engine) populateReactions(ctx context.Context, roomID uuid.UUID, messag
 		return err
 	}
 
-	var roomBuf [17]byte
+	var roomBuf [reactionRoomPrefixLen]byte
 	roomPrefix := appendReactionRoomPrefix(roomBuf[:0], roomID)
-	var upBuf [18]byte
+	var upBuf [reactionRoomPrefixLen + 1]byte
 	upperBound := prefixUpperBoundBuf(upBuf[:0], roomPrefix)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: roomPrefix, UpperBound: upperBound})
 	if err != nil {
@@ -104,7 +104,7 @@ func (e *Engine) populateReactions(ctx context.Context, roomID uuid.UUID, messag
 		return bytes.Compare(messages[a].MsgID[:], messages[b].MsgID[:])
 	})
 
-	var prefixBuf [33]byte
+	var prefixBuf [reactionPrefixLen]byte
 	for _, i := range order {
 		prefix := appendReactionPrefix(prefixBuf[:0], roomID, messages[i].MsgID)
 		if groups := reactionGroups(iter, prefix); len(groups) > 0 {

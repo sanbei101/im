@@ -147,7 +147,7 @@ func (e *Engine) scanWarm(roomID uuid.UUID, lo, hi uint64) ([]Message, error) {
 	if hi <= lo {
 		return nil, nil
 	}
-	var lowerBuf, upperBuf [25]byte
+	var lowerBuf, upperBuf [messageKeyLen]byte
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: appendMessageKey(lowerBuf[:0], roomID, lo),
 		UpperBound: appendMessageKey(upperBuf[:0], roomID, hi),
@@ -198,9 +198,9 @@ func (e *Engine) SearchRoomMessages(
 		limit = 20
 	}
 
-	var prefixBuf [32]byte
+	var prefixBuf [messagePrefixLen]byte
 	prefix := appendMessagePrefix(prefixBuf[:0], roomID)
-	var upBuf [40]byte
+	var upBuf [messageKeyLen + 1]byte
 	upperBound := messageUpperBoundBuf(upBuf[:0], prefix, before)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
 	if err != nil {
@@ -342,7 +342,7 @@ func (e *Engine) recall(request *recallRequest) (Message, error) {
 		return Message{}, err
 	}
 
-	var msgKeyBuf [25]byte
+	var msgKeyBuf [messageKeyLen]byte
 	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)
 	msg, err := e.getRecord(msgKey, decodeMessage)
 	if errors.Is(err, ErrNotFound) {

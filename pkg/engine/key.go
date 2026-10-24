@@ -17,6 +17,29 @@ const (
 	prefixRead       = 'u'
 )
 
+// Fixed key lengths: one prefix byte plus fixed-width fields. Stack buffers
+// sized by these constants keep key construction allocation-free without
+// spreading layout arithmetic across call sites. Reaction keys carry a
+// variable-length trailing emoji and have no constant.
+const (
+	uuidLen = 16
+	seqLen  = 8
+
+	roomKeyLen            = 1 + uuidLen
+	messagePrefixLen      = 1 + uuidLen
+	messageKeyLen         = 1 + uuidLen + seqLen
+	dedupKeyLen           = 1 + uuidLen*3
+	msgIDIndexKeyLen      = 1 + uuidLen*2
+	archiveIndexKeyLen    = 1 + uuidLen + seqLen
+	archiveIndexPrefixLen = 1 + uuidLen
+	reactionPrefixLen     = 1 + uuidLen*2
+	reactionRoomPrefixLen = 1 + uuidLen
+	pinKeyLen             = 1 + uuidLen*2
+	pinPrefixLen          = 1 + uuidLen
+	readKeyLen            = 1 + uuidLen*2
+	readPrefixLen         = 1 + uuidLen
+)
+
 func appendRoomKey(dst []byte, id uuid.UUID) []byte {
 	return append(append(dst, prefixRoom), id[:]...)
 }

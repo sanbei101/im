@@ -203,7 +203,7 @@ func (e *Engine) archiveRoom(params ArchiveParams, roomID uuid.UUID, lastSeq uin
 	); err != nil {
 		return err
 	}
-	var dedupBuf [49]byte
+	var dedupBuf [dedupKeyLen]byte
 	for i := range messages {
 		if err := batch.Delete(
 			appendDedupKey(dedupBuf[:0], roomID, messages[i].SenderID, messages[i].ClientMsgID),
@@ -245,7 +245,7 @@ func (e *Engine) collectArchivable(room uuid.UUID, start, lastSeq uint64, params
 	cutoff := time.Now().Add(-params.MaxAge).UnixMicro()
 	countTriggered := lastSeq-start+1 >= uint64(params.MaxMessages)
 
-	var lowerBuf, upperBuf [25]byte
+	var lowerBuf, upperBuf [messageKeyLen]byte
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: appendMessageKey(lowerBuf[:0], room, start),
 		UpperBound: appendMessageKey(upperBuf[:0], room, lastSeq+1),
@@ -289,7 +289,7 @@ func (e *Engine) archiveWatermark(room uuid.UUID) (uint64, error) {
 	if mark, ok := e.archiveMarks.Get(room); ok {
 		return mark, nil
 	}
-	var keyBuf [32]byte
+	var keyBuf [archiveIndexPrefixLen]byte
 	prefix := appendArchiveIndexPrefix(keyBuf[:0], room)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: prefixUpperBound(prefix)})
 	if err != nil {
@@ -315,7 +315,7 @@ func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi u
 	if e.archiveDir == "" || hi <= lo {
 		return nil, nil
 	}
-	var prefixBuf [32]byte
+	var prefixBuf [archiveIndexPrefixLen]byte
 	prefix := appendArchiveIndexPrefix(prefixBuf[:0], room)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
