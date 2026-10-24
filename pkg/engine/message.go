@@ -3,410 +3,16 @@ package engine
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"uuid"
 
 	"github.com/cockroachdb/pebble"
 )
-
-type MsgType int8
-
-const (
-	MsgTypeText   MsgType = 1
-	MsgTypeImage  MsgType = 2
-	MsgTypeVideo  MsgType = 3
-	MsgTypeFile   MsgType = 4
-	MsgTypeSystem MsgType = 5
-	MsgTypeRecall MsgType = 6
-)
-
-func (t MsgType) String() string {
-	switch t {
-	case MsgTypeText:
-		return "text"
-	case MsgTypeImage:
-		return "image"
-	case MsgTypeVideo:
-		return "video"
-	case MsgTypeFile:
-		return "file"
-	case MsgTypeSystem:
-		return "system"
-	case MsgTypeRecall:
-		return "recall"
-	default:
-		return strconv.Itoa(int(t))
-	}
-}
-
-func (t MsgType) Valid() bool {
-	return t >= MsgTypeText && t <= MsgTypeRecall
-}
-
-func (t MsgType) MarshalJSONTo(enc *jsontext.Encoder) error {
-	return json.MarshalEncode(enc, t.String())
-}
-
-func (t *MsgType) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	var s string
-	if err := json.UnmarshalDecode(dec, &s); err != nil {
-		return err
-	}
-	parsed, err := ParseMsgType(s)
-	if err != nil {
-		return err
-	}
-	*t = parsed
-	return nil
-}
-
-func ParseMsgType(value string) (MsgType, error) {
-	for _, known := range []struct {
-		name string
-		typ  MsgType
-	}{
-		{"text", MsgTypeText},
-		{"image", MsgTypeImage},
-		{"video", MsgTypeVideo},
-		{"file", MsgTypeFile},
-		{"system", MsgTypeSystem},
-		{"recall", MsgTypeRecall},
-	} {
-		if value == known.name {
-			return known.typ, nil
-		}
-	}
-	return 0, fmt.Errorf("invalid msg_type %q", value)
-}
-
-// Message is one committed room message. Payload and Ext are raw JSON
-// carried opaquely; RoomSeq is the room's dense commit order and the only
-// pagination cursor.
-type Message struct {
-	MsgID        uuid.UUID       `json:"msg_id"`
-	ClientMsgID  uuid.UUID       `json:"client_msg_id"`
-	SenderID     uuid.UUID       `json:"sender_id"`
-	RoomID       uuid.UUID       `json:"room_id"`
-	RoomSeq      uint64          `json:"room_seq"`
-	ServerTime   int64           `json:"server_time"`
-	ReplyToMsgID uuid.UUID       `json:"reply_to_msg_id,omitzero"`
-	MsgType      MsgType         `json:"msg_type"`
-	Payload      jsontext.Value  `json:"payload,omitzero"`
-	Ext          jsontext.Value  `json:"ext,omitzero"`
-	Reactions    []ReactionGroup `json:"reactions,omitempty"`
-}
-
-func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {
-	if len(m.Payload) == 0 {
-		m.Payload = nil
-	}
-	if len(m.Ext) == 0 {
-		m.Ext = nil
-	}
-	type plain Message
-	return json.MarshalEncode(enc, plain(m))
-}
-
-// ReactionGroup aggregates one emoji's reactions on a message.
-type ReactionGroup struct {
-	Emoji   string      `json:"emoji"`
-	Count   int         `json:"count"`
-	UserIDs []uuid.UUID `json:"user_ids"`
-}
-
-// MessagePage is one history page: messages in the page's order plus whether
-// an older (or newer, for incremental pulls) page exists.
-type MessagePage struct {
-	Messages []Message `json:"messages"`
-	HasMore  bool      `json:"has_more"`
-}
-
-// dedup is the idempotency record of room_id+sender_id+client_msg_id: the
-// identity a retry replays and the digest a conflicting payload violates.
-type dedup struct {
-	MsgID      uuid.UUID
-	RoomSeq    uint64
-	ServerTime int64
-	PayloadSum [32]byte
-}
-
-func encodeMessage(message Message) []byte {
-	return appendMessage(nil, message)
-}
-
-// appendMessage encodes into dst so hot batch writes can reuse one buffer;
-// Pebble copies the record on batch.Set.
-func appendMessage(data []byte, message Message) []byte {
-	var number [8]byte
-	data = putUUID(data, message.MsgID)
-	data = putUUID(data, message.ClientMsgID)
-	data = putUUID(data, message.SenderID)
-	data = putUUID(data, message.RoomID)
-	putU64(number[:], message.RoomSeq)
-	data = append(data, number[:]...)
-	putI64(number[:], message.ServerTime)
-	data = append(data, number[:]...)
-	if message.ReplyToMsgID != uuid.Nil() {
-		data = append(data, 1)
-		data = putUUID(data, message.ReplyToMsgID)
-	} else {
-		data = append(data, 0)
-	}
-	data = append(data, byte(message.MsgType))
-	return appendBytes(appendBytes(data, message.Payload), message.Ext)
-}
-
-func decodeMessage(data []byte) (Message, error) {
-	d := decoder{data: data}
-	message := Message{
-		MsgID:       d.uuid(),
-		ClientMsgID: d.uuid(),
-		SenderID:    d.uuid(),
-		RoomID:      d.uuid(),
-		RoomSeq:     d.u64(),
-		ServerTime:  d.i64(),
-	}
-	if d.byte() == 1 {
-		message.ReplyToMsgID = d.uuid()
-	}
-	message.MsgType = MsgType(d.byte())
-	message.Payload = d.bytes()
-	message.Ext = d.bytes()
-	if err := d.check("message"); err != nil {
-		return Message{}, err
-	}
-	return message, nil
-}
-
-// ownedMessage copies Message's variable-length fields out of a pebble-owned
-// buffer. decodeMessage aliases the Get/iterator value, which is invalid once
-// its closer is closed; callers that keep the Message beyond that (caches,
-// responses) must hold an owned copy.
-func ownedMessage(m Message) Message {
-	m.Payload = jsontext.Value(bytes.Clone(m.Payload))
-	m.Ext = jsontext.Value(bytes.Clone(m.Ext))
-	return m
-}
-
-// appendDedup encodes into dst; the record is fixed-size, so batch writes
-// pass a stack buffer and allocate nothing.
-func appendDedup(data []byte, value dedup) []byte {
-	var number [8]byte
-	data = putUUID(data, value.MsgID)
-	putU64(number[:], value.RoomSeq)
-	data = append(data, number[:]...)
-	putI64(number[:], value.ServerTime)
-	data = append(data, number[:]...)
-	return append(data, value.PayloadSum[:]...)
-}
-
-func decodeDedup(data []byte) (dedup, error) {
-	d := decoder{data: data}
-	value := dedup{
-		MsgID:      d.uuid(),
-		RoomSeq:    d.u64(),
-		ServerTime: d.i64(),
-	}
-	copy(value.PayloadSum[:], d.fixed(len(value.PayloadSum)))
-	if err := d.check("dedup"); err != nil {
-		return dedup{}, err
-	}
-	return value, nil
-}
-
-type dedupLookupKey struct {
-	room   uuid.UUID
-	sender uuid.UUID
-	client uuid.UUID
-}
-
-// dedupEntry is a dedup record staged for the in-memory cache; entries are
-// cached only after the batch commit succeeds, so a cached entry is always
-// covered by a successful ACK.
-type dedupEntry struct {
-	lookup dedupLookupKey
-	dedup  dedup
-}
-
-func (e *Engine) writeMessageBatch(
-	messages []Message,
-	results []MessageWriteResult,
-) {
-	batch := e.db.NewBatch()
-	defer batch.Close()
-	lastSeqs := make(map[uuid.UUID]uint64)
-	digests := make([][32]byte, len(messages))
-	pending := make(map[dedupLookupKey]int, len(messages))
-	var allocated []int
-	var dedupEntries []dedupEntry
-	failedRooms := make(map[uuid.UUID]struct{})
-
-	var keyBuf [64]byte
-	var msgKeyBuf [25]byte
-	recBuf := e.recordScratch
-	roomBuf := e.roomScratch
-	digestInput := e.digestScratch
-
-	for index := range messages {
-		if results[index].Err != nil {
-			continue
-		}
-		message := &messages[index]
-		results[index].Message = *message
-		lastSeq, ok := lastSeqs[message.RoomID]
-		if !ok {
-			lastSeq, ok = e.getRoomShard(message.RoomID).rooms.Get(message.RoomID)
-		}
-		if !ok {
-			var err error
-			lastSeq, err = e.getRecord(appendRoomKey(keyBuf[:0], message.RoomID), decodeLastSeq)
-			if errors.Is(err, ErrNotFound) {
-				// A missing head is a fresh room: its first message takes seq 1.
-				lastSeq = 0
-			} else if err != nil {
-				results[index].Err = err
-				continue
-			}
-		}
-		lastSeqs[message.RoomID] = lastSeq
-
-		digestInput = append(digestInput[:0], byte(message.MsgType))
-		digestInput = append(digestInput, message.Payload...)
-		digestInput = append(digestInput, 0)
-		digestInput = append(digestInput, message.Ext...)
-		if message.ReplyToMsgID != uuid.Nil() {
-			digestInput = append(digestInput, message.ReplyToMsgID[:]...)
-		}
-		digest := sha256.Sum256(digestInput)
-		digests[index] = digest
-
-		lookup := dedupLookupKey{room: message.RoomID, sender: message.SenderID, client: message.ClientMsgID}
-		if previous, ok := pending[lookup]; ok {
-			switch {
-			case digests[previous] != digests[index]:
-				results[index].Err = ErrConflict
-			case results[previous].Err != nil:
-				results[index].Err = results[previous].Err
-			default:
-				results[index].Message = results[previous].Message
-			}
-			continue
-		}
-
-		if old, ok := e.dedupCache.Get(lookup); ok {
-			pending[lookup] = index
-			if old.PayloadSum != digests[index] {
-				results[index].Err = ErrConflict
-			} else {
-				results[index].Message.MsgID, results[index].Message.RoomSeq, results[index].Message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
-			}
-			continue
-		}
-
-		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
-		pending[lookup] = index
-		if old, err := e.getRecord(dedupKeyBytes, decodeDedup); err == nil {
-			e.dedupCache.Set(lookup, old)
-			if old.PayloadSum != digests[index] {
-				results[index].Err = ErrConflict
-			} else {
-				results[index].Message.MsgID, results[index].Message.RoomSeq, results[index].Message.ServerTime = old.MsgID, old.RoomSeq, old.ServerTime
-			}
-			continue
-		} else if !errors.Is(err, ErrNotFound) {
-			results[index].Err = err
-			continue
-		}
-
-		lastSeq++
-		results[index].Message.RoomSeq = lastSeq
-		results[index].Message.MsgID = uuid.NewV7()
-		results[index].Message.ServerTime = time.Now().UnixMicro()
-		lastSeqs[message.RoomID] = lastSeq
-		allocated = append(allocated, index)
-
-		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
-		recBuf = appendMessage(recBuf[:0], results[index].Message)
-		if err := e.setBytes(batch, msgKey, recBuf); err != nil {
-			results[index].Err = err
-			continue
-		}
-		var indexKeyBuf [33]byte
-		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], message.RoomID, results[index].Message.MsgID)
-		var seqBytes [8]byte
-		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
-		if err := e.setBytes(batch, indexKey, seqBytes[:]); err != nil {
-			results[index].Err = err
-			if delErr := batch.Delete(msgKey, nil); delErr != nil {
-				results[index].Err = errors.New("stage message index: " + err.Error() + "; rollback: " + delErr.Error())
-			}
-			continue
-		}
-		record := dedup{
-			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
-			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
-		}
-		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.dedupScratch[:0], record)); err != nil {
-			results[index].Err = err
-			if delErr := batch.Delete(msgKey, nil); delErr != nil {
-				results[index].Err = errors.New("stage dedup: " + err.Error() + "; rollback: " + delErr.Error())
-				continue
-			}
-			if delErr := batch.Delete(indexKey, nil); delErr != nil {
-				results[index].Err = errors.New("stage dedup: " + err.Error() + "; rollback: " + delErr.Error())
-			}
-			continue
-		}
-		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: record})
-	}
-	for roomID := range lastSeqs {
-		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
-		roomBuf = appendRoomHead(roomBuf[:0], lastSeqs[roomID])
-		if err := e.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
-			failedRooms[roomID] = struct{}{}
-			for index := range results {
-				if results[index].Message.RoomID == roomID && results[index].Err == nil {
-					results[index].Err = err
-				}
-			}
-		}
-	}
-	if err := commit(batch); err != nil {
-		for index := range results {
-			if results[index].Err == nil {
-				results[index].Err = fmt.Errorf("commit messages: %w", err)
-			}
-		}
-		return
-	}
-	e.recordScratch, e.roomScratch, e.digestScratch = recBuf, roomBuf, digestInput
-	// Caches are filled only after the commit succeeded: a failed commit must
-	// not leave in-memory state ahead of disk.
-	for roomID := range lastSeqs {
-		if _, ok := failedRooms[roomID]; ok {
-			continue
-		}
-		e.getRoomShard(roomID).rooms.Set(roomID, lastSeqs[roomID])
-	}
-	for _, entry := range dedupEntries {
-		e.dedupCache.Set(entry.lookup, entry.dedup)
-	}
-	// The cache is filled only after the commit succeeded, so a message in the
-	// tail cache is always covered by a successful ACK.
-	for _, index := range allocated {
-		if results[index].Err == nil {
-			e.cache.append(&results[index].Message)
-		}
-	}
-}
 
 func (e *Engine) Messages(ctx context.Context, roomID uuid.UUID, before uint64, limit int) (MessagePage, error) {
 	if err := contextErr(ctx); err != nil {
@@ -441,57 +47,25 @@ func (e *Engine) Messages(ctx context.Context, roomID uuid.UUID, before uint64, 
 		lo = hi - uint64(limit+1)
 	}
 
-	watermark, err := e.archiveWatermark(roomID)
-	if err != nil {
-		return MessagePage{}, err
-	}
-	if e.archiveDir == "" && lo <= watermark {
-		return MessagePage{}, fmt.Errorf(
-			"messages %d..%d are archived but no archive directory is configured",
-			lo,
-			min(hi, watermark+1),
-		)
-	}
-	warmLo := lo
-	if watermark >= warmLo {
-		warmLo = watermark + 1
-	}
-	warm, err := e.scanWarm(roomID, warmLo, hi)
-	if err != nil {
-		return MessagePage{}, err
-	}
-	cold, err := e.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
+	ascending, err := e.readAscending(ctx, roomID, lo, hi)
 	if err != nil {
 		return MessagePage{}, err
 	}
 
-	total := len(warm) + len(cold)
-	hasMore := total > limit
-	n := total
-	if hasMore {
-		n = limit
-	}
-	messages := make([]Message, n)
-	idx := 0
-	for i := len(warm) - 1; i >= 0 && idx < n; i-- {
-		messages[idx] = warm[i]
-		idx++
-	}
-	for i := len(cold) - 1; i >= 0 && idx < n; i-- {
-		messages[idx] = cold[i]
-		idx++
-	}
-
+	total := len(ascending)
 	if before == 0 && total > 0 {
-		ascending := make([]Message, 0, total)
-		ascending = append(ascending, cold...)
-		ascending = append(ascending, warm...)
 		e.cache.put(roomID, ascending, hi-1)
+	}
+	// The page is the newest n messages, newest first: reverse that tail of
+	// the ascending slice in place instead of allocating a second page.
+	messages := ascending[max(total-limit, 0):]
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 	if err := e.populateReactions(ctx, roomID, messages); err != nil {
 		return MessagePage{}, err
 	}
-	return MessagePage{Messages: messages, HasMore: hasMore}, nil
+	return MessagePage{Messages: messages, HasMore: total > limit}, nil
 }
 
 // MessagesAfter returns messages with room_seq in (after, min(after+limit, LastSeq)] in ascending order.
@@ -525,12 +99,27 @@ func (e *Engine) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint
 	lo := after + 1
 	hi := min(lastSeq+1, lo+uint64(limit))
 
-	watermark, err := e.archiveWatermark(roomID)
+	ascending, err := e.readAscending(ctx, roomID, lo, hi)
 	if err != nil {
 		return MessagePage{}, err
 	}
+	if err := e.populateReactions(ctx, roomID, ascending); err != nil {
+		return MessagePage{}, err
+	}
+	hasMore := lastSeq >= hi
+	return MessagePage{Messages: ascending, HasMore: hasMore}, nil
+}
+
+// readAscending returns the messages with seq in [lo, hi) across both tiers
+// in ascending order, cold rows first. An unconfigured archive directory
+// turns an archived range into an error instead of silently lost history.
+func (e *Engine) readAscending(ctx context.Context, room uuid.UUID, lo, hi uint64) ([]Message, error) {
+	watermark, err := e.archiveWatermark(room)
+	if err != nil {
+		return nil, err
+	}
 	if e.archiveDir == "" && lo <= watermark {
-		return MessagePage{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"messages %d..%d are archived but no archive directory is configured",
 			lo,
 			min(hi, watermark+1),
@@ -540,25 +129,17 @@ func (e *Engine) MessagesAfter(ctx context.Context, roomID uuid.UUID, after uint
 	if watermark >= warmLo {
 		warmLo = watermark + 1
 	}
-	warm, err := e.scanWarm(roomID, warmLo, hi)
+	warm, err := e.scanWarm(room, warmLo, hi)
 	if err != nil {
-		return MessagePage{}, err
+		return nil, err
 	}
-	cold, err := e.readArchivedRange(ctx, roomID, lo, min(hi, watermark+1))
+	cold, err := e.readArchivedRange(ctx, room, lo, min(hi, watermark+1))
 	if err != nil {
-		return MessagePage{}, err
+		return nil, err
 	}
-
 	ascending := make([]Message, 0, len(warm)+len(cold))
 	ascending = append(ascending, cold...)
-	ascending = append(ascending, warm...)
-
-	if err := e.populateReactions(ctx, roomID, ascending); err != nil {
-		return MessagePage{}, err
-	}
-
-	hasMore := lastSeq >= hi
-	return MessagePage{Messages: ascending, HasMore: hasMore}, nil
+	return append(ascending, warm...), nil
 }
 
 // scanWarm returns the Pebble messages with seq in [lo, hi) in ascending order.
@@ -751,12 +332,6 @@ func (e *Engine) execRecall(request *recallRequest) {
 		result.message, result.err = e.recall(request)
 	}
 	request.result <- result
-}
-
-func (e *Engine) forgetDedup(roomID uuid.UUID, messages []Message) {
-	for i := range messages {
-		e.dedupCache.Delete(dedupLookupKey{room: roomID, sender: messages[i].SenderID, client: messages[i].ClientMsgID})
-	}
 }
 
 func (e *Engine) recall(request *recallRequest) (Message, error) {

@@ -34,6 +34,54 @@ func (a *RoomAPI) invalidateRoom(ctx context.Context, roomID uuid.UUID, action s
 	}
 }
 
+// loadRoom answers the request with 404 or 500 unless the room loads cleanly.
+func (a *RoomAPI) loadRoom(w http.ResponseWriter, r *http.Request, roomID uuid.UUID) (store.Room, bool) {
+	room, err := a.db.Room(r.Context(), roomID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusNotFound, "room not found")
+		return store.Room{}, false
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load room: "+err.Error())
+		return store.Room{}, false
+	}
+	return room, true
+}
+
+// loadMember answers the request with 403 or 500 unless the user's membership
+// in the room loads cleanly.
+func (a *RoomAPI) loadMember(w http.ResponseWriter, r *http.Request, roomID, userID uuid.UUID) (store.Member, bool) {
+	member, err := a.db.Member(r.Context(), roomID, userID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusForbidden, "not a member of this room")
+		return store.Member{}, false
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+		return store.Member{}, false
+	}
+	return member, true
+}
+
+// loadTargetMember is loadMember for a member other than the caller; an
+// outsider is a 404 rather than a 403.
+func (a *RoomAPI) loadTargetMember(
+	w http.ResponseWriter,
+	r *http.Request,
+	roomID, targetID uuid.UUID,
+) (store.Member, bool) {
+	member, err := a.db.Member(r.Context(), roomID, targetID)
+	if errors.Is(err, store.ErrNotFound) {
+		render.Error(w, http.StatusNotFound, "target not in room")
+		return store.Member{}, false
+	}
+	if err != nil {
+		render.Error(w, http.StatusInternalServerError, "load target membership: "+err.Error())
+		return store.Member{}, false
+	}
+	return member, true
+}
+
 type CreateSingleRoomReq struct {
 	UserID2 string `json:"user_id_2" validate:"required,uuid"`
 }
@@ -265,23 +313,13 @@ func (a *RoomAPI) GetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := a.db.Room(r.Context(), roomID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusNotFound, "room not found")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, err.Error())
+	room, ok := a.loadRoom(w, r, roomID)
+	if !ok {
 		return
 	}
 
-	member, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, err.Error())
+	member, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 
@@ -305,13 +343,8 @@ func (a *RoomAPI) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, err.Error())
+	member, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if !isManager(member.Role) {
@@ -358,8 +391,7 @@ func (a *RoomAPI) ListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.db.Member(r.Context(), roomID, myID); err != nil {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
+	if _, ok := a.loadMember(w, r, roomID, myID); !ok {
 		return
 	}
 
@@ -409,13 +441,8 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := a.db.Room(r.Context(), roomID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusNotFound, "room not found")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load room: "+err.Error())
+	room, ok := a.loadRoom(w, r, roomID)
+	if !ok {
 		return
 	}
 	if room.ChatType == store.ChatTypeSingle {
@@ -423,13 +450,8 @@ func (a *RoomAPI) AddMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	myMember, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if !isManager(myMember.Role) {
@@ -503,22 +525,12 @@ func (a *RoomAPI) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
+	myMember, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
-		return
-	}
-	targetMember, err := a.db.Member(r.Context(), roomID, targetID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusNotFound, "target not in room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load target membership: "+err.Error())
+	targetMember, ok := a.loadTargetMember(w, r, roomID, targetID)
+	if !ok {
 		return
 	}
 
@@ -565,13 +577,8 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	myMember, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if myMember.Role != store.RoleOwner {
@@ -579,13 +586,8 @@ func (a *RoomAPI) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetMember, err := a.db.Member(r.Context(), roomID, targetID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusNotFound, "target not in room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load target membership: "+err.Error())
+	targetMember, ok := a.loadTargetMember(w, r, roomID, targetID)
+	if !ok {
 		return
 	}
 
@@ -661,13 +663,8 @@ func (a *RoomAPI) TransferOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myMember, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	myMember, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if myMember.Role != store.RoleOwner {
@@ -717,13 +714,8 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	member, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if member.Role != store.RoleOwner {
@@ -781,13 +773,8 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	member, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if !isManager(member.Role) {
@@ -821,13 +808,8 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := a.db.Member(r.Context(), roomID, myID)
-	if errors.Is(err, store.ErrNotFound) {
-		render.Error(w, http.StatusForbidden, "not a member of this room")
-		return
-	}
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	member, ok := a.loadMember(w, r, roomID, myID)
+	if !ok {
 		return
 	}
 	if !isManager(member.Role) {
@@ -852,12 +834,7 @@ func (a *RoomAPI) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.db.Member(r.Context(), roomID, myID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			render.Error(w, http.StatusForbidden, "not a room member")
-			return
-		}
-		render.Error(w, http.StatusInternalServerError, "load membership: "+err.Error())
+	if _, ok := a.loadMember(w, r, roomID, myID); !ok {
 		return
 	}
 

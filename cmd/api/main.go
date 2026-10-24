@@ -126,29 +126,8 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	}
 
 	var tasks sync.WaitGroup
-	tasks.Go(func() {
-		every(runCtx, time.Duration(cfg.Store.BackupInterval)*time.Second, func(ctx context.Context, now time.Time) {
-			dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
-			if err := data.Checkpoint(ctx, dir); err != nil {
-				log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
-			}
-		})
-	})
-	tasks.Go(func() {
-		params := engine.DefaultArchiveParams()
-		params.Owns = ownsRoom(cfg)
-		every(runCtx, time.Minute, func(ctx context.Context, _ time.Time) {
-			if err := data.ArchiveOnce(ctx, params); err != nil {
-				log.Error().Err(err).Msg("message archive failed")
-				return
-			}
-			// Durability shipping is the operator's business, not the
-			// engine's: mirror the exported files into object storage.
-			if err := uploadArchiveDir(ctx, objects, "archives", archiveDir); err != nil {
-				log.Error().Err(err).Msg("archive upload failed")
-			}
-		})
-	})
+	tasks.Go(func() { checkpointLoop(runCtx, cfg, data) })
+	tasks.Go(func() { archiveLoop(runCtx, cfg, data, objects, archiveDir) })
 
 	serveErr := make(chan error, 3)
 	var httpServers sync.WaitGroup
@@ -221,6 +200,38 @@ func every(ctx context.Context, interval time.Duration, fn func(ctx context.Cont
 			fn(ctx, now)
 		}
 	}
+}
+
+// checkpointLoop snapshots the Pebble store on the configured cadence.
+func checkpointLoop(ctx context.Context, cfg *config.Config, data *engine.Engine) {
+	every(ctx, time.Duration(cfg.Store.BackupInterval)*time.Second, func(ctx context.Context, now time.Time) {
+		dir := filepath.Join(cfg.Store.BackupPath, now.Format("20060102-150405"))
+		if err := data.Checkpoint(ctx, dir); err != nil {
+			log.Error().Err(err).Str("dir", dir).Msg("pebble checkpoint failed")
+		}
+	})
+}
+
+// archiveLoop exports cold history once a minute and mirrors the exported
+// parquet files into object storage; the engine only writes local files.
+func archiveLoop(
+	ctx context.Context,
+	cfg *config.Config,
+	data *engine.Engine,
+	objects *api.MinioObjectStore,
+	archiveDir string,
+) {
+	params := engine.DefaultArchiveParams()
+	params.Owns = ownsRoom(cfg)
+	every(ctx, time.Minute, func(ctx context.Context, _ time.Time) {
+		if err := data.ArchiveOnce(ctx, params); err != nil {
+			log.Error().Err(err).Msg("message archive failed")
+			return
+		}
+		if err := uploadArchiveDir(ctx, objects, "archives", archiveDir); err != nil {
+			log.Error().Err(err).Msg("archive upload failed")
+		}
+	})
 }
 
 // ownsRoom reports whether this API node owns the room's shard slot. It is

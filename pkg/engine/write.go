@@ -2,9 +2,14 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 	"uuid"
+
+	"github.com/cockroachdb/pebble"
 )
 
 type messageWriteRequest struct {
@@ -210,4 +215,215 @@ type recallRequest struct {
 type recallResult struct {
 	message Message
 	err     error
+}
+
+type dedupLookupKey struct {
+	room   uuid.UUID
+	sender uuid.UUID
+	client uuid.UUID
+}
+
+// dedupEntry is a dedup record staged for the in-memory cache; entries are
+// cached only after the batch commit succeeds, so a cached entry is always
+// covered by a successful ACK.
+type dedupEntry struct {
+	lookup dedupLookupKey
+	dedup  dedup
+}
+
+func (e *Engine) writeMessageBatch(
+	messages []Message,
+	results []MessageWriteResult,
+) {
+	batch := e.db.NewBatch()
+	defer batch.Close()
+	lastSeqs := make(map[uuid.UUID]uint64)
+	digests := make([][32]byte, len(messages))
+	pending := make(map[dedupLookupKey]int, len(messages))
+	var allocated []int
+	var dedupEntries []dedupEntry
+	failedRooms := make(map[uuid.UUID]struct{})
+
+	var keyBuf [64]byte
+	var msgKeyBuf [25]byte
+	recBuf := e.recordScratch
+	roomBuf := e.roomScratch
+
+	for index := range messages {
+		if results[index].Err != nil {
+			continue
+		}
+		message := &messages[index]
+		results[index].Message = *message
+		lastSeq, err := e.loadLastSeq(message.RoomID, lastSeqs)
+		if err != nil {
+			results[index].Err = err
+			continue
+		}
+		digests[index] = e.messageDigest(message)
+
+		lookup := dedupLookupKey{room: message.RoomID, sender: message.SenderID, client: message.ClientMsgID}
+		if previous, ok := pending[lookup]; ok {
+			switch {
+			case digests[previous] != digests[index]:
+				results[index].Err = ErrConflict
+			case results[previous].Err != nil:
+				results[index].Err = results[previous].Err
+			default:
+				results[index].Message = results[previous].Message
+			}
+			continue
+		}
+		pending[lookup] = index
+
+		if old, ok := e.dedupCache.Get(lookup); ok {
+			replayDedup(&results[index], old, digests[index])
+			continue
+		}
+		dedupKeyBytes := appendDedupKey(keyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
+		if old, err := e.getRecord(dedupKeyBytes, decodeDedup); err == nil {
+			e.dedupCache.Set(lookup, old)
+			replayDedup(&results[index], old, digests[index])
+			continue
+		} else if !errors.Is(err, ErrNotFound) {
+			results[index].Err = err
+			continue
+		}
+
+		lastSeq++
+		results[index].Message.RoomSeq = lastSeq
+		results[index].Message.MsgID = uuid.NewV7()
+		results[index].Message.ServerTime = time.Now().UnixMicro()
+		lastSeqs[message.RoomID] = lastSeq
+		allocated = append(allocated, index)
+
+		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
+		recBuf = appendMessage(recBuf[:0], results[index].Message)
+		if err := e.setBytes(batch, msgKey, recBuf); err != nil {
+			results[index].Err = err
+			continue
+		}
+		var indexKeyBuf [33]byte
+		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], message.RoomID, results[index].Message.MsgID)
+		var seqBytes [8]byte
+		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
+		if err := e.setBytes(batch, indexKey, seqBytes[:]); err != nil {
+			results[index].Err = errors.Join(fmt.Errorf("stage message index: %w", err), unstage(batch, msgKey))
+			continue
+		}
+		record := dedup{
+			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
+			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
+		}
+		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.dedupScratch[:0], record)); err != nil {
+			results[index].Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(batch, msgKey, indexKey))
+			continue
+		}
+		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: record})
+	}
+	for roomID := range lastSeqs {
+		roomKeyBytes := appendRoomKey(keyBuf[:0], roomID)
+		roomBuf = appendRoomHead(roomBuf[:0], lastSeqs[roomID])
+		if err := e.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
+			failedRooms[roomID] = struct{}{}
+			for index := range results {
+				if results[index].Message.RoomID == roomID && results[index].Err == nil {
+					results[index].Err = err
+				}
+			}
+		}
+	}
+	if err := commit(batch); err != nil {
+		for index := range results {
+			if results[index].Err == nil {
+				results[index].Err = fmt.Errorf("commit messages: %w", err)
+			}
+		}
+		return
+	}
+	e.recordScratch, e.roomScratch = recBuf, roomBuf
+	// Caches are filled only after the commit succeeded: a failed commit must
+	// not leave in-memory state ahead of disk.
+	for roomID := range lastSeqs {
+		if _, ok := failedRooms[roomID]; ok {
+			continue
+		}
+		e.getRoomShard(roomID).rooms.Set(roomID, lastSeqs[roomID])
+	}
+	for _, entry := range dedupEntries {
+		e.dedupCache.Set(entry.lookup, entry.dedup)
+	}
+	// The cache is filled only after the commit succeeded, so a message in the
+	// tail cache is always covered by a successful ACK.
+	for _, index := range allocated {
+		if results[index].Err == nil {
+			e.cache.append(&results[index].Message)
+		}
+	}
+}
+
+// loadLastSeq resolves the room's last committed seq through the batch-local
+// map, the shard cache, and Pebble, in that order. A missing head is a fresh
+// room whose first message takes seq 1.
+func (e *Engine) loadLastSeq(room uuid.UUID, lastSeqs map[uuid.UUID]uint64) (uint64, error) {
+	if seq, ok := lastSeqs[room]; ok {
+		return seq, nil
+	}
+	if seq, ok := e.getRoomShard(room).rooms.Get(room); ok {
+		return seq, nil
+	}
+	var keyBuf [32]byte
+	seq, err := e.getRecord(appendRoomKey(keyBuf[:0], room), decodeLastSeq)
+	if errors.Is(err, ErrNotFound) {
+		return 0, nil
+	}
+	return seq, err
+}
+
+// messageDigest digests the idempotency-relevant content: a retry must match
+// on type, payload, ext, and reply target to replay. Runs on the single
+// writer goroutine, so the scratch buffer needs no locking.
+func (e *Engine) messageDigest(message *Message) [32]byte {
+	input := e.digestScratch[:0]
+	input = append(input, byte(message.MsgType))
+	input = append(input, message.Payload...)
+	input = append(input, 0)
+	input = append(input, message.Ext...)
+	if message.ReplyToMsgID != uuid.Nil() {
+		input = append(input, message.ReplyToMsgID[:]...)
+	}
+	e.digestScratch = input
+	return sha256.Sum256(input)
+}
+
+// replayDedup answers a retry: identical content replays the original
+// committed identity, changed content is a conflict.
+func replayDedup(result *MessageWriteResult, old dedup, digest [32]byte) {
+	if old.PayloadSum != digest {
+		result.Err = ErrConflict
+		return
+	}
+	result.Message.MsgID = old.MsgID
+	result.Message.RoomSeq = old.RoomSeq
+	result.Message.ServerTime = old.ServerTime
+}
+
+// unstage removes keys already staged in this batch after a staging failure,
+// so a half-written message cannot commit.
+func unstage(batch *pebble.Batch, keys ...[]byte) error {
+	var errs []error
+	for _, key := range keys {
+		if err := batch.Delete(key, nil); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// forgetDedup drops the dedup cache entries of archived messages: their
+// backing records left Pebble with the bodies.
+func (e *Engine) forgetDedup(roomID uuid.UUID, messages []Message) {
+	for i := range messages {
+		e.dedupCache.Delete(dedupLookupKey{room: roomID, sender: messages[i].SenderID, client: messages[i].ClientMsgID})
+	}
 }
