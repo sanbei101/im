@@ -1,4 +1,6 @@
 BENCH ?= .
+COUNT ?= 1
+P ?= 4
 PPROF_DIR := .tmp/pprof
 BIN_DIR := bin
 
@@ -32,9 +34,7 @@ lint:
 
 test:
 	@if test -z "$$TEST_POSTGRES_URL"; then \
-		for db in im_test im_api_test im_store_test; do \
-			psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 || createdb $$db; \
-		done; \
+		psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='im_test'" | grep -q 1 || createdb im_test; \
 	fi
 	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
 		go test -p 1 -race ./...
@@ -44,7 +44,7 @@ bench:
 		psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='im_test'" | grep -q 1 || createdb im_test; \
 	fi
 	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p 4 ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=1
+		go test -p $(P) ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=$(COUNT)
 
 pprof:
 	@mkdir -p $(PPROF_DIR)

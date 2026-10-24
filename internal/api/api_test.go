@@ -43,7 +43,7 @@ func testDBURL() string {
 	if value := os.Getenv("TEST_POSTGRES_URL"); value != "" {
 		return value
 	}
-	return "postgres://127.0.0.1:5432/im_api_test?sslmode=disable"
+	return "postgres://127.0.0.1:5432/im_test?sslmode=disable"
 }
 
 func newTestEnv(tb testing.TB) *testEnv {
