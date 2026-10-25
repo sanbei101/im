@@ -372,7 +372,7 @@ func (mb *messageBatch) allocate(index int, message *Message, lookup dedupLookup
 		PayloadSum: mb.digests[index],
 	}
 	dedupKey := appendDedupKey(mb.dedupKeyBuf[:0], mb.day, message.RoomID, message.SenderID, message.ClientMsgID)
-	if err := mb.engine.setBytes(mb.batch, dedupKey, appendDedup(mb.engine.scratch.dedup[:], record)); err != nil {
+	if err := mb.engine.setBytes(mb.batch, dedupKey, appendDedup(mb.engine.scratch.dedup[:0], record)); err != nil {
 		result.Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(mb.batch, msgKey))
 		return
 	}

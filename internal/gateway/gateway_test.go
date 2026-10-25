@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/sanbei101/im/pkg/config"
+	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/render"
 	"github.com/sanbei101/im/proto/pb"
 )
@@ -339,6 +340,86 @@ func TestUserClientPingPump(t *testing.T) {
 		case <-stopped:
 		case <-time.After(2 * time.Second):
 			t.Fatal("pingPump did not time out for a silent peer")
+		}
+	})
+}
+
+func TestAPIStreamDispatch(t *testing.T) {
+	t.Run("room push encodes once and reaches every listed client", func(t *testing.T) {
+		g := newTestGateway(t)
+		stream := newAPIStream(g, "127.0.0.1:1")
+		sender := uuid.NewV7()
+		room := uuid.NewV7()
+
+		const targets = 3
+		clients := make([]*UserClient, targets)
+		userIDs := make([]string, 0, targets+2)
+		for i := range clients {
+			user := uuid.NewV7()
+			clients[i] = newTestClient(user, 1)
+			g.UserSessionManager.LoadOrCreate(user, NewUserSession).Add(clients[i])
+			userIDs = append(userIDs, user.String())
+		}
+		// Unparseable and unknown ids must be skipped, not fatal.
+		userIDs = append(userIDs, "not-a-uuid", uuid.NewV7().String())
+
+		stream.handleRoomPush(&pb.RoomPushBatch{RoomPushes: []*pb.RoomPush{{
+			RoomId: room.String(), RoomSeq: 7, ServerTime: 1234,
+			SenderId: sender.String(), MsgType: int32(engine.MsgTypeText),
+			Payload: []byte(`{"text":"hi"}`),
+			UserIds: userIDs,
+		}}})
+
+		var encoded []byte
+		for i, client := range clients {
+			select {
+			case frame := <-client.Send:
+				if encoded == nil {
+					encoded = frame
+				} else if !bytes.Equal(frame, encoded) {
+					t.Fatalf("client %d received a differently encoded frame", i)
+				}
+				push, err := render.NewFrameReader(bytes.NewReader(frame)).ReadFrame[render.PushFrame]()
+				if err != nil {
+					t.Fatalf("push frame decode: %v", err)
+				}
+				if push.Type != "message" || push.RoomSeq != 7 || push.RoomID != room.String() ||
+					push.SenderID != sender.String() || push.MsgType != engine.MsgTypeText.String() {
+					t.Fatalf("push frame wrong: %+v", push)
+				}
+			default:
+				t.Fatalf("client %d did not receive the push frame", i)
+			}
+		}
+	})
+
+	t.Run("send results ack and consume the pending request", func(t *testing.T) {
+		g := newTestGateway(t)
+		stream := newAPIStream(g, "127.0.0.1:1")
+		client := newTestClient(uuid.NewV7(), 1)
+		g.StorePending("req-1", client)
+
+		// An unknown request id arrives first and must be ignored harmlessly.
+		stream.handleResults(&pb.SendResultBatch{Results: []*pb.SendResult{
+			{RequestId: "req-unknown", RoomSeq: 1},
+			{RequestId: "req-1", ClientMsgId: "c-1", RoomId: "r", RoomSeq: 3, ServerTime: 99},
+		}})
+
+		select {
+		case frame := <-client.Send:
+			ack, err := render.NewFrameReader(bytes.NewReader(frame)).ReadFrame[render.AckFrame]()
+			if err != nil {
+				t.Fatalf("ack frame decode: %v", err)
+			}
+			if ack.Type != "ack" || ack.RequestID != "req-1" || ack.ClientMsgID != "c-1" ||
+				ack.RoomSeq != 3 || ack.ServerTime != 99 {
+				t.Fatalf("ack frame wrong: %+v", ack)
+			}
+		default:
+			t.Fatal("client did not receive the ack frame")
+		}
+		if pending := g.LoadAndDeletePending("req-1"); pending != nil {
+			t.Fatal("ack did not consume the pending entry")
 		}
 	})
 }
