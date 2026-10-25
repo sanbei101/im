@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792905018399,
+  "lastUpdate": 1792905703840,
   "repoUrl": "https://github.com/sanbei101/im",
   "entries": {
     "GoBench": [
@@ -29340,6 +29340,4098 @@ window.BENCHMARK_DATA = {
             "value": 2,
             "unit": "allocs/op",
             "extra": "997042 times\n4 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sanbei101@outlook.com",
+            "name": "sanbei101",
+            "username": "sanbei101"
+          },
+          "committer": {
+            "email": "sanbei101@outlook.com",
+            "name": "sanbei101",
+            "username": "sanbei101"
+          },
+          "distinct": true,
+          "id": "61a373b139e30410af88edcc6f8a14d2cc01ca08",
+          "message": "Update bench.yml",
+          "timestamp": "2026-10-25T13:15:19+08:00",
+          "tree_id": "2cd300870b47538e4f4833318c77da0ae01cf804",
+          "url": "https://github.com/sanbei101/im/commit/61a373b139e30410af88edcc6f8a14d2cc01ca08"
+        },
+        "date": 1792905703220,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api)",
+            "value": 30699,
+            "unit": "ns/op\t   26235 B/op\t     152 allocs/op",
+            "extra": "19353 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 30699,
+            "unit": "ns/op",
+            "extra": "19353 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 26235,
+            "unit": "B/op",
+            "extra": "19353 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 152,
+            "unit": "allocs/op",
+            "extra": "19353 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api)",
+            "value": 31881,
+            "unit": "ns/op\t   26183 B/op\t     152 allocs/op",
+            "extra": "18753 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 31881,
+            "unit": "ns/op",
+            "extra": "18753 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 26183,
+            "unit": "B/op",
+            "extra": "18753 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 152,
+            "unit": "allocs/op",
+            "extra": "18753 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api)",
+            "value": 31195,
+            "unit": "ns/op\t   26191 B/op\t     152 allocs/op",
+            "extra": "19236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 31195,
+            "unit": "ns/op",
+            "extra": "19236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 26191,
+            "unit": "B/op",
+            "extra": "19236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIHistory (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 152,
+            "unit": "allocs/op",
+            "extra": "19236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api)",
+            "value": 1549886,
+            "unit": "ns/op\t   46282 B/op\t     293 allocs/op",
+            "extra": "393 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 1549886,
+            "unit": "ns/op",
+            "extra": "393 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 46282,
+            "unit": "B/op",
+            "extra": "393 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 293,
+            "unit": "allocs/op",
+            "extra": "393 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api)",
+            "value": 1940118,
+            "unit": "ns/op\t   46199 B/op\t     293 allocs/op",
+            "extra": "388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 1940118,
+            "unit": "ns/op",
+            "extra": "388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 46199,
+            "unit": "B/op",
+            "extra": "388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 293,
+            "unit": "allocs/op",
+            "extra": "388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api)",
+            "value": 2160931,
+            "unit": "ns/op\t   47029 B/op\t     293 allocs/op",
+            "extra": "253 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 2160931,
+            "unit": "ns/op",
+            "extra": "253 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 47029,
+            "unit": "B/op",
+            "extra": "253 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPISendBatch (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 293,
+            "unit": "allocs/op",
+            "extra": "253 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api)",
+            "value": 398668,
+            "unit": "ns/op\t   10825 B/op\t      77 allocs/op",
+            "extra": "1651 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 398668,
+            "unit": "ns/op",
+            "extra": "1651 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 10825,
+            "unit": "B/op",
+            "extra": "1651 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 77,
+            "unit": "allocs/op",
+            "extra": "1651 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api)",
+            "value": 310842,
+            "unit": "ns/op\t   10796 B/op\t      77 allocs/op",
+            "extra": "1978 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 310842,
+            "unit": "ns/op",
+            "extra": "1978 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 10796,
+            "unit": "B/op",
+            "extra": "1978 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 77,
+            "unit": "allocs/op",
+            "extra": "1978 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api)",
+            "value": 343862,
+            "unit": "ns/op\t   10770 B/op\t      77 allocs/op",
+            "extra": "1878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - ns/op",
+            "value": 343862,
+            "unit": "ns/op",
+            "extra": "1878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - B/op",
+            "value": 10770,
+            "unit": "B/op",
+            "extra": "1878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkAPIAddReaction (github.com/sanbei101/im/internal/api) - allocs/op",
+            "value": 77,
+            "unit": "allocs/op",
+            "extra": "1878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway)",
+            "value": 13.72,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "43678869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 13.72,
+            "unit": "ns/op",
+            "extra": "43678869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "43678869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "43678869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway)",
+            "value": 13.93,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "43151006 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 13.93,
+            "unit": "ns/op",
+            "extra": "43151006 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "43151006 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "43151006 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway)",
+            "value": 13.71,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "43741339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 13.71,
+            "unit": "ns/op",
+            "extra": "43741339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "43741339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/session-load-or-create (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "43741339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway)",
+            "value": 81.45,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "7366242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 81.45,
+            "unit": "ns/op",
+            "extra": "7366242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "7366242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "7366242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway)",
+            "value": 80.86,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "7407447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 80.86,
+            "unit": "ns/op",
+            "extra": "7407447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "7407447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "7407447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway)",
+            "value": 81.09,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "7410894 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 81.09,
+            "unit": "ns/op",
+            "extra": "7410894 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "7410894 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/touch-room-user (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "7410894 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway)",
+            "value": 236.3,
+            "unit": "ns/op\t      48 B/op\t       1 allocs/op",
+            "extra": "2532345 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 236.3,
+            "unit": "ns/op",
+            "extra": "2532345 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 48,
+            "unit": "B/op",
+            "extra": "2532345 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "2532345 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway)",
+            "value": 237.3,
+            "unit": "ns/op\t      48 B/op\t       1 allocs/op",
+            "extra": "2527804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 237.3,
+            "unit": "ns/op",
+            "extra": "2527804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 48,
+            "unit": "B/op",
+            "extra": "2527804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "2527804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway)",
+            "value": 238.7,
+            "unit": "ns/op\t      48 B/op\t       1 allocs/op",
+            "extra": "2467090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 238.7,
+            "unit": "ns/op",
+            "extra": "2467090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 48,
+            "unit": "B/op",
+            "extra": "2467090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/pending-round-trip (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "2467090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway)",
+            "value": 7214,
+            "unit": "ns/op\t    2464 B/op\t      11 allocs/op",
+            "extra": "82693 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 7214,
+            "unit": "ns/op",
+            "extra": "82693 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 2464,
+            "unit": "B/op",
+            "extra": "82693 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "82693 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway)",
+            "value": 7272,
+            "unit": "ns/op\t    2464 B/op\t      11 allocs/op",
+            "extra": "81546 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 7272,
+            "unit": "ns/op",
+            "extra": "81546 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 2464,
+            "unit": "B/op",
+            "extra": "81546 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "81546 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway)",
+            "value": 7310,
+            "unit": "ns/op\t    2464 B/op\t      11 allocs/op",
+            "extra": "81339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 7310,
+            "unit": "ns/op",
+            "extra": "81339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 2464,
+            "unit": "B/op",
+            "extra": "81339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/broadcast-typing (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "81339 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway)",
+            "value": 7644,
+            "unit": "ns/op\t     516 B/op\t       4 allocs/op",
+            "extra": "76292 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 7644,
+            "unit": "ns/op",
+            "extra": "76292 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 516,
+            "unit": "B/op",
+            "extra": "76292 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "76292 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway)",
+            "value": 7588,
+            "unit": "ns/op\t     516 B/op\t       4 allocs/op",
+            "extra": "78255 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 7588,
+            "unit": "ns/op",
+            "extra": "78255 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 516,
+            "unit": "B/op",
+            "extra": "78255 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "78255 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway)",
+            "value": 7516,
+            "unit": "ns/op\t     516 B/op\t       4 allocs/op",
+            "extra": "79116 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - ns/op",
+            "value": 7516,
+            "unit": "ns/op",
+            "extra": "79116 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - B/op",
+            "value": 516,
+            "unit": "B/op",
+            "extra": "79116 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkGateway/room-push-fanout (github.com/sanbei101/im/internal/gateway) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "79116 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router)",
+            "value": 83711,
+            "unit": "ns/op\t   45727 B/op\t      93 allocs/op",
+            "extra": "7407 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - ns/op",
+            "value": 83711,
+            "unit": "ns/op",
+            "extra": "7407 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - B/op",
+            "value": 45727,
+            "unit": "B/op",
+            "extra": "7407 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - allocs/op",
+            "value": 93,
+            "unit": "allocs/op",
+            "extra": "7407 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router)",
+            "value": 81389,
+            "unit": "ns/op\t   45668 B/op\t      93 allocs/op",
+            "extra": "7226 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - ns/op",
+            "value": 81389,
+            "unit": "ns/op",
+            "extra": "7226 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - B/op",
+            "value": 45668,
+            "unit": "B/op",
+            "extra": "7226 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - allocs/op",
+            "value": 93,
+            "unit": "allocs/op",
+            "extra": "7226 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router)",
+            "value": 82804,
+            "unit": "ns/op\t   45775 B/op\t      93 allocs/op",
+            "extra": "8214 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - ns/op",
+            "value": 82804,
+            "unit": "ns/op",
+            "extra": "8214 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - B/op",
+            "value": 45775,
+            "unit": "B/op",
+            "extra": "8214 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/room-post-path (github.com/sanbei101/im/internal/router) - allocs/op",
+            "value": 93,
+            "unit": "allocs/op",
+            "extra": "8214 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router)",
+            "value": 1771,
+            "unit": "ns/op\t    5521 B/op\t      17 allocs/op",
+            "extra": "336358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - ns/op",
+            "value": 1771,
+            "unit": "ns/op",
+            "extra": "336358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - B/op",
+            "value": 5521,
+            "unit": "B/op",
+            "extra": "336358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "336358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router)",
+            "value": 1696,
+            "unit": "ns/op\t    5521 B/op\t      17 allocs/op",
+            "extra": "368929 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - ns/op",
+            "value": 1696,
+            "unit": "ns/op",
+            "extra": "368929 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - B/op",
+            "value": 5521,
+            "unit": "B/op",
+            "extra": "368929 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "368929 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router)",
+            "value": 1704,
+            "unit": "ns/op\t    5521 B/op\t      17 allocs/op",
+            "extra": "355695 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - ns/op",
+            "value": 1704,
+            "unit": "ns/op",
+            "extra": "355695 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - B/op",
+            "value": 5521,
+            "unit": "B/op",
+            "extra": "355695 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEdgeRoute/plain-post-body (github.com/sanbei101/im/internal/router) - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "355695 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store)",
+            "value": 310268,
+            "unit": "ns/op\t  118406 B/op\t    1215 allocs/op",
+            "extra": "1875 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 310268,
+            "unit": "ns/op",
+            "extra": "1875 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 118406,
+            "unit": "B/op",
+            "extra": "1875 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 1215,
+            "unit": "allocs/op",
+            "extra": "1875 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store)",
+            "value": 314170,
+            "unit": "ns/op\t  118407 B/op\t    1215 allocs/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 314170,
+            "unit": "ns/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 118407,
+            "unit": "B/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 1215,
+            "unit": "allocs/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store)",
+            "value": 306314,
+            "unit": "ns/op\t  118405 B/op\t    1215 allocs/op",
+            "extra": "1820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 306314,
+            "unit": "ns/op",
+            "extra": "1820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 118405,
+            "unit": "B/op",
+            "extra": "1820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/serial (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 1215,
+            "unit": "allocs/op",
+            "extra": "1820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store)",
+            "value": 195542,
+            "unit": "ns/op\t  118495 B/op\t    1215 allocs/op",
+            "extra": "3043 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 195542,
+            "unit": "ns/op",
+            "extra": "3043 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 118495,
+            "unit": "B/op",
+            "extra": "3043 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 1215,
+            "unit": "allocs/op",
+            "extra": "3043 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store)",
+            "value": 194961,
+            "unit": "ns/op\t  118493 B/op\t    1215 allocs/op",
+            "extra": "3090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 194961,
+            "unit": "ns/op",
+            "extra": "3090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 118493,
+            "unit": "B/op",
+            "extra": "3090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 1215,
+            "unit": "allocs/op",
+            "extra": "3090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store)",
+            "value": 225679,
+            "unit": "ns/op\t  118492 B/op\t    1215 allocs/op",
+            "extra": "3093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 225679,
+            "unit": "ns/op",
+            "extra": "3093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 118492,
+            "unit": "B/op",
+            "extra": "3093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBConversationList/parallel (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 1215,
+            "unit": "allocs/op",
+            "extra": "3093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store)",
+            "value": 607994,
+            "unit": "ns/op\t    9102 B/op\t     150 allocs/op",
+            "extra": "964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 607994,
+            "unit": "ns/op",
+            "extra": "964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 9102,
+            "unit": "B/op",
+            "extra": "964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 150,
+            "unit": "allocs/op",
+            "extra": "964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store)",
+            "value": 602160,
+            "unit": "ns/op\t    9101 B/op\t     150 allocs/op",
+            "extra": "979 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 602160,
+            "unit": "ns/op",
+            "extra": "979 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 9101,
+            "unit": "B/op",
+            "extra": "979 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 150,
+            "unit": "allocs/op",
+            "extra": "979 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store)",
+            "value": 604465,
+            "unit": "ns/op\t    9101 B/op\t     150 allocs/op",
+            "extra": "975 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 604465,
+            "unit": "ns/op",
+            "extra": "975 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 9101,
+            "unit": "B/op",
+            "extra": "975 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/search (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 150,
+            "unit": "allocs/op",
+            "extra": "975 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store)",
+            "value": 476085,
+            "unit": "ns/op\t  191440 B/op\t    2444 allocs/op",
+            "extra": "1230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 476085,
+            "unit": "ns/op",
+            "extra": "1230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 191440,
+            "unit": "B/op",
+            "extra": "1230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 2444,
+            "unit": "allocs/op",
+            "extra": "1230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store)",
+            "value": 466015,
+            "unit": "ns/op\t  190888 B/op\t    2444 allocs/op",
+            "extra": "1251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 466015,
+            "unit": "ns/op",
+            "extra": "1251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 190888,
+            "unit": "B/op",
+            "extra": "1251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 2444,
+            "unit": "allocs/op",
+            "extra": "1251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store)",
+            "value": 467842,
+            "unit": "ns/op\t  190655 B/op\t    2444 allocs/op",
+            "extra": "1248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - ns/op",
+            "value": 467842,
+            "unit": "ns/op",
+            "extra": "1248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - B/op",
+            "value": 190655,
+            "unit": "B/op",
+            "extra": "1248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDBUsers/by-ids (github.com/sanbei101/im/internal/store) - allocs/op",
+            "value": 2444,
+            "unit": "allocs/op",
+            "extra": "1248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg)",
+            "value": 2.646,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "226850461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - ns/op",
+            "value": 2.646,
+            "unit": "ns/op",
+            "extra": "226850461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "226850461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "226850461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg)",
+            "value": 2.655,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "226698854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - ns/op",
+            "value": 2.655,
+            "unit": "ns/op",
+            "extra": "226698854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "226698854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "226698854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg)",
+            "value": 2.656,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "226041321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - ns/op",
+            "value": 2.656,
+            "unit": "ns/op",
+            "extra": "226041321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "226041321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/room-slot (github.com/sanbei101/im/pkg) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "226041321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg)",
+            "value": 1.108,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "541180962 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - ns/op",
+            "value": 1.108,
+            "unit": "ns/op",
+            "extra": "541180962 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "541180962 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "541180962 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg)",
+            "value": 1.116,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "540720224 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - ns/op",
+            "value": 1.116,
+            "unit": "ns/op",
+            "extra": "540720224 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "540720224 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "540720224 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg)",
+            "value": 1.115,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "541002444 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - ns/op",
+            "value": 1.115,
+            "unit": "ns/op",
+            "extra": "541002444 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "541002444 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkShard/node-index (github.com/sanbei101/im/pkg) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "541002444 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine)",
+            "value": 552270,
+            "unit": "ns/op\t 131.17 MB/s\t 1824192 B/op\t     348 allocs/op",
+            "extra": "1111 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 552270,
+            "unit": "ns/op",
+            "extra": "1111 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - MB/s",
+            "value": 131.17,
+            "unit": "MB/s",
+            "extra": "1111 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1824192,
+            "unit": "B/op",
+            "extra": "1111 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 348,
+            "unit": "allocs/op",
+            "extra": "1111 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine)",
+            "value": 562846,
+            "unit": "ns/op\t 128.70 MB/s\t 1789393 B/op\t     347 allocs/op",
+            "extra": "982 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 562846,
+            "unit": "ns/op",
+            "extra": "982 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - MB/s",
+            "value": 128.7,
+            "unit": "MB/s",
+            "extra": "982 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1789393,
+            "unit": "B/op",
+            "extra": "982 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 347,
+            "unit": "allocs/op",
+            "extra": "982 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine)",
+            "value": 557705,
+            "unit": "ns/op\t 129.89 MB/s\t 1840576 B/op\t     349 allocs/op",
+            "extra": "1088 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 557705,
+            "unit": "ns/op",
+            "extra": "1088 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - MB/s",
+            "value": 129.89,
+            "unit": "MB/s",
+            "extra": "1088 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1840576,
+            "unit": "B/op",
+            "extra": "1088 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/encode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 349,
+            "unit": "allocs/op",
+            "extra": "1088 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine)",
+            "value": 1356372,
+            "unit": "ns/op\t  53.41 MB/s\t 1492214 B/op\t   10264 allocs/op",
+            "extra": "434 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1356372,
+            "unit": "ns/op",
+            "extra": "434 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - MB/s",
+            "value": 53.41,
+            "unit": "MB/s",
+            "extra": "434 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1492214,
+            "unit": "B/op",
+            "extra": "434 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 10264,
+            "unit": "allocs/op",
+            "extra": "434 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine)",
+            "value": 1352896,
+            "unit": "ns/op\t  53.54 MB/s\t 1484277 B/op\t   10261 allocs/op",
+            "extra": "438 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1352896,
+            "unit": "ns/op",
+            "extra": "438 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - MB/s",
+            "value": 53.54,
+            "unit": "MB/s",
+            "extra": "438 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1484277,
+            "unit": "B/op",
+            "extra": "438 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 10261,
+            "unit": "allocs/op",
+            "extra": "438 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine)",
+            "value": 1361767,
+            "unit": "ns/op\t  53.19 MB/s\t 1492694 B/op\t   10262 allocs/op",
+            "extra": "442 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1361767,
+            "unit": "ns/op",
+            "extra": "442 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - MB/s",
+            "value": 53.19,
+            "unit": "MB/s",
+            "extra": "442 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1492694,
+            "unit": "B/op",
+            "extra": "442 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkArchiveParquetCodec/decode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 10262,
+            "unit": "allocs/op",
+            "extra": "442 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine)",
+            "value": 5617,
+            "unit": "ns/op\t   14176 B/op\t      20 allocs/op",
+            "extra": "98864 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 5617,
+            "unit": "ns/op",
+            "extra": "98864 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 14176,
+            "unit": "B/op",
+            "extra": "98864 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "98864 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine)",
+            "value": 5582,
+            "unit": "ns/op\t   14163 B/op\t      20 allocs/op",
+            "extra": "107986 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 5582,
+            "unit": "ns/op",
+            "extra": "107986 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 14163,
+            "unit": "B/op",
+            "extra": "107986 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "107986 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine)",
+            "value": 5773,
+            "unit": "ns/op\t   14164 B/op\t      20 allocs/op",
+            "extra": "107499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 5773,
+            "unit": "ns/op",
+            "extra": "107499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 14164,
+            "unit": "B/op",
+            "extra": "107499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "107499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine)",
+            "value": 4059,
+            "unit": "ns/op\t     816 B/op\t      15 allocs/op",
+            "extra": "140890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4059,
+            "unit": "ns/op",
+            "extra": "140890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 816,
+            "unit": "B/op",
+            "extra": "140890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "140890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine)",
+            "value": 3780,
+            "unit": "ns/op\t     816 B/op\t      15 allocs/op",
+            "extra": "160303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 3780,
+            "unit": "ns/op",
+            "extra": "160303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 816,
+            "unit": "B/op",
+            "extra": "160303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "160303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine)",
+            "value": 3791,
+            "unit": "ns/op\t     816 B/op\t      15 allocs/op",
+            "extra": "159230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 3791,
+            "unit": "ns/op",
+            "extra": "159230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 816,
+            "unit": "B/op",
+            "extra": "159230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineArchivedRead/by-seq (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "159230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine)",
+            "value": 31.88,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "18588352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 31.88,
+            "unit": "ns/op",
+            "extra": "18588352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "18588352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "18588352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine)",
+            "value": 31.98,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "18616534 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 31.98,
+            "unit": "ns/op",
+            "extra": "18616534 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "18616534 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "18616534 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine)",
+            "value": 32.06,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "18765747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 32.06,
+            "unit": "ns/op",
+            "extra": "18765747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "18765747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/append (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "18765747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine)",
+            "value": 599.2,
+            "unit": "ns/op\t    3072 B/op\t       1 allocs/op",
+            "extra": "860188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 599.2,
+            "unit": "ns/op",
+            "extra": "860188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3072,
+            "unit": "B/op",
+            "extra": "860188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "860188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine)",
+            "value": 602.9,
+            "unit": "ns/op\t    3072 B/op\t       1 allocs/op",
+            "extra": "962827 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 602.9,
+            "unit": "ns/op",
+            "extra": "962827 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3072,
+            "unit": "B/op",
+            "extra": "962827 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "962827 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine)",
+            "value": 599,
+            "unit": "ns/op\t    3072 B/op\t       1 allocs/op",
+            "extra": "849752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 599,
+            "unit": "ns/op",
+            "extra": "849752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3072,
+            "unit": "B/op",
+            "extra": "849752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMessageCache/page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "849752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1313128,
+            "unit": "ns/op\t    2152 B/op\t      16 allocs/op",
+            "extra": "457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1313128,
+            "unit": "ns/op",
+            "extra": "457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2152,
+            "unit": "B/op",
+            "extra": "457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine)",
+            "value": 3602714,
+            "unit": "ns/op\t    2433 B/op\t      16 allocs/op",
+            "extra": "174 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 3602714,
+            "unit": "ns/op",
+            "extra": "174 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2433,
+            "unit": "B/op",
+            "extra": "174 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "174 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1577781,
+            "unit": "ns/op\t    2170 B/op\t      16 allocs/op",
+            "extra": "415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1577781,
+            "unit": "ns/op",
+            "extra": "415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2170,
+            "unit": "B/op",
+            "extra": "415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1833858,
+            "unit": "ns/op\t   27748 B/op\t      59 allocs/op",
+            "extra": "410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1833858,
+            "unit": "ns/op",
+            "extra": "410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 27748,
+            "unit": "B/op",
+            "extra": "410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 59,
+            "unit": "allocs/op",
+            "extra": "410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1667278,
+            "unit": "ns/op\t   27666 B/op\t      59 allocs/op",
+            "extra": "420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1667278,
+            "unit": "ns/op",
+            "extra": "420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 27666,
+            "unit": "B/op",
+            "extra": "420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 59,
+            "unit": "allocs/op",
+            "extra": "420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1547863,
+            "unit": "ns/op\t   27460 B/op\t      59 allocs/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1547863,
+            "unit": "ns/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 27460,
+            "unit": "B/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-32 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 59,
+            "unit": "allocs/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine)",
+            "value": 4347285,
+            "unit": "ns/op\t   83203 B/op\t     132 allocs/op",
+            "extra": "244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4347285,
+            "unit": "ns/op",
+            "extra": "244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 83203,
+            "unit": "B/op",
+            "extra": "244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 132,
+            "unit": "allocs/op",
+            "extra": "244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1784519,
+            "unit": "ns/op\t   82990 B/op\t     131 allocs/op",
+            "extra": "302 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1784519,
+            "unit": "ns/op",
+            "extra": "302 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 82990,
+            "unit": "B/op",
+            "extra": "302 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 131,
+            "unit": "allocs/op",
+            "extra": "302 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine)",
+            "value": 1709216,
+            "unit": "ns/op\t   82824 B/op\t     131 allocs/op",
+            "extra": "370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1709216,
+            "unit": "ns/op",
+            "extra": "370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 82824,
+            "unit": "B/op",
+            "extra": "370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-100 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 131,
+            "unit": "allocs/op",
+            "extra": "370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 2989203,
+            "unit": "ns/op\t  903922 B/op\t    1045 allocs/op",
+            "extra": "236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 2989203,
+            "unit": "ns/op",
+            "extra": "236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 903922,
+            "unit": "B/op",
+            "extra": "236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 1045,
+            "unit": "allocs/op",
+            "extra": "236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 3050795,
+            "unit": "ns/op\t  902910 B/op\t    1044 allocs/op",
+            "extra": "219 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 3050795,
+            "unit": "ns/op",
+            "extra": "219 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 902910,
+            "unit": "B/op",
+            "extra": "219 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 1044,
+            "unit": "allocs/op",
+            "extra": "219 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 2961034,
+            "unit": "ns/op\t  901463 B/op\t    1044 allocs/op",
+            "extra": "228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 2961034,
+            "unit": "ns/op",
+            "extra": "228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 901463,
+            "unit": "B/op",
+            "extra": "228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWrite/batch-1000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 1044,
+            "unit": "allocs/op",
+            "extra": "228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine)",
+            "value": 404202,
+            "unit": "ns/op\t    1318 B/op\t       7 allocs/op",
+            "extra": "1819 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 404202,
+            "unit": "ns/op",
+            "extra": "1819 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1318,
+            "unit": "B/op",
+            "extra": "1819 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1819 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine)",
+            "value": 478531,
+            "unit": "ns/op\t    1329 B/op\t       7 allocs/op",
+            "extra": "1644 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 478531,
+            "unit": "ns/op",
+            "extra": "1644 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1329,
+            "unit": "B/op",
+            "extra": "1644 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1644 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine)",
+            "value": 361179,
+            "unit": "ns/op\t    1318 B/op\t       7 allocs/op",
+            "extra": "1771 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 361179,
+            "unit": "ns/op",
+            "extra": "1771 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1318,
+            "unit": "B/op",
+            "extra": "1771 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/single-room (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1771 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine)",
+            "value": 437617,
+            "unit": "ns/op\t    2067 B/op\t       7 allocs/op",
+            "extra": "1747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 437617,
+            "unit": "ns/op",
+            "extra": "1747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2067,
+            "unit": "B/op",
+            "extra": "1747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1747 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine)",
+            "value": 464959,
+            "unit": "ns/op\t    2555 B/op\t       7 allocs/op",
+            "extra": "1101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 464959,
+            "unit": "ns/op",
+            "extra": "1101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2555,
+            "unit": "B/op",
+            "extra": "1101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine)",
+            "value": 476489,
+            "unit": "ns/op\t    2041 B/op\t       7 allocs/op",
+            "extra": "1782 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 476489,
+            "unit": "ns/op",
+            "extra": "1782 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2041,
+            "unit": "B/op",
+            "extra": "1782 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/multi-room (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1782 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine)",
+            "value": 71587,
+            "unit": "ns/op\t    1265 B/op\t       3 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 71587,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1265,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine)",
+            "value": 73973,
+            "unit": "ns/op\t    1225 B/op\t       3 allocs/op",
+            "extra": "12373 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 73973,
+            "unit": "ns/op",
+            "extra": "12373 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1225,
+            "unit": "B/op",
+            "extra": "12373 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "12373 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine)",
+            "value": 62491,
+            "unit": "ns/op\t    1269 B/op\t       3 allocs/op",
+            "extra": "9738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 62491,
+            "unit": "ns/op",
+            "extra": "9738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1269,
+            "unit": "B/op",
+            "extra": "9738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-128-producers (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "9738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine)",
+            "value": 24421,
+            "unit": "ns/op\t    1133 B/op\t       2 allocs/op",
+            "extra": "29347 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 24421,
+            "unit": "ns/op",
+            "extra": "29347 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1133,
+            "unit": "B/op",
+            "extra": "29347 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "29347 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine)",
+            "value": 18859,
+            "unit": "ns/op\t    1117 B/op\t       2 allocs/op",
+            "extra": "35289 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 18859,
+            "unit": "ns/op",
+            "extra": "35289 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1117,
+            "unit": "B/op",
+            "extra": "35289 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "35289 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine)",
+            "value": 15594,
+            "unit": "ns/op\t    1109 B/op\t       2 allocs/op",
+            "extra": "41856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 15594,
+            "unit": "ns/op",
+            "extra": "41856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1109,
+            "unit": "B/op",
+            "extra": "41856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineMessageWriteParallel/saturated-512-producers (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "41856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine)",
+            "value": 985.9,
+            "unit": "ns/op\t    3128 B/op\t       4 allocs/op",
+            "extra": "522355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 985.9,
+            "unit": "ns/op",
+            "extra": "522355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3128,
+            "unit": "B/op",
+            "extra": "522355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "522355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine)",
+            "value": 1075,
+            "unit": "ns/op\t    3128 B/op\t       4 allocs/op",
+            "extra": "544459 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1075,
+            "unit": "ns/op",
+            "extra": "544459 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3128,
+            "unit": "B/op",
+            "extra": "544459 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "544459 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine)",
+            "value": 1052,
+            "unit": "ns/op\t    3128 B/op\t       4 allocs/op",
+            "extra": "569730 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1052,
+            "unit": "ns/op",
+            "extra": "569730 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3128,
+            "unit": "B/op",
+            "extra": "569730 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/newest-page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "569730 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine)",
+            "value": 4800,
+            "unit": "ns/op\t    8266 B/op\t      32 allocs/op",
+            "extra": "119406 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4800,
+            "unit": "ns/op",
+            "extra": "119406 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 8266,
+            "unit": "B/op",
+            "extra": "119406 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 32,
+            "unit": "allocs/op",
+            "extra": "119406 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine)",
+            "value": 4963,
+            "unit": "ns/op\t    8265 B/op\t      32 allocs/op",
+            "extra": "109092 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4963,
+            "unit": "ns/op",
+            "extra": "109092 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 8265,
+            "unit": "B/op",
+            "extra": "109092 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 32,
+            "unit": "allocs/op",
+            "extra": "109092 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine)",
+            "value": 4832,
+            "unit": "ns/op\t    8265 B/op\t      32 allocs/op",
+            "extra": "118251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4832,
+            "unit": "ns/op",
+            "extra": "118251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 8265,
+            "unit": "B/op",
+            "extra": "118251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/deep-page (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 32,
+            "unit": "allocs/op",
+            "extra": "118251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine)",
+            "value": 1011,
+            "unit": "ns/op\t    3129 B/op\t       4 allocs/op",
+            "extra": "521348 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1011,
+            "unit": "ns/op",
+            "extra": "521348 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3129,
+            "unit": "B/op",
+            "extra": "521348 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "521348 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine)",
+            "value": 1076,
+            "unit": "ns/op\t    3128 B/op\t       4 allocs/op",
+            "extra": "551839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1076,
+            "unit": "ns/op",
+            "extra": "551839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3128,
+            "unit": "B/op",
+            "extra": "551839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "551839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine)",
+            "value": 1090,
+            "unit": "ns/op\t    3128 B/op\t       4 allocs/op",
+            "extra": "553974 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1090,
+            "unit": "ns/op",
+            "extra": "553974 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3128,
+            "unit": "B/op",
+            "extra": "553974 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRead/sync-pull-after (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "553974 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine)",
+            "value": 4483,
+            "unit": "ns/op\t    3929 B/op\t      28 allocs/op",
+            "extra": "131247 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4483,
+            "unit": "ns/op",
+            "extra": "131247 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3929,
+            "unit": "B/op",
+            "extra": "131247 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 28,
+            "unit": "allocs/op",
+            "extra": "131247 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine)",
+            "value": 4511,
+            "unit": "ns/op\t    3929 B/op\t      28 allocs/op",
+            "extra": "116944 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4511,
+            "unit": "ns/op",
+            "extra": "116944 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3929,
+            "unit": "B/op",
+            "extra": "116944 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 28,
+            "unit": "allocs/op",
+            "extra": "116944 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine)",
+            "value": 4599,
+            "unit": "ns/op\t    3928 B/op\t      28 allocs/op",
+            "extra": "120804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4599,
+            "unit": "ns/op",
+            "extra": "120804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3928,
+            "unit": "B/op",
+            "extra": "120804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/recent-200 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 28,
+            "unit": "allocs/op",
+            "extra": "120804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 555976,
+            "unit": "ns/op\t    3822 B/op\t      28 allocs/op",
+            "extra": "1081 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 555976,
+            "unit": "ns/op",
+            "extra": "1081 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3822,
+            "unit": "B/op",
+            "extra": "1081 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 28,
+            "unit": "allocs/op",
+            "extra": "1081 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 553313,
+            "unit": "ns/op\t    3820 B/op\t      28 allocs/op",
+            "extra": "1072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 553313,
+            "unit": "ns/op",
+            "extra": "1072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3820,
+            "unit": "B/op",
+            "extra": "1072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 28,
+            "unit": "allocs/op",
+            "extra": "1072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 548558,
+            "unit": "ns/op\t    3820 B/op\t      28 allocs/op",
+            "extra": "1093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 548558,
+            "unit": "ns/op",
+            "extra": "1093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3820,
+            "unit": "B/op",
+            "extra": "1093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineSearch/deep-scan-5000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 28,
+            "unit": "allocs/op",
+            "extra": "1093 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine)",
+            "value": 2461950,
+            "unit": "ns/op\t    3195 B/op\t      30 allocs/op",
+            "extra": "225 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 2461950,
+            "unit": "ns/op",
+            "extra": "225 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3195,
+            "unit": "B/op",
+            "extra": "225 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "225 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine)",
+            "value": 5162482,
+            "unit": "ns/op\t    3615 B/op\t      30 allocs/op",
+            "extra": "100 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 5162482,
+            "unit": "ns/op",
+            "extra": "100 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3615,
+            "unit": "B/op",
+            "extra": "100 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "100 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine)",
+            "value": 2434785,
+            "unit": "ns/op\t    3121 B/op\t      30 allocs/op",
+            "extra": "286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 2434785,
+            "unit": "ns/op",
+            "extra": "286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3121,
+            "unit": "B/op",
+            "extra": "286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineRecall/write-and-recall (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine)",
+            "value": 13,
+            "unit": "ns/op\t       8 B/op\t       0 allocs/op",
+            "extra": "39962623 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 13,
+            "unit": "ns/op",
+            "extra": "39962623 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 8,
+            "unit": "B/op",
+            "extra": "39962623 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "39962623 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine)",
+            "value": 12.88,
+            "unit": "ns/op\t       8 B/op\t       0 allocs/op",
+            "extra": "46046953 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 12.88,
+            "unit": "ns/op",
+            "extra": "46046953 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 8,
+            "unit": "B/op",
+            "extra": "46046953 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "46046953 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine)",
+            "value": 12.88,
+            "unit": "ns/op\t       8 B/op\t       0 allocs/op",
+            "extra": "45875628 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 12.88,
+            "unit": "ns/op",
+            "extra": "45875628 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 8,
+            "unit": "B/op",
+            "extra": "45875628 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/encode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "45875628 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine)",
+            "value": 1.397,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "438749283 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1.397,
+            "unit": "ns/op",
+            "extra": "438749283 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "438749283 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "438749283 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine)",
+            "value": 1.365,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "439484770 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1.365,
+            "unit": "ns/op",
+            "extra": "439484770 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "439484770 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "439484770 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine)",
+            "value": 1.365,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "439624246 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1.365,
+            "unit": "ns/op",
+            "extra": "439624246 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "439624246 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRoomHead/decode (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "439624246 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine)",
+            "value": 3898,
+            "unit": "ns/op\t    3681 B/op\t      22 allocs/op",
+            "extra": "142216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 3898,
+            "unit": "ns/op",
+            "extra": "142216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3681,
+            "unit": "B/op",
+            "extra": "142216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 22,
+            "unit": "allocs/op",
+            "extra": "142216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine)",
+            "value": 4559,
+            "unit": "ns/op\t    3680 B/op\t      22 allocs/op",
+            "extra": "121279 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4559,
+            "unit": "ns/op",
+            "extra": "121279 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3680,
+            "unit": "B/op",
+            "extra": "121279 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 22,
+            "unit": "allocs/op",
+            "extra": "121279 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine)",
+            "value": 4108,
+            "unit": "ns/op\t    3680 B/op\t      22 allocs/op",
+            "extra": "136288 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 4108,
+            "unit": "ns/op",
+            "extra": "136288 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3680,
+            "unit": "B/op",
+            "extra": "136288 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-on-old-messages (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 22,
+            "unit": "allocs/op",
+            "extra": "136288 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine)",
+            "value": 17409,
+            "unit": "ns/op\t    6849 B/op\t     166 allocs/op",
+            "extra": "34213 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 17409,
+            "unit": "ns/op",
+            "extra": "34213 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 6849,
+            "unit": "B/op",
+            "extra": "34213 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 166,
+            "unit": "allocs/op",
+            "extra": "34213 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine)",
+            "value": 16262,
+            "unit": "ns/op\t    6849 B/op\t     166 allocs/op",
+            "extra": "35472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 16262,
+            "unit": "ns/op",
+            "extra": "35472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 6849,
+            "unit": "B/op",
+            "extra": "35472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 166,
+            "unit": "allocs/op",
+            "extra": "35472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine)",
+            "value": 15726,
+            "unit": "ns/op\t    6849 B/op\t     166 allocs/op",
+            "extra": "37168 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 15726,
+            "unit": "ns/op",
+            "extra": "37168 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 6849,
+            "unit": "B/op",
+            "extra": "37168 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadWithReactions/reactions-everywhere (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 166,
+            "unit": "allocs/op",
+            "extra": "37168 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine)",
+            "value": 353550,
+            "unit": "ns/op\t     106 B/op\t       2 allocs/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 353550,
+            "unit": "ns/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 106,
+            "unit": "B/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "1816 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine)",
+            "value": 352859,
+            "unit": "ns/op\t      72 B/op\t       2 allocs/op",
+            "extra": "1614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 352859,
+            "unit": "ns/op",
+            "extra": "1614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 72,
+            "unit": "B/op",
+            "extra": "1614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "1614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine)",
+            "value": 367361,
+            "unit": "ns/op\t      46 B/op\t       2 allocs/op",
+            "extra": "1404 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 367361,
+            "unit": "ns/op",
+            "extra": "1404 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 46,
+            "unit": "B/op",
+            "extra": "1404 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pin-and-unpin (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "1404 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine)",
+            "value": 403318,
+            "unit": "ns/op\t    3603 B/op\t      39 allocs/op",
+            "extra": "1479 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 403318,
+            "unit": "ns/op",
+            "extra": "1479 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3603,
+            "unit": "B/op",
+            "extra": "1479 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 39,
+            "unit": "allocs/op",
+            "extra": "1479 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine)",
+            "value": 398176,
+            "unit": "ns/op\t    3599 B/op\t      39 allocs/op",
+            "extra": "1504 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 398176,
+            "unit": "ns/op",
+            "extra": "1504 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3599,
+            "unit": "B/op",
+            "extra": "1504 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 39,
+            "unit": "allocs/op",
+            "extra": "1504 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine)",
+            "value": 399326,
+            "unit": "ns/op\t    3596 B/op\t      39 allocs/op",
+            "extra": "1503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 399326,
+            "unit": "ns/op",
+            "extra": "1503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 3596,
+            "unit": "B/op",
+            "extra": "1503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEnginePins/pinned-list (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 39,
+            "unit": "allocs/op",
+            "extra": "1503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine)",
+            "value": 561454,
+            "unit": "ns/op\t     170 B/op\t       2 allocs/op",
+            "extra": "981 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 561454,
+            "unit": "ns/op",
+            "extra": "981 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 170,
+            "unit": "B/op",
+            "extra": "981 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "981 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine)",
+            "value": 364541,
+            "unit": "ns/op\t     197 B/op\t       2 allocs/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 364541,
+            "unit": "ns/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 197,
+            "unit": "B/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine)",
+            "value": 420784,
+            "unit": "ns/op\t     129 B/op\t       2 allocs/op",
+            "extra": "1783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 420784,
+            "unit": "ns/op",
+            "extra": "1783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 129,
+            "unit": "B/op",
+            "extra": "1783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/add-remove (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "1783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine)",
+            "value": 12744,
+            "unit": "ns/op\t     320 B/op\t      12 allocs/op",
+            "extra": "47024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 12744,
+            "unit": "ns/op",
+            "extra": "47024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 320,
+            "unit": "B/op",
+            "extra": "47024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "47024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine)",
+            "value": 12730,
+            "unit": "ns/op\t     320 B/op\t      12 allocs/op",
+            "extra": "47157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 12730,
+            "unit": "ns/op",
+            "extra": "47157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 320,
+            "unit": "B/op",
+            "extra": "47157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "47157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine)",
+            "value": 12737,
+            "unit": "ns/op\t     320 B/op\t      12 allocs/op",
+            "extra": "46587 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 12737,
+            "unit": "ns/op",
+            "extra": "46587 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 320,
+            "unit": "B/op",
+            "extra": "46587 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReactions/groups-read (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "46587 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine)",
+            "value": 1567,
+            "unit": "ns/op\t      81 B/op\t       3 allocs/op",
+            "extra": "548230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1567,
+            "unit": "ns/op",
+            "extra": "548230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 81,
+            "unit": "B/op",
+            "extra": "548230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "548230 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine)",
+            "value": 1313,
+            "unit": "ns/op\t      81 B/op\t       3 allocs/op",
+            "extra": "498520 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1313,
+            "unit": "ns/op",
+            "extra": "498520 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 81,
+            "unit": "B/op",
+            "extra": "498520 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "498520 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine)",
+            "value": 1290,
+            "unit": "ns/op\t      81 B/op\t       3 allocs/op",
+            "extra": "460096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1290,
+            "unit": "ns/op",
+            "extra": "460096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 81,
+            "unit": "B/op",
+            "extra": "460096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/mark-read (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "460096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine)",
+            "value": 290.7,
+            "unit": "ns/op\t      80 B/op\t       3 allocs/op",
+            "extra": "2049631 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 290.7,
+            "unit": "ns/op",
+            "extra": "2049631 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 80,
+            "unit": "B/op",
+            "extra": "2049631 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "2049631 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine)",
+            "value": 266.5,
+            "unit": "ns/op\t      80 B/op\t       3 allocs/op",
+            "extra": "2203694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 266.5,
+            "unit": "ns/op",
+            "extra": "2203694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 80,
+            "unit": "B/op",
+            "extra": "2203694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "2203694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine)",
+            "value": 264.4,
+            "unit": "ns/op\t      80 B/op\t       3 allocs/op",
+            "extra": "2245596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 264.4,
+            "unit": "ns/op",
+            "extra": "2245596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 80,
+            "unit": "B/op",
+            "extra": "2245596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-seq (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "2245596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 78350,
+            "unit": "ns/op\t   71064 B/op\t      10 allocs/op",
+            "extra": "6656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 78350,
+            "unit": "ns/op",
+            "extra": "6656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 71064,
+            "unit": "B/op",
+            "extra": "6656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "6656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 78740,
+            "unit": "ns/op\t   71062 B/op\t      10 allocs/op",
+            "extra": "7588 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 78740,
+            "unit": "ns/op",
+            "extra": "7588 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 71062,
+            "unit": "B/op",
+            "extra": "7588 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "7588 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine)",
+            "value": 77954,
+            "unit": "ns/op\t   71059 B/op\t      10 allocs/op",
+            "extra": "7258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 77954,
+            "unit": "ns/op",
+            "extra": "7258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 71059,
+            "unit": "B/op",
+            "extra": "7258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineReadCursor/read-users-1000 (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "7258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine)",
+            "value": 1860170,
+            "unit": "ns/op\t    2163 B/op\t      16 allocs/op",
+            "extra": "330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1860170,
+            "unit": "ns/op",
+            "extra": "330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2163,
+            "unit": "B/op",
+            "extra": "330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine)",
+            "value": 1386072,
+            "unit": "ns/op\t    2159 B/op\t      16 allocs/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1386072,
+            "unit": "ns/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2159,
+            "unit": "B/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine)",
+            "value": 1310035,
+            "unit": "ns/op\t    2078 B/op\t      16 allocs/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1310035,
+            "unit": "ns/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 2078,
+            "unit": "B/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/fresh-write (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "456 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine)",
+            "value": 1068586,
+            "unit": "ns/op\t    1609 B/op\t      12 allocs/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1068586,
+            "unit": "ns/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1609,
+            "unit": "B/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine)",
+            "value": 1068236,
+            "unit": "ns/op\t    1608 B/op\t      12 allocs/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1068236,
+            "unit": "ns/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1608,
+            "unit": "B/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine)",
+            "value": 1069619,
+            "unit": "ns/op\t    1610 B/op\t      12 allocs/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1069619,
+            "unit": "ns/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 1610,
+            "unit": "B/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineIdempotentReplay/cache-hit-replay (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "560 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine)",
+            "value": 42847738,
+            "unit": "ns/op\t   69398 B/op\t     514 allocs/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 42847738,
+            "unit": "ns/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 69398,
+            "unit": "B/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 514,
+            "unit": "allocs/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine)",
+            "value": 42987777,
+            "unit": "ns/op\t   70593 B/op\t     517 allocs/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 42987777,
+            "unit": "ns/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 70593,
+            "unit": "B/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 517,
+            "unit": "allocs/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine)",
+            "value": 43833097,
+            "unit": "ns/op\t   67076 B/op\t     512 allocs/op",
+            "extra": "12 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 43833097,
+            "unit": "ns/op",
+            "extra": "12 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 67076,
+            "unit": "B/op",
+            "extra": "12 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/single-message-calls (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 512,
+            "unit": "allocs/op",
+            "extra": "12 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine)",
+            "value": 1494162,
+            "unit": "ns/op\t   22025 B/op\t      58 allocs/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1494162,
+            "unit": "ns/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 22025,
+            "unit": "B/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 58,
+            "unit": "allocs/op",
+            "extra": "392 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine)",
+            "value": 1500690,
+            "unit": "ns/op\t   21128 B/op\t      58 allocs/op",
+            "extra": "376 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1500690,
+            "unit": "ns/op",
+            "extra": "376 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 21128,
+            "unit": "B/op",
+            "extra": "376 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 58,
+            "unit": "allocs/op",
+            "extra": "376 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine)",
+            "value": 1510514,
+            "unit": "ns/op\t   21233 B/op\t      58 allocs/op",
+            "extra": "397 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - ns/op",
+            "value": 1510514,
+            "unit": "ns/op",
+            "extra": "397 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - B/op",
+            "value": 21233,
+            "unit": "B/op",
+            "extra": "397 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEngineBatchWrite/one-batched-call (github.com/sanbei101/im/pkg/engine) - allocs/op",
+            "value": 58,
+            "unit": "allocs/op",
+            "extra": "397 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt)",
+            "value": 1494,
+            "unit": "ns/op\t    1200 B/op\t      15 allocs/op",
+            "extra": "378990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - ns/op",
+            "value": 1494,
+            "unit": "ns/op",
+            "extra": "378990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - B/op",
+            "value": 1200,
+            "unit": "B/op",
+            "extra": "378990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "378990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt)",
+            "value": 1488,
+            "unit": "ns/op\t    1200 B/op\t      15 allocs/op",
+            "extra": "375794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - ns/op",
+            "value": 1488,
+            "unit": "ns/op",
+            "extra": "375794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - B/op",
+            "value": 1200,
+            "unit": "B/op",
+            "extra": "375794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "375794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt)",
+            "value": 1483,
+            "unit": "ns/op\t    1200 B/op\t      15 allocs/op",
+            "extra": "407203 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - ns/op",
+            "value": 1483,
+            "unit": "ns/op",
+            "extra": "407203 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - B/op",
+            "value": 1200,
+            "unit": "B/op",
+            "extra": "407203 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/generate (github.com/sanbei101/im/pkg/jwt) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "407203 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt)",
+            "value": 2345,
+            "unit": "ns/op\t     689 B/op\t      11 allocs/op",
+            "extra": "246268 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - ns/op",
+            "value": 2345,
+            "unit": "ns/op",
+            "extra": "246268 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - B/op",
+            "value": 689,
+            "unit": "B/op",
+            "extra": "246268 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "246268 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt)",
+            "value": 2347,
+            "unit": "ns/op\t     688 B/op\t      11 allocs/op",
+            "extra": "247104 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - ns/op",
+            "value": 2347,
+            "unit": "ns/op",
+            "extra": "247104 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - B/op",
+            "value": 688,
+            "unit": "B/op",
+            "extra": "247104 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "247104 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt)",
+            "value": 2339,
+            "unit": "ns/op\t     689 B/op\t      11 allocs/op",
+            "extra": "252346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - ns/op",
+            "value": 2339,
+            "unit": "ns/op",
+            "extra": "252346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - B/op",
+            "value": 689,
+            "unit": "B/op",
+            "extra": "252346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkJWT/parse (github.com/sanbei101/im/pkg/jwt) - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "252346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render)",
+            "value": 790,
+            "unit": "ns/op\t     516 B/op\t       4 allocs/op",
+            "extra": "697801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 790,
+            "unit": "ns/op",
+            "extra": "697801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 516,
+            "unit": "B/op",
+            "extra": "697801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "697801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render)",
+            "value": 775.7,
+            "unit": "ns/op\t     516 B/op\t       4 allocs/op",
+            "extra": "792590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 775.7,
+            "unit": "ns/op",
+            "extra": "792590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 516,
+            "unit": "B/op",
+            "extra": "792590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "792590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render)",
+            "value": 778,
+            "unit": "ns/op\t     516 B/op\t       4 allocs/op",
+            "extra": "761180 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 778,
+            "unit": "ns/op",
+            "extra": "761180 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 516,
+            "unit": "B/op",
+            "extra": "761180 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/encode-push-frame (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "761180 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render)",
+            "value": 1912,
+            "unit": "ns/op\t    5744 B/op\t      20 allocs/op",
+            "extra": "325044 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 1912,
+            "unit": "ns/op",
+            "extra": "325044 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 5744,
+            "unit": "B/op",
+            "extra": "325044 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "325044 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render)",
+            "value": 1909,
+            "unit": "ns/op\t    5744 B/op\t      20 allocs/op",
+            "extra": "315841 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 1909,
+            "unit": "ns/op",
+            "extra": "315841 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 5744,
+            "unit": "B/op",
+            "extra": "315841 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "315841 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render)",
+            "value": 1913,
+            "unit": "ns/op\t    5744 B/op\t      20 allocs/op",
+            "extra": "329311 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 1913,
+            "unit": "ns/op",
+            "extra": "329311 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 5744,
+            "unit": "B/op",
+            "extra": "329311 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "329311 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render)",
+            "value": 771.9,
+            "unit": "ns/op\t     176 B/op\t       2 allocs/op",
+            "extra": "805958 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 771.9,
+            "unit": "ns/op",
+            "extra": "805958 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 176,
+            "unit": "B/op",
+            "extra": "805958 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "805958 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render)",
+            "value": 749.1,
+            "unit": "ns/op\t     176 B/op\t       2 allocs/op",
+            "extra": "808305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 749.1,
+            "unit": "ns/op",
+            "extra": "808305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 176,
+            "unit": "B/op",
+            "extra": "808305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "808305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render)",
+            "value": 757,
+            "unit": "ns/op\t     176 B/op\t       2 allocs/op",
+            "extra": "737716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - ns/op",
+            "value": 757,
+            "unit": "ns/op",
+            "extra": "737716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - B/op",
+            "value": 176,
+            "unit": "B/op",
+            "extra": "737716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRender/read-client-frame-reused (github.com/sanbei101/im/pkg/render) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "737716 times\n4 procs"
           }
         ]
       }
