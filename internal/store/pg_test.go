@@ -2,28 +2,22 @@ package store
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"testing"
 	"time"
 	"uuid"
-)
 
-func pgTestURL() string {
-	if value := os.Getenv("TEST_POSTGRES_URL"); value != "" {
-		return value
-	}
-	return "postgres://127.0.0.1:5432/im_test?sslmode=disable"
-}
+	"github.com/sanbei101/im/pkg/config"
+)
 
 // newPGTestDB opens the shared test database and clears control-plane tables.
 // PostgreSQL tests and benchmarks are serialized by the Makefile.
 func newPGTestDB(tb testing.TB) *DB {
 	tb.Helper()
 	ctx := context.Background()
-	db, err := OpenDB(ctx, pgTestURL())
+	db, err := OpenDB(ctx, config.LoadTest().Postgres.URL)
 	if err != nil {
-		tb.Fatalf("open postgres: %v (run `make test` first)", err)
+		tb.Fatalf("open postgres: %v", err)
 	}
 	tb.Cleanup(db.Close)
 	if _, err := db.pool.Exec(ctx, `TRUNCATE users, rooms CASCADE`); err != nil {

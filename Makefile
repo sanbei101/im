@@ -33,23 +33,14 @@ lint:
 	golangci-lint run
 
 test:
-	@if test -z "$$TEST_POSTGRES_URL"; then \
-		psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='im_test'" | grep -q 1 || createdb im_test; \
-	fi
-	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p 1 -race ./...
+	@go test -p 1 -race ./...
 
 bench:
-	@if test -z "$$TEST_POSTGRES_URL"; then \
-		psql -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='im_test'" | grep -q 1 || createdb im_test; \
-	fi
-	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p $(P) ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=$(COUNT)
+	@go test -p $(P) ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=$(COUNT)
 
 pprof:
 	@mkdir -p $(PPROF_DIR)
-	@TEST_POSTGRES_URL="$${TEST_POSTGRES_URL:-postgres://127.0.0.1:5432/im_test?sslmode=disable}" \
-		go test -p 4 ./pkg/engine -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
+	@go test -p 4 ./pkg/engine -run '^$$' -bench '$(BENCH)' -benchmem -count=1 \
 		-cpuprofile $(PPROF_DIR)/cpu.prof \
 		-memprofile $(PPROF_DIR)/mem.prof \
 		-mutexprofile $(PPROF_DIR)/mutex.prof \

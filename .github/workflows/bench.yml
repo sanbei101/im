@@ -39,8 +39,8 @@ jobs:
           - 5432:5432
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: im_test
+          POSTGRES_HOST_AUTH_METHOD: trust
         options: >-
           --health-cmd "pg_isready -U postgres -d im_test"
           --health-interval 5s
@@ -66,14 +66,10 @@ jobs:
           cache-dependency-path: 'go.sum'
 
       - name: Test
-        env:
-          TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/im_test?sslmode=disable
         run: make test
 
       - name: Benchmark
         shell: bash
-        env:
-          TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/im_test?sslmode=disable
         run: set -o pipefail; make bench P=1 COUNT=10 2>&1 | tee bench.txt
 
       - name: Store benchmark result

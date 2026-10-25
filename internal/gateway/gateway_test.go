@@ -19,7 +19,7 @@ import (
 
 func newTestGateway(t *testing.T) *Gateway {
 	t.Helper()
-	return NewGateway(config.NewTest())
+	return NewGateway(config.LoadTest())
 }
 
 func newTestClient(userID uuid.UUID, sendBuffer int) *UserClient {
@@ -344,7 +344,7 @@ func TestUserClientPingPump(t *testing.T) {
 }
 
 func BenchmarkGateway(b *testing.B) {
-	g := NewGateway(config.NewTest())
+	g := NewGateway(config.LoadTest())
 
 	b.Run("session-load-or-create", func(b *testing.B) {
 		user := uuid.NewV7()

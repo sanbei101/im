@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/phuslu/log"
@@ -21,6 +22,9 @@ type DB struct {
 }
 
 func OpenDB(ctx context.Context, url string) (*DB, error) {
+	if err := ensureDatabase(ctx, url); err != nil {
+		return nil, err
+	}
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
@@ -35,6 +39,41 @@ func OpenDB(ctx context.Context, url string) (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// ensureDatabase creates the database named in url when it is missing,
+// connecting through the maintenance database first. A fresh PostgreSQL
+// install therefore boots without a manual createdb step. The Makefile
+// serializes tests with -p 1, so concurrent creation is not a concern.
+func ensureDatabase(ctx context.Context, url string) error {
+	poolCfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return fmt.Errorf("parse postgres url: %w", err)
+	}
+	name := poolCfg.ConnConfig.Database
+	poolCfg.ConnConfig.Database = "postgres"
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+	defer pool.Close()
+	var exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("check database %s: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := pool.Exec(ctx, "CREATE DATABASE "+quoteIdent(name)); err != nil {
+		return fmt.Errorf("create database %s: %w", name, err)
+	}
+	return nil
+}
+
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func (db *DB) Close() {

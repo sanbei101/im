@@ -170,7 +170,7 @@ func testServeHTTPReportsServeError(t *testing.T) {
 }
 
 func testOwnsRoom(t *testing.T) {
-	cfg := config.NewTest()
+	cfg := config.LoadTest()
 	cfg.Shard.Slots = 1024
 	cfg.API.NodeCount = 2
 	cfg.API.NodeIndex = 1
@@ -211,7 +211,7 @@ func testOwnsRoom(t *testing.T) {
 
 func testRunRejectsInvalidConfig(t *testing.T) {
 	t.Run("missing http address", func(t *testing.T) {
-		cfg := config.NewTest()
+		cfg := config.LoadTest()
 		cfg.API.HTTPAddr = ""
 		if err := run(cfg); err == nil {
 			t.Fatal("run accepted an empty api.http_addr")
@@ -219,7 +219,7 @@ func testRunRejectsInvalidConfig(t *testing.T) {
 	})
 
 	t.Run("missing jwt secret", func(t *testing.T) {
-		cfg := config.NewTest()
+		cfg := config.LoadTest()
 		cfg.JWTSecret = ""
 		if err := run(cfg); err == nil {
 			t.Fatal("run accepted an empty jwt_secret")
@@ -235,7 +235,7 @@ func testServeStartsAndStops(t *testing.T) {
 	))
 	defer objectStore.Close()
 
-	cfg := config.NewTest()
+	cfg := config.LoadTest()
 	cfg.Store.Path = t.TempDir()
 	cfg.Store.BackupPath = t.TempDir()
 	cfg.API.Addr = freeAddr(t)

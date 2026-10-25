@@ -19,6 +19,7 @@ import (
 
 	"github.com/sanbei101/im/internal/store"
 	"github.com/sanbei101/im/pkg"
+	"github.com/sanbei101/im/pkg/config"
 	"github.com/sanbei101/im/pkg/engine"
 	"github.com/sanbei101/im/pkg/jwt"
 	"github.com/sanbei101/im/pkg/render"
@@ -40,23 +41,17 @@ type testEnv struct {
 	handler http.Handler
 }
 
-func testDBURL() string {
-	if value := os.Getenv("TEST_POSTGRES_URL"); value != "" {
-		return value
-	}
-	return "postgres://127.0.0.1:5432/im_test?sslmode=disable"
-}
-
 func newTestEnv(tb testing.TB) *testEnv {
 	tb.Helper()
 	ctx := context.Background()
-	db, err := store.OpenDB(ctx, testDBURL())
+	dbURL := config.LoadTest().Postgres.URL
+	db, err := store.OpenDB(ctx, dbURL)
 	if err != nil {
 		tb.Fatalf("open postgres: %v", err)
 	}
 	tb.Cleanup(db.Close)
 
-	admin, err := pgxpool.New(ctx, testDBURL())
+	admin, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		tb.Fatalf("open postgres admin: %v", err)
 	}

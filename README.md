@@ -38,9 +38,9 @@ make gen
 准备 PostgreSQL 并启动 API 和 Gateway:
 
 ```bash
-createdb im
-cp config.example.yaml config.yaml
+cp config.test.yaml config.yaml
 # 填写 postgres.url、jwt_secret 与 storage 凭据；对象存储是 API 启动的硬依赖
+# 首次启动会自动创建 postgres.url 指向的数据库
 go run ./cmd/api
 go run ./cmd/gateway
 ```

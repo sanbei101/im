@@ -1,0 +1,42 @@
+# Test baseline config, loaded by config.LoadTest() from any test binary.
+# Tests override per-test specifics (temp dirs, free ports) on top of it.
+api:
+  node_id: api-test
+  addr: "127.0.0.1:9100"
+  http_addr: "127.0.0.1:8901"
+  pprof_addr: "127.0.0.1:6071"
+  node_index: 0
+  node_count: 1
+
+gateway:
+  addr: "127.0.0.1:8900"
+  api_addrs:
+    - "127.0.0.1:9100"
+  api_http_addrs:
+    - "127.0.0.1:8901"
+
+postgres:
+  # Matches the CI postgres service (POSTGRES_HOST_AUTH_METHOD: trust) and a
+  # default local install with trust auth for the postgres role.
+  url: "postgres://postgres@127.0.0.1:5432/im_test?sslmode=disable"
+
+store:
+  path: "./data/api-test"
+  backup_path: "./backup/api-test"
+  backup_interval_seconds: 3600
+
+shard:
+  slots: 1024
+
+# Matches the CI rustfs service (19901 -> 9000).
+storage:
+  endpoint: "127.0.0.1:19901"
+  bucket: "im-media"
+  access_key: "rustfsadmin"
+  secret_key: "rustfsadmin"
+  region: "us-east-1"
+  use_ssl: false
+  path_style: true
+  public_base_url: "http://127.0.0.1:19901"
+
+jwt_secret: "test-secret"

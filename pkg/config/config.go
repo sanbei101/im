@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,8 @@ import (
 )
 
 const defaultConfigPath = "config.yaml"
+
+const testConfigName = "config.test.yaml"
 
 type Config struct {
 	API       APIConfig      `yaml:"api"`
@@ -73,27 +76,33 @@ func New() *Config {
 	return cfg
 }
 
-// NewTest returns a self-contained config for tests; it never reads the
-// environment or the filesystem.
-func NewTest() *Config {
-	return &Config{
-		API: APIConfig{
-			NodeID: "api-1", Addr: ":9000", HTTPAddr: ":8801",
-			PProfAddr: "127.0.0.1:6061", NodeCount: 1,
-		},
-		Gateway: GatewayConfig{
-			Addr: ":8800", APIAddrs: []string{"127.0.0.1:9000"},
-			APIHTTPAddrs: []string{"127.0.0.1:8801"},
-		},
-		Postgres: PostgresConfig{URL: "postgres://127.0.0.1:5432/im_test?sslmode=disable"},
-		Store:    StoreConfig{Path: "data/api-1", BackupPath: "backup/api-1", BackupInterval: 3600},
-		Shard:    ShardConfig{Slots: 1024},
-		Storage: StorageConfig{
-			Endpoint: "127.0.0.1:19901", Bucket: "im-media",
-			AccessKey: "rustfsadmin", SecretKey: "rustfsadmin",
-			Region: "us-east-1", PathStyle: true, PublicBaseURL: "https://cdn.example.test",
-		},
+// LoadTest loads config.test.yaml as the baseline config for tests. go test
+// runs binaries inside their package directory, so the file is searched for in
+// each parent directory up to the repository root.
+func LoadTest() *Config {
+	cfg, err := Load(findTestConfig())
+	if err != nil {
+		panic(fmt.Errorf("load test config: %w", err))
 	}
+	return cfg
+}
+
+func findTestConfig() string {
+	dir, err := os.Getwd()
+	if err == nil {
+		for {
+			path := filepath.Join(dir, testConfigName)
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return testConfigName
 }
 
 func Load(path string) (*Config, error) {
