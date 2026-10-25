@@ -29,5 +29,5 @@ jobs:
         with:
           mode: walltime
           run: >-
-            go test -p 1 -run '^$' -bench . -benchmem
+            go test -run '^$' -bench . -benchmem
             ./pkg/... ./internal/gateway/... ./internal/router/...
