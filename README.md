@@ -88,6 +88,29 @@ postgres:
 
 房间相关 HTTP 请求(路径或 `room_id` 查询参数/JSON 字段)只由 Gateway 转发到该房间的归属节点;API 节点只处理本地槽位的数据。单聊房间 ID 由双方用户 ID 确定性生成;群聊创建必须携带客户端生成的 `room_id`,以便在创建前完成路由。
 
+## 扩缩容
+
+扩容或缩容 API 节点需要停机执行:槽位归属由 `node_count` 决定,变更后部分房间的归属节点会改变,这些房间的 Pebble 数据(消息、房间头、幂等记录、已读游标、置顶、表情和归档文件)必须搬到新归属节点。`imctl migrate` 完成搬运:
+
+```bash
+# 1. 停止所有 gateway 和 api 进程(Pebble 目录锁会拒绝并行打开)
+
+# 2. 预览将搬动的数据(不写任何目录)
+./bin/imctl migrate -slots 1024 \
+  -old-dirs ./data/api-1,./data/api-2 \
+  -new-dirs ./data/api-1,./data/api-2,./data/api-3 \
+  --dry-run
+
+# 3. 执行迁移:保留索引的节点沿用原目录,新增节点使用全新空目录
+./bin/imctl migrate -slots 1024 \
+  -old-dirs ./data/api-1,./data/api-2 \
+  -new-dirs ./data/api-1,./data/api-2,./data/api-3
+
+# 4. 更新所有节点的 node_index/node_count、gateway 的 api_addrs/api_http_addrs 后启动
+```
+
+目录列表按 `node_index` 排列。迁移先提交目标端再删除源端,中断后重跑即可收敛;缩容同理,被下线节点的目录会搬空。若数据目录不在同一台机器,把各节点目录挂到同一文件系统下再执行。
+
 ## 数据写入约定
 
 Pebble Value 使用 `encoding/binary` 手写编码,不使用 JSON。消息写入会在同一个 Batch 中更新消息、房间序号和幂等记录;只有同步提交成功后才返回成功结果。PostgreSQL 表结构见 `internal/store/migrations`。

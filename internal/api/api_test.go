@@ -223,8 +223,8 @@ func TestStreamHandler(t *testing.T) {
 		if !env.stream.IsOnline(userID) {
 			t.Fatal("online session was not registered")
 		}
-		if got := env.stream.onlineConnection(userID); got != connection {
-			t.Fatal("online lookup returned the wrong connection")
+		if got := env.stream.onlineConnections(userID); len(got) != 1 || got[0] != connection {
+			t.Fatalf("online lookup returned %v, want [%v]", got, connection)
 		}
 
 		stale := newConnection()
@@ -251,6 +251,40 @@ func TestStreamHandler(t *testing.T) {
 		env.stream.removeConnection(connection)
 		if env.stream.IsOnline(userID) {
 			t.Fatal("removeConnection did not clear the session")
+		}
+	})
+
+	t.Run("multi gateway sessions", func(t *testing.T) {
+		env := newTestEnv(t)
+		userID := uuid.NewV7()
+		gatewayA := newConnection()
+		gatewayB := newConnection()
+
+		// The same user online through two gateway instances: both entries
+		// must coexist instead of the second overwriting the first.
+		for _, connection := range []*apiConnection{gatewayA, gatewayB} {
+			env.stream.updateSessions(connection, &pb.SessionBatch{Sessions: []*pb.Session{{
+				UserId: userID.String(),
+				Online: true,
+			}}})
+		}
+		if got := len(env.stream.onlineConnections(userID)); got != 2 {
+			t.Fatalf("connections = %d, want 2", got)
+		}
+
+		// One gateway dying keeps the user reachable through the other.
+		env.stream.removeConnection(gatewayA)
+		if !env.stream.IsOnline(userID) {
+			t.Fatal("removing one gateway dropped the user entirely")
+		}
+		conns := env.stream.onlineConnections(userID)
+		if len(conns) != 1 || conns[0] != gatewayB {
+			t.Fatalf("connections = %v, want [gatewayB]", conns)
+		}
+
+		env.stream.removeConnection(gatewayB)
+		if env.stream.IsOnline(userID) {
+			t.Fatal("removing the last gateway did not clear the session")
 		}
 	})
 

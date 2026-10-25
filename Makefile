@@ -11,6 +11,7 @@ build:
 	@mkdir -p $(BIN_DIR)
 	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/api ./cmd/api
 	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/gateway ./cmd/gateway
+	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/imctl ./cmd/imctl
 
 dev: build
 	@mkdir -p .tmp

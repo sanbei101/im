@@ -64,7 +64,7 @@ func (db *DB) ListenNotifications(ctx context.Context, handler func(Notification
 			}
 		}
 		if conn != nil {
-			_ = conn.Close(context.Background())
+			conn.Close(context.Background())
 		}
 		select {
 		case <-ctx.Done():

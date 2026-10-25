@@ -21,8 +21,12 @@ const (
 )
 
 type sessionShard struct {
-	mu       sync.RWMutex
-	sessions map[uuid.UUID]*apiConnection
+	mu sync.RWMutex
+	// sessions holds every gateway connection the user is online through.
+	// A user may hold sessions on several gateway instances at once, so this
+	// is a set, not a single connection; its size is bounded by the gateway
+	// count because each gateway registers a user at most once per connection.
+	sessions map[uuid.UUID]map[*apiConnection]struct{}
 }
 
 type StreamHandler struct {
@@ -111,7 +115,7 @@ func NewStreamHandler(
 		nodeCount: nodeCount,
 	}
 	for i := range handler.sessionShards {
-		handler.sessionShards[i].sessions = make(map[uuid.UUID]*apiConnection)
+		handler.sessionShards[i].sessions = make(map[uuid.UUID]map[*apiConnection]struct{})
 	}
 	return handler
 }
@@ -166,12 +170,24 @@ func (h *StreamHandler) updateSessions(connection *apiConnection, batch *pb.Sess
 		shard := h.getSessionShard(userID)
 		shard.mu.Lock()
 		if session.GetOnline() {
-			shard.sessions[userID] = connection
+			conns := shard.sessions[userID]
+			if conns == nil {
+				conns = make(map[*apiConnection]struct{})
+				shard.sessions[userID] = conns
+			}
+			conns[connection] = struct{}{}
 			connection.mu.Lock()
 			connection.users[userID] = struct{}{}
 			connection.mu.Unlock()
-		} else if current := shard.sessions[userID]; current == connection {
-			delete(shard.sessions, userID)
+		} else {
+			// Offline arrives on the gateway's own connection, so it removes
+			// only that gateway's entry; the user may stay online elsewhere.
+			if conns := shard.sessions[userID]; conns != nil {
+				delete(conns, connection)
+				if len(conns) == 0 {
+					delete(shard.sessions, userID)
+				}
+			}
 			connection.mu.Lock()
 			delete(connection.users, userID)
 			connection.mu.Unlock()
@@ -191,8 +207,11 @@ func (h *StreamHandler) removeConnection(connection *apiConnection) {
 	for _, userID := range users {
 		shard := h.getSessionShard(userID)
 		shard.mu.Lock()
-		if current := shard.sessions[userID]; current == connection {
-			delete(shard.sessions, userID)
+		if conns := shard.sessions[userID]; conns != nil {
+			delete(conns, connection)
+			if len(conns) == 0 {
+				delete(shard.sessions, userID)
+			}
 		}
 		shard.mu.Unlock()
 	}
@@ -275,13 +294,15 @@ func (h *StreamHandler) push(ctx context.Context, message *engine.Message, exclu
 	roomIDStr := message.RoomID.String()
 	senderIDStr := message.SenderID.String()
 
-	// Group online recipients per gateway connection; payload is sent once per gateway.
+	// Group online recipients per gateway connection; payload is sent once per
+	// gateway. A member online through several gateways is listed on each of
+	// them, so every gateway fans the message out to its own local sessions.
 	targets := make(map[*apiConnection][]string)
 	for _, member := range members {
 		if exclude != uuid.Nil() && member.UserID == exclude {
 			continue
 		}
-		if connection := h.onlineConnection(member.UserID); connection != nil {
+		for _, connection := range h.onlineConnections(member.UserID) {
 			targets[connection] = append(targets[connection], member.UserID.String())
 		}
 	}
@@ -348,17 +369,28 @@ func (h *StreamHandler) message(input *pb.SendMessage) (engine.Message, error) {
 	return message, nil
 }
 
-// onlineConnection returns the gateway connection carrying the user's
-// session, or nil when the user is offline on this node.
-func (h *StreamHandler) onlineConnection(userID uuid.UUID) *apiConnection {
+// onlineConnections returns every gateway connection carrying the user's
+// session; a user may be online through several gateway instances at once.
+func (h *StreamHandler) onlineConnections(userID uuid.UUID) []*apiConnection {
 	shard := h.getSessionShard(userID)
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
-	return shard.sessions[userID]
+	conns := shard.sessions[userID]
+	if len(conns) == 0 {
+		return nil
+	}
+	list := make([]*apiConnection, 0, len(conns))
+	for connection := range conns {
+		list = append(list, connection)
+	}
+	return list
 }
 
 func (h *StreamHandler) IsOnline(userID uuid.UUID) bool {
-	return h.onlineConnection(userID) != nil
+	shard := h.getSessionShard(userID)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	return len(shard.sessions[userID]) > 0
 }
 
 func (h *StreamHandler) Push(ctx context.Context, message *engine.Message) error {
@@ -466,7 +498,7 @@ func (h *StreamHandler) NotifyRaw(event string, userIDs []uuid.UUID, payload []b
 		if pkg.UUIDShard(uid, h.nodeCount) != h.nodeIndex {
 			continue
 		}
-		if conn := h.onlineConnection(uid); conn != nil {
+		for _, conn := range h.onlineConnections(uid) {
 			targets[conn] = append(targets[conn], uid.String())
 		}
 	}

@@ -12,7 +12,8 @@
 - 用户、设备、好友、申请、黑名单、房间、成员和成员设置统一存 PostgreSQL;所有 API 节点共享同一数据库。已读游标按房间存放在归属节点的 Pebble。
 - 会话列表只从 PostgreSQL 返回房间和成员设置;最新消息、未读和已读游标由客户端本地维护,新设备按需懒加载。跨节点通知使用 `LISTEN/NOTIFY`。
 - 实时推送不是可靠存储,断线和推送失败统一通过房间消息序号补拉。
-- Pebble checkpoint 由 API 进程定期生成和保留;当前不实现 `imctl`。
+- Pebble checkpoint 由 API 进程定期生成和保留;`cmd/imctl` 的 `migrate` 命令在停机窗口内于节点目录间搬移槽位归属变化的消息面数据。
+- API 端按用户维护 gateway 连接集合,同一用户可同时在线在多个 gateway 实例上;通知投递按 `UUIDShard` 选举唯一 API 节点,向该用户在所有 gateway 上的连接扇出。
 - 多 API 节点时,`gateway.api_addrs` 与 `gateway.api_http_addrs` 都按 `node_index` 排列;客户端只连接 Gateway,`/ws` 走长连接,带 `room_id` 的 `/api` 请求由 Gateway 转发到归属节点,API 不再自行转发。
 - 不再有 Meta 进程或 Meta RPC;控制面代码和 SQL 都在 API 进程内。
 
@@ -23,6 +24,7 @@
 ```text
 cmd/api          API 入口(控制面 + 消息面)
 cmd/gateway      Gateway 入口
+cmd/imctl        停机运维工具(槽位迁移)
 internal/api     HTTP Handler、Kitex Server 和 API 业务逻辑
 internal/gateway WebSocket、Kitex Client、会话和批量发送
 internal/store   PostgreSQL 控制面、迁移
