@@ -239,125 +239,200 @@ type writeScratch struct {
 	dedup  [dedupRecordLen]byte
 }
 
-func (e *Engine) writeMessageBatch(
-	messages []Message,
-	results []MessageWriteResult,
-) {
-	batch := e.db.NewBatch()
-	defer batch.Close()
-	lastSeqs := make(map[uuid.UUID]uint64)
-	digests := make([][32]byte, len(messages))
-	pending := make(map[dedupLookupKey]int, len(messages))
-	var allocated []int
-	var dedupEntries []dedupEntry
-	failedRooms := make(map[uuid.UUID]struct{})
+// messageBatch accumulates one writer-goroutine write: it allocates room
+// seqs, resolves idempotency, and stages Pebble writes, then commits the
+// batch atomically and publishes the committed state to the caches. All
+// buffers belong to the single writer goroutine and need no locking.
+type messageBatch struct {
+	engine   *Engine
+	batch    *pebble.Batch
+	messages []Message
+	results  []MessageWriteResult
 
-	var dedupKeyBuf [dedupKeyLen]byte
-	var roomKeyBuf [roomKeyLen]byte
-	var msgKeyBuf [messageKeyLen]byte
-	recBuf := e.scratch.record
-	roomBuf := e.scratch.room
-	day := dedupDay(time.Now())
+	day      uint16
+	lastSeqs map[uuid.UUID]uint64
+	digests  [][32]byte
+	// pending maps an idempotency key to the first in-batch message index
+	// that staged it, so later duplicates replay or conflict against it.
+	pending      map[dedupLookupKey]int
+	allocated    []int
+	dedupEntries []dedupEntry
+	failedRooms  map[uuid.UUID]struct{}
 
-	for index := range messages {
-		if results[index].Err != nil {
-			continue
-		}
-		message := &messages[index]
-		results[index].Message = *message
-		lastSeq, err := e.loadLastSeq(message.RoomID, lastSeqs)
-		if err != nil {
-			results[index].Err = err
-			continue
-		}
-		digests[index] = e.messageDigest(message)
+	dedupKeyBuf [dedupKeyLen]byte
+	roomKeyBuf  [roomKeyLen]byte
+	msgKeyBuf   [messageKeyLen]byte
+	recBuf      []byte
+	roomBuf     []byte
+}
 
-		lookup := dedupLookupKey{room: message.RoomID, sender: message.SenderID, client: message.ClientMsgID}
-		if previous, ok := pending[lookup]; ok {
-			switch {
-			case digests[previous] != digests[index]:
-				results[index].Err = ErrConflict
-			case results[previous].Err != nil:
-				results[index].Err = results[previous].Err
-			default:
-				results[index].Message = results[previous].Message
-			}
-			continue
-		}
-		pending[lookup] = index
-
-		if old, ok := e.dedupCache.Get(lookup); ok {
-			replayDedup(&results[index], old, digests[index])
-			continue
-		}
-		if old, found, err := e.findDedup(day, lookup); err != nil {
-			results[index].Err = err
-			continue
-		} else if found {
-			replayDedup(&results[index], old, digests[index])
-			continue
-		}
-
-		lastSeq++
-		results[index].Message.RoomSeq = lastSeq
-		results[index].Message.ServerTime = time.Now().UnixMicro()
-		lastSeqs[message.RoomID] = lastSeq
-		allocated = append(allocated, index)
-
-		msgKey := appendMessageKey(msgKeyBuf[:0], message.RoomID, results[index].Message.RoomSeq)
-		recBuf = appendMessage(recBuf[:0], results[index].Message)
-		if err := e.setBytes(batch, msgKey, recBuf); err != nil {
-			results[index].Err = err
-			continue
-		}
-		record := dedup{
-			RoomSeq:    results[index].Message.RoomSeq,
-			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
-		}
-		dedupKeyBytes := appendDedupKey(dedupKeyBuf[:0], day, message.RoomID, message.SenderID, message.ClientMsgID)
-		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.scratch.dedup[:], record)); err != nil {
-			results[index].Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(batch, msgKey))
-			continue
-		}
-		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: record})
-	}
-	for roomID := range lastSeqs {
-		roomKeyBytes := appendRoomKey(roomKeyBuf[:0], roomID)
-		roomBuf = appendRoomHead(roomBuf[:0], lastSeqs[roomID])
-		if err := e.setBytes(batch, roomKeyBytes, roomBuf); err != nil {
-			failedRooms[roomID] = struct{}{}
-			for index := range results {
-				if results[index].Message.RoomID == roomID && results[index].Err == nil {
-					results[index].Err = err
-				}
-			}
-		}
-	}
-	if err := commit(batch); err != nil {
-		for index := range results {
-			if results[index].Err == nil {
-				results[index].Err = fmt.Errorf("commit messages: %w", err)
-			}
-		}
+// writeMessageBatch stages, commits, and publishes one write batch.
+func (e *Engine) writeMessageBatch(messages []Message, results []MessageWriteResult) {
+	mb := e.newMessageBatch(messages, results)
+	defer mb.batch.Close()
+	mb.stageMessages()
+	mb.stageRoomHeads()
+	if !mb.commit() {
 		return
 	}
-	e.scratch.record, e.scratch.room = recBuf, roomBuf
-	// Caches are filled only after the commit succeeded: a failed commit must
-	// not leave in-memory state ahead of disk.
-	for roomID := range lastSeqs {
-		if _, ok := failedRooms[roomID]; ok {
-			continue
+	mb.publish()
+}
+
+func (e *Engine) newMessageBatch(messages []Message, results []MessageWriteResult) *messageBatch {
+	return &messageBatch{
+		engine:      e,
+		batch:       e.db.NewBatch(),
+		messages:    messages,
+		results:     results,
+		day:         dedupDay(time.Now()),
+		lastSeqs:    make(map[uuid.UUID]uint64),
+		digests:     make([][32]byte, len(messages)),
+		pending:     make(map[dedupLookupKey]int, len(messages)),
+		failedRooms: make(map[uuid.UUID]struct{}),
+		recBuf:      e.scratch.record,
+		roomBuf:     e.scratch.room,
+	}
+}
+
+// stageMessages preprocesses and stages every not-yet-failed message: resolve
+// idempotency, allocate the next room_seq, and put the message record plus
+// its dedup credential into the batch.
+func (mb *messageBatch) stageMessages() {
+	for index := range mb.messages {
+		if mb.results[index].Err == nil {
+			mb.stageMessage(index)
 		}
-		e.getRoomShard(roomID).rooms.Set(roomID, lastSeqs[roomID])
 	}
-	for _, entry := range dedupEntries {
-		e.dedupCache.Set(entry.lookup, entry.dedup)
+}
+
+func (mb *messageBatch) stageMessage(index int) {
+	message := &mb.messages[index]
+	mb.results[index].Message = *message
+	lastSeq, err := mb.engine.loadLastSeq(message.RoomID, mb.lastSeqs)
+	if err != nil {
+		mb.results[index].Err = err
+		return
 	}
-	// The cache is filled only after the commit succeeded, so a message in the
-	// tail cache is always covered by a successful ACK.
-	for _, index := range allocated {
-		if results[index].Err == nil {
-			e.cache.append(&results[index].Message)
+	mb.digests[index] = mb.engine.messageDigest(message)
+
+	lookup := dedupLookupKey{room: message.RoomID, sender: message.SenderID, client: message.ClientMsgID}
+	if previous, ok := mb.pending[lookup]; ok {
+		mb.replayInBatch(index, previous)
+		return
+	}
+	mb.pending[lookup] = index
+
+	if old, ok := mb.engine.dedupCache.Get(lookup); ok {
+		replayDedup(&mb.results[index], old, mb.digests[index])
+		return
+	}
+	if old, found, err := mb.engine.findDedup(mb.day, lookup); err != nil {
+		mb.results[index].Err = err
+		return
+	} else if found {
+		replayDedup(&mb.results[index], old, mb.digests[index])
+		return
+	}
+
+	mb.allocate(index, message, lookup, lastSeq)
+}
+
+// replayInBatch answers a same-batch duplicate against the first staged
+// message carrying the same idempotency key.
+func (mb *messageBatch) replayInBatch(index, previous int) {
+	switch {
+	case mb.digests[previous] != mb.digests[index]:
+		mb.results[index].Err = ErrConflict
+	case mb.results[previous].Err != nil:
+		mb.results[index].Err = mb.results[previous].Err
+	default:
+		mb.results[index].Message = mb.results[previous].Message
+	}
+}
+
+// allocate takes the next room_seq for a fresh message and stages its record
+// and dedup credential into the batch.
+func (mb *messageBatch) allocate(index int, message *Message, lookup dedupLookupKey, lastSeq uint64) {
+	lastSeq++
+	result := &mb.results[index]
+	result.Message.RoomSeq = lastSeq
+	result.Message.ServerTime = time.Now().UnixMicro()
+	mb.lastSeqs[message.RoomID] = lastSeq
+	mb.allocated = append(mb.allocated, index)
+
+	msgKey := appendMessageKey(mb.msgKeyBuf[:0], message.RoomID, lastSeq)
+	mb.recBuf = appendMessage(mb.recBuf[:0], result.Message)
+	if err := mb.engine.setBytes(mb.batch, msgKey, mb.recBuf); err != nil {
+		result.Err = err
+		return
+	}
+	record := dedup{
+		RoomSeq:    lastSeq,
+		ServerTime: result.Message.ServerTime,
+		PayloadSum: mb.digests[index],
+	}
+	dedupKey := appendDedupKey(mb.dedupKeyBuf[:0], mb.day, message.RoomID, message.SenderID, message.ClientMsgID)
+	if err := mb.engine.setBytes(mb.batch, dedupKey, appendDedup(mb.engine.scratch.dedup[:], record)); err != nil {
+		result.Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(mb.batch, msgKey))
+		return
+	}
+	mb.dedupEntries = append(mb.dedupEntries, dedupEntry{lookup: lookup, dedup: record})
+}
+
+// stageRoomHeads rewrites the head of every room touched in this batch, so a
+// later loadLastSeq sees the newly allocated seqs once the batch commits.
+func (mb *messageBatch) stageRoomHeads() {
+	for roomID, seq := range mb.lastSeqs {
+		roomKey := appendRoomKey(mb.roomKeyBuf[:0], roomID)
+		mb.roomBuf = appendRoomHead(mb.roomBuf[:0], seq)
+		if err := mb.engine.setBytes(mb.batch, roomKey, mb.roomBuf); err != nil {
+			mb.failRoom(roomID, err)
+		}
+	}
+}
+
+// failRoom fails every staged message of one room after its head write could
+// not be staged.
+func (mb *messageBatch) failRoom(roomID uuid.UUID, err error) {
+	mb.failedRooms[roomID] = struct{}{}
+	for index := range mb.results {
+		if mb.results[index].Message.RoomID == roomID && mb.results[index].Err == nil {
+			mb.results[index].Err = err
+		}
+	}
+}
+
+// commit commits the batch durably; on failure every not-yet-failed message
+// is answered with the commit error and false is returned.
+func (mb *messageBatch) commit() bool {
+	if err := commit(mb.batch); err != nil {
+		err = fmt.Errorf("commit messages: %w", err)
+		for index := range mb.results {
+			if mb.results[index].Err == nil {
+				mb.results[index].Err = err
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// publish refreshes the in-memory state from a committed batch. Caches are
+// filled only here, so a failed commit must not leave in-memory state ahead
+// of disk, and every cached message is covered by a successful ACK.
+func (mb *messageBatch) publish() {
+	mb.engine.scratch.record, mb.engine.scratch.room = mb.recBuf, mb.roomBuf
+	for roomID, seq := range mb.lastSeqs {
+		if _, ok := mb.failedRooms[roomID]; !ok {
+			mb.engine.getRoomShard(roomID).rooms.Set(roomID, seq)
+		}
+	}
+	for _, entry := range mb.dedupEntries {
+		mb.engine.dedupCache.Set(entry.lookup, entry.dedup)
+	}
+	for _, index := range mb.allocated {
+		if mb.results[index].Err == nil {
+			mb.engine.cache.append(&mb.results[index].Message)
 		}
 	}
 }

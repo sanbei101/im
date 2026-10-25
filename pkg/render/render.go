@@ -119,7 +119,7 @@ func ReadBody[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	return body, nil
 }
 
-// ClientFrame 客户端上行帧
+// ClientFrame is the client's upstream frame.
 type ClientFrame struct {
 	Type        string         `json:"type"`
 	RequestID   string         `json:"request_id"`
@@ -131,7 +131,7 @@ type ClientFrame struct {
 	Ext         jsontext.Value `json:"ext"`
 }
 
-// AckFrame 下行 ack 帧。
+// AckFrame is the downstream ack frame.
 type AckFrame struct {
 	Type        string `json:"type"`
 	RequestID   string `json:"request_id"`
@@ -143,7 +143,7 @@ type AckFrame struct {
 	Error       string `json:"error"`
 }
 
-// PushFrame 下行消息推送帧
+// PushFrame is the downstream message push frame.
 type PushFrame struct {
 	Type       string         `json:"type"`
 	SenderID   string         `json:"sender_id"`
@@ -156,34 +156,35 @@ type PushFrame struct {
 	Ext        jsontext.Value `json:"ext"`
 }
 
-// ErrorFrame 下行错误帧。
+// ErrorFrame is the downstream error frame.
 type ErrorFrame struct {
 	Type  string `json:"type"`
 	Error string `json:"error"`
 }
 
-// TypingFrame 正在输入状态帧
+// TypingFrame is the typing-status frame.
 type TypingFrame struct {
 	Type   string `json:"type"`
 	RoomID string `json:"room_id"`
 	UserID string `json:"user_id,omitempty"`
 }
 
-// NotificationFrame 下行业务通知帧
+// NotificationFrame is the downstream business notification frame.
 type NotificationFrame struct {
 	Type  string         `json:"type"`
 	Event string         `json:"event"`
 	Data  jsontext.Value `json:"data,omitempty"`
 }
 
-// FrameWriter 持有可复用的 jsontext.Encoder,把下行帧流式编码进内部 buffer
+// FrameWriter holds a reusable jsontext.Encoder and streams downstream frames
+// into its internal buffer.
 type FrameWriter struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
 	enc *jsontext.Encoder
 }
 
-// NewFrameWriter 构造帧编码器。
+// NewFrameWriter creates a frame encoder.
 func NewFrameWriter() *FrameWriter { return &FrameWriter{} }
 
 func (fw *FrameWriter) EncodeFrame[T any](v T) ([]byte, error) {

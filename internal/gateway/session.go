@@ -86,9 +86,11 @@ func (c *UserClient) readPump(ctx context.Context) {
 			}
 			return
 		}
-		// 硬性不变量:无论 decode 成败,reader 必须被读尽,
-		// 否则 coder/websocket 会把剩余字节当成下一帧头,直接判协议错误断开连接。
-		// drain 必须在本次迭代内同步完成,不能用 defer(循环里的 defer 只在函数返回时才执行)。
+		// Hard invariant: the reader must be drained to EOF whether or not
+		// decode succeeded, otherwise coder/websocket treats the leftover
+		// bytes as the next frame header and drops the connection with a
+		// protocol error. The drain must complete synchronously in this
+		// iteration; a defer would only run when readPump returns.
 		if err := c.handleFrame(ctx, r); err != nil {
 			c.sendError(err.Error())
 		}
@@ -154,7 +156,8 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
-// sendFrame 非阻塞投递已编码帧;客户端已拆除或缓冲已满返回错误。
+// sendFrame delivers an already-encoded frame without blocking; it fails when
+// the client is torn down or its send buffer is full.
 func (c *UserClient) sendFrame(frame []byte) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
@@ -178,7 +181,8 @@ func (c *UserClient) closeSend() {
 	}
 }
 
-// encodeFrame 编码一帧并投递到 Send;编码失败或缓冲已满时返回错误。
+// encodeFrame encodes one frame and hands it to Send; it fails when encoding
+// fails or the buffer is full.
 func (c *UserClient) encodeFrame[T any](v T) error {
 	frame, err := c.frames.EncodeFrame(v)
 	if err != nil {

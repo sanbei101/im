@@ -67,7 +67,6 @@ func (a *FriendAPI) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 检查目标用户是否存在
 	targets, err := a.store.UsersByIDs(r.Context(), []uuid.UUID{targetID})
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())

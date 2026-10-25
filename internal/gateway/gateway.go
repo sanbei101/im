@@ -558,7 +558,8 @@ func (s *apiStream) handleRoomPush(batch *pb.RoomPushBatch) {
 		if push == nil {
 			continue
 		}
-		// 消息体在网关本地仅编码 1 次,随后零冗余分发给所有目标连接
+		// The payload is encoded once here and fanned out to every target
+		// connection without re-encoding.
 		frame := render.PushFrame{
 			Type:       "message",
 			SenderID:   push.GetSenderId(),
