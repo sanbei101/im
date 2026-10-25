@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -250,6 +251,7 @@ type messageBatch struct {
 	results  []MessageWriteResult
 
 	day      uint16
+	nowMS    int64
 	lastSeqs map[uuid.UUID]uint64
 	digests  [][32]byte
 	// pending maps an idempotency key to the first in-batch message index
@@ -279,12 +281,14 @@ func (e *Engine) writeMessageBatch(messages []Message, results []MessageWriteRes
 }
 
 func (e *Engine) newMessageBatch(messages []Message, results []MessageWriteResult) *messageBatch {
+	now := time.Now()
 	return &messageBatch{
 		engine:      e,
 		batch:       e.db.NewBatch(),
 		messages:    messages,
 		results:     results,
-		day:         dedupDay(time.Now()),
+		day:         dedupDay(now),
+		nowMS:       now.UnixMilli(),
 		lastSeqs:    make(map[uuid.UUID]uint64),
 		digests:     make([][32]byte, len(messages)),
 		pending:     make(map[dedupLookupKey]int, len(messages)),
@@ -326,12 +330,14 @@ func (mb *messageBatch) stageMessage(index int) {
 		replayDedup(&mb.results[index], old, mb.digests[index])
 		return
 	}
-	if old, found, err := mb.engine.findDedup(mb.day, lookup); err != nil {
-		mb.results[index].Err = err
-		return
-	} else if found {
-		replayDedup(&mb.results[index], old, mb.digests[index])
-		return
+	if !mb.engine.dedupFresh(message.ClientMsgID, mb.nowMS) {
+		if old, found, err := mb.engine.findDedup(mb.day, lookup); err != nil {
+			mb.results[index].Err = err
+			return
+		} else if found {
+			replayDedup(&mb.results[index], old, mb.digests[index])
+			return
+		}
 	}
 
 	mb.allocate(index, message, lookup, lastSeq)
@@ -376,6 +382,7 @@ func (mb *messageBatch) allocate(index int, message *Message, lookup dedupLookup
 		result.Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(mb.batch, msgKey))
 		return
 	}
+	mb.engine.markDedup(message.ClientMsgID, mb.nowMS)
 	mb.dedupEntries = append(mb.dedupEntries, dedupEntry{lookup: lookup, dedup: record})
 }
 
@@ -455,8 +462,56 @@ func (e *Engine) loadLastSeq(room uuid.UUID, lastSeqs map[uuid.UUID]uint64) (uin
 	return seq, err
 }
 
+// dedupMaxClockSkewMS bounds how far an id's timestamp may run ahead of the
+// server and still count for freshness; a tampered id beyond it can neither
+// poison the watermark nor skip its own probe.
+const dedupMaxClockSkewMS = 60_000
+
+// dedupFresh reports whether a v7 client id provably has no record in Pebble:
+// newer than the newest millisecond ever staged for its day bucket (Pebble
+// only holds staged ids, and staging raises the watermark immediately), or in
+// that same millisecond while fewer inserts than the dedup-cache capacity
+// happened since it began — everything staged then is still cached, so a miss
+// means never staged. Other-day ids, non-v7 ids, and the first write after a
+// restart always probe. Accepted miss: a retry from a slightly fast clock
+// that outlives the dedup cache.
+func (e *Engine) dedupFresh(client uuid.UUID, nowMS int64) bool {
+	if client[6]>>4 != 7 {
+		return false
+	}
+	ms := int64(binary.BigEndian.Uint64(client[:8]) >> 16)
+	if ms > nowMS+dedupMaxClockSkewMS {
+		return false
+	}
+	if uint16(ms/86400000) != e.dedupMarkDay {
+		return false
+	}
+	return ms > e.dedupMarkMS ||
+		(ms == e.dedupMarkMS && e.dedupMarkSeq < dedupCacheSize)
+}
+
+// markDedup accounts one more dedup-cache insert (staged or probe hit, both
+// occupy capacity) and moves the watermark for a v7 id inside the skew
+// window. Stage-time marking is safe on a failed commit: the watermark only
+// grows, so newer ids still cannot pass a persisted one.
+func (e *Engine) markDedup(client uuid.UUID, nowMS int64) {
+	e.dedupMarkSeq++
+	if client[6]>>4 != 7 {
+		return
+	}
+	ms := int64(binary.BigEndian.Uint64(client[:8]) >> 16)
+	if ms > nowMS+dedupMaxClockSkewMS {
+		return
+	}
+	if day := uint16(ms / 86400000); day != e.dedupMarkDay {
+		e.dedupMarkDay, e.dedupMarkMS, e.dedupMarkSeq = day, ms, 1
+	} else if ms > e.dedupMarkMS {
+		e.dedupMarkMS, e.dedupMarkSeq = ms, 1
+	}
+}
+
 // findDedup probes the dedup buckets a retry can live in; a hit refreshes
-// the LRU cache.
+// the LRU cache and counts toward the freshness streak.
 func (e *Engine) findDedup(today uint16, lookup dedupLookupKey) (dedup, bool, error) {
 	days, count := dedupProbeDays(lookup.client, today)
 	var keyBuf [dedupKeyLen]byte
@@ -465,6 +520,7 @@ func (e *Engine) findDedup(today uint16, lookup dedupLookupKey) (dedup, bool, er
 		record, err := e.getRecord(key, decodeDedup)
 		if err == nil {
 			e.dedupCache.Set(lookup, record)
+			e.dedupMarkSeq++
 			return record, true, nil
 		}
 		if !errors.Is(err, ErrNotFound) {

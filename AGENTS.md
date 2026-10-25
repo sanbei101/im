@@ -71,7 +71,7 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - **高性能分片 LRU 缓存 (`phuslu/lru`)**:
   - `messageCache` (`roomTail`): 4096 房间的分片 LRU 环形缓冲区,每个活跃房间保留最新 128 条(至多 64KB)已提交消息。最新一页(`before=0`)历史读取及推拉结合增量拉取(`MessagesAfter`) 100% 命中内存
   - `roomShards`: 64 分片 LRU 缓存热点房间消息头(`LastSeq`)
-  - `dedupCache`: 缓存近期 32K 条消息的幂等键(`room_id + sender_id + client_msg_id`),秒级拦截网络重发,消除写前读取 Pebble 的 LSM 读放大。
+  - `dedupCache` + UUIDv7 新鲜度水位线:缓存近期 32K 条消息的幂等键(`room_id + sender_id + client_msg_id`)秒级拦截网络重发;首发消息的 v7 时间戳新于本节点当日已暂存的最大时间戳时,直接跳过写前 Pebble 探测。时间戳超出服务器时间 1 分钟的 id 不推进水位线、也不免查,篡改的时钟无法毒化快速路径。
   - `StreamHandler.memberCache`: API 广播网关使用 `phuslu/lru.TTLCache` 缓存 4096 房间活跃成员,30s TTL,杜绝长连接无界 map 内存泄漏。
 - **推拉结合与网关单包就地扇出 (RoomPush)**:
   - API 向 Gateway 发送 `RoomPushBatch` 单包广播,消息 Payload 仅在网络间传输 1 次,由 Gateway 在本地连接池就地扇出给所有目标 WebSocket 连接

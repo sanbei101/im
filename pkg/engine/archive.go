@@ -318,7 +318,8 @@ func (e *Engine) archiveWatermark(room uuid.UUID) (uint64, error) {
 // readArchivedRange returns the archived messages with seq in [lo, hi) in
 // ascending order, loading every covering file through the decoded cache.
 // Files are sorted by start seq and never overlap, but the file containing lo
-// starts before lo, so the manifest preceding the seek position is checked too.
+// starts before lo, so the manifest preceding the seek position is checked
+// too. Covering files are resolved first so the result is allocated once.
 func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi uint64) ([]Message, error) {
 	if e.archiveDir == "" || hi <= lo {
 		return nil, nil
@@ -334,20 +335,43 @@ func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi u
 	}
 	defer iter.Close()
 
-	var messages []Message
+	var files []*decodedArchive
+	rows := 0
+	// resolve loads the decoded file of the manifest iter is positioned on
+	// when it covers any part of [lo, hi).
+	resolve := func() error {
+		if start, ok := archiveIndexStart(iter.Key()); ok && start >= hi {
+			return nil
+		}
+		manifest, err := decodeManifest(iter.Value())
+		if err != nil {
+			return err
+		}
+		if manifest.EndSeq < lo {
+			return nil
+		}
+		decoded, err := e.archiveFile(manifest.File)
+		if err != nil {
+			return err
+		}
+		files = append(files, decoded)
+		rows += len(decoded.rows)
+		return nil
+	}
+
 	loKey := appendArchiveIndexKey(nil, room, lo)
 	if valid := iter.SeekGE(loKey); !valid {
 		// No manifest starts at or above lo: only the newest one, whose start
 		// lies below lo, can still cover the window.
 		if valid := iter.Last(); valid {
-			if err := e.appendArchiveFile(iter, lo, hi, &messages); err != nil {
+			if err := resolve(); err != nil {
 				return nil, err
 			}
 		}
 	} else {
 		if iter.Prev() {
 			// The predecessor may reach into the window from below.
-			if err := e.appendArchiveFile(iter, lo, hi, &messages); err != nil {
+			if err := resolve(); err != nil {
 				return nil, err
 			}
 		}
@@ -362,7 +386,7 @@ func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi u
 			if start >= hi {
 				break
 			}
-			if err := e.appendArchiveFile(iter, lo, hi, &messages); err != nil {
+			if err := resolve(); err != nil {
 				return nil, err
 			}
 		}
@@ -370,33 +394,16 @@ func (e *Engine) readArchivedRange(ctx context.Context, room uuid.UUID, lo, hi u
 	if err := iter.Error(); err != nil {
 		return nil, err
 	}
-	return messages, nil
-}
 
-// appendArchiveFile decodes the manifest's parquet file through the cache and
-// appends its rows that fall inside [lo, hi). iter is positioned on the
-// manifest record.
-func (e *Engine) appendArchiveFile(iter *pebble.Iterator, lo, hi uint64, messages *[]Message) error {
-	manifest, err := decodeManifest(iter.Value())
-	if err != nil {
-		return err
-	}
-	if start, ok := archiveIndexStart(iter.Key()); ok && start >= hi {
-		return nil
-	}
-	if manifest.EndSeq < lo {
-		return nil
-	}
-	decoded, err := e.archiveFile(manifest.File)
-	if err != nil {
-		return err
-	}
-	for i := range decoded.rows {
-		if decoded.rows[i].RoomSeq >= lo && decoded.rows[i].RoomSeq < hi {
-			*messages = append(*messages, decoded.rows[i].message())
+	messages := make([]Message, 0, min(rows, int(hi-lo)))
+	for _, decoded := range files {
+		for i := range decoded.rows {
+			if seq := decoded.rows[i].RoomSeq; seq >= lo && seq < hi {
+				messages = append(messages, decoded.rows[i].message())
+			}
 		}
 	}
-	return nil
+	return messages, nil
 }
 
 // archiveFile loads and decodes one parquet file, caching the decoded rows.

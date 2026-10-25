@@ -73,7 +73,8 @@ func (e *Engine) Reactions(ctx context.Context, roomID uuid.UUID, seq uint64) ([
 	}
 	defer iter.Close()
 
-	return reactionGroups(iter, prefix), iter.Error()
+	users := make(map[string][]uuid.UUID, 4)
+	return reactionGroups(iter, prefix, users), iter.Error()
 }
 
 // populateReactions attaches each page message's reaction groups. One
@@ -111,9 +112,11 @@ func (e *Engine) populateReactions(ctx context.Context, roomID uuid.UUID, messag
 	})
 
 	var prefixBuf [reactionPrefixLen]byte
+	// One map serves the whole page: clear keeps the bucket storage.
+	users := make(map[string][]uuid.UUID, 4)
 	for _, i := range order {
 		prefix := appendReactionPrefix(prefixBuf[:0], roomID, messages[i].RoomSeq)
-		if groups := reactionGroups(iter, prefix); len(groups) > 0 {
+		if groups := reactionGroups(iter, prefix, users); len(groups) > 0 {
 			messages[i].Reactions = groups
 		}
 	}
@@ -123,8 +126,9 @@ func (e *Engine) populateReactions(ctx context.Context, roomID uuid.UUID, messag
 // reactionGroups collects one message's reactions through iter: it seeks to
 // the message's key prefix and scans until the first key outside it. Keys
 // carry no value - the key IS the reaction - so nothing is ever decoded.
-func reactionGroups(iter *pebble.Iterator, prefix []byte) []ReactionGroup {
-	users := make(map[string][]uuid.UUID)
+// The users map is caller-owned and cleared, not reallocated.
+func reactionGroups(iter *pebble.Iterator, prefix []byte, users map[string][]uuid.UUID) []ReactionGroup {
+	clear(users)
 	prefixLen := len(prefix)
 	for iter.SeekGE(prefix); iter.Valid() && bytes.HasPrefix(iter.Key(), prefix); iter.Next() {
 		key := iter.Key()

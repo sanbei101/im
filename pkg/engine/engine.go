@@ -107,6 +107,13 @@ type Engine struct {
 	dedupCache   *lru.LRUCache[dedupLookupKey, dedup]
 	archiveMarks *lru.LRUCache[uuid.UUID, uint64]
 	cache        *messageCache
+	// Dedup freshness watermark: the newest v7 millisecond staged for its
+	// day bucket, plus the dedup-cache inserts since that millisecond began.
+	// Writer-goroutine only; resets with the process, which only makes the
+	// probe more conservative.
+	dedupMarkDay uint16
+	dedupMarkMS  int64
+	dedupMarkSeq int
 	// The archive tier: parquet files under archiveDir, with the most
 	// recently decoded files kept whole in memory.
 	archiveDir   string

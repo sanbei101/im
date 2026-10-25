@@ -2,9 +2,12 @@ package engine
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json/jsontext"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 	"uuid"
 )
 
@@ -18,6 +21,30 @@ func idempotentMessage(room, sender, client uuid.UUID, payload string) Message {
 		MsgType:     MsgTypeText,
 		Payload:     jsontext.Value(`{"text":"` + payload + `"}`),
 	}
+}
+
+// v7WithMillis builds a v7 client id carrying the given unix millisecond
+// timestamp and a distinct counter in the random bits, the same RFC 9562
+// layout the dedup paths decode.
+func v7WithMillis(ms int64, distinct uint16) uuid.UUID {
+	var id uuid.UUID
+	binary.BigEndian.PutUint64(id[:8], uint64(ms)<<16)
+	id[6] = (id[6] & 0x0f) | 0x70 // version 7
+	id[8] = (id[8] & 0x3f) | 0x80 // RFC variant
+	binary.BigEndian.PutUint16(id[9:11], distinct)
+	return id
+}
+
+// burstMessages builds n distinct same-millisecond v7 messages, ids numbered
+// from first so an id and its payload stay paired across calls.
+func burstMessages(room, sender uuid.UUID, ms int64, first, n int) []Message {
+	messages := make([]Message, n)
+	for i := range messages {
+		distinct := uint16(first + i)
+		messages[i] = idempotentMessage(
+			room, sender, v7WithMillis(ms, distinct), fmt.Sprintf("burst-%d", distinct))
+	}
+	return messages
 }
 
 func TestEngineIdempotency(t *testing.T) {
@@ -111,6 +138,141 @@ func TestEngineIdempotency(t *testing.T) {
 		}
 		if replayed.RoomSeq != original.RoomSeq || replayed.ServerTime != original.ServerTime {
 			t.Fatalf("retry after restart got new identity: %+v, want %+v", replayed, original)
+		}
+	})
+
+	t.Run("freshness watermark never skips older retries", func(t *testing.T) {
+		e := newTestEngine(t)
+		room, sender := uuid.NewV7(), uuid.NewV7()
+		oldID := v7WithMillis(time.Now().UnixMilli()-10_000, 1)
+		original, err := e.WriteMessage(ctx, idempotentMessage(room, sender, oldID, "old"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A newer fresh write advances the dedup watermark past the old id.
+		fresh, err := e.WriteMessage(ctx, idempotentMessage(
+			room, sender, v7WithMillis(time.Now().UnixMilli(), 2), "new"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fresh.RoomSeq == original.RoomSeq {
+			t.Fatal("fresh write replayed the old message")
+		}
+		// Drop the old entry from the dedup cache: only a Pebble probe can
+		// still answer the retry, and the guard must let it through.
+		e.dedupCache.Delete(dedupLookupKey{room: room, sender: sender, client: oldID})
+		replayed, err := e.WriteMessage(ctx, idempotentMessage(room, sender, oldID, "old"))
+		if err != nil {
+			t.Fatalf("older retry: %v", err)
+		}
+		if replayed.RoomSeq != original.RoomSeq || replayed.ServerTime != original.ServerTime {
+			t.Fatalf("older retry got new identity: %+v, want %+v", replayed, original)
+		}
+	})
+
+	t.Run("restart watermark does not mask pre-restart retries", func(t *testing.T) {
+		path := t.TempDir() + "/engine"
+		e := openTestEngine(t, path)
+		room, sender := uuid.NewV7(), uuid.NewV7()
+		oldID := v7WithMillis(time.Now().UnixMilli()-10_000, 1)
+		original, err := e.WriteMessage(ctx, idempotentMessage(room, sender, oldID, "persisted"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := e.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		reopened := openTestEngine(t, path)
+		// A fresh write after the restart advances the watermark again; the
+		// retry of the older pre-restart id must still resolve via Pebble.
+		if _, err := reopened.WriteMessage(ctx, idempotentMessage(
+			room, sender, v7WithMillis(time.Now().UnixMilli(), 2), "after restart")); err != nil {
+			t.Fatal(err)
+		}
+		replayed, err := reopened.WriteMessage(ctx, idempotentMessage(room, sender, oldID, "persisted"))
+		if err != nil {
+			t.Fatalf("pre-restart retry: %v", err)
+		}
+		if replayed.RoomSeq != original.RoomSeq || replayed.ServerTime != original.ServerTime {
+			t.Fatalf("pre-restart retry got new identity: %+v, want %+v", replayed, original)
+		}
+	})
+
+	t.Run("same-millisecond burst stays fresh, saturation re-probes", func(t *testing.T) {
+		e := newTestEngine(t)
+		room, sender := uuid.NewV7(), uuid.NewV7()
+		ms := time.Now().UnixMilli()
+
+		// Under the cache capacity: same-millisecond first sends are fresh.
+		results := e.WriteMessages(ctx, burstMessages(room, sender, ms, 1, dedupCacheSize-100))
+		for i, result := range results {
+			if result.Err != nil {
+				t.Fatalf("burst message %d: %v", i, result.Err)
+			}
+		}
+		if !e.dedupFresh(v7WithMillis(ms, 60000), ms) {
+			t.Fatal("same-millisecond id below the cache capacity should be fresh")
+		}
+
+		// Past the capacity the streak saturates and probes resume; the
+		// first burst message, long evicted from the cache, must still
+		// replay through Pebble.
+		rest := e.WriteMessages(ctx, burstMessages(room, sender, ms, dedupCacheSize-99, 200))
+		for i, result := range rest {
+			if result.Err != nil {
+				t.Fatalf("saturated burst message %d: %v", i, result.Err)
+			}
+		}
+		if e.dedupFresh(v7WithMillis(ms, 60001), ms) {
+			t.Fatal("saturated streak must fall back to probing")
+		}
+		replayed, err := e.WriteMessage(ctx, idempotentMessage(
+			room, sender, v7WithMillis(ms, 1), "burst-1"))
+		if err != nil {
+			t.Fatalf("saturated retry: %v", err)
+		}
+		if replayed.RoomSeq != results[0].Message.RoomSeq {
+			t.Fatalf("saturated retry got seq %d, want %d",
+				replayed.RoomSeq, results[0].Message.RoomSeq)
+		}
+	})
+
+	t.Run("tampered future ids cannot poison the watermark", func(t *testing.T) {
+		e := newTestEngine(t)
+		room, sender := uuid.NewV7(), uuid.NewV7()
+		now := time.Now().UnixMilli()
+
+		// An id from beyond the skew window stages normally but must not
+		// move the watermark.
+		futureID := v7WithMillis(now+3600_000, 1)
+		original, err := e.WriteMessage(ctx, idempotentMessage(room, sender, futureID, "future"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.dedupMarkDay != 0 {
+			t.Fatal("tampered id advanced the watermark")
+		}
+
+		// Honest traffic keeps the fast path alive right after the tampered
+		// write instead of probing for the rest of the day.
+		if _, err := e.WriteMessage(ctx, idempotentMessage(
+			room, sender, v7WithMillis(now, 2), "honest")); err != nil {
+			t.Fatal(err)
+		}
+		if !e.dedupFresh(v7WithMillis(now+1, 3), now+1) {
+			t.Fatal("guard should stay healthy after a tampered id")
+		}
+
+		// The tampered message's own retry must still replay: beyond the
+		// skew window an id is never fresh, so the Pebble probe runs.
+		e.dedupCache.Delete(dedupLookupKey{room: room, sender: sender, client: futureID})
+		replayed, err := e.WriteMessage(ctx, idempotentMessage(room, sender, futureID, "future"))
+		if err != nil {
+			t.Fatalf("tampered retry: %v", err)
+		}
+		if replayed.RoomSeq != original.RoomSeq || replayed.ServerTime != original.ServerTime {
+			t.Fatalf("tampered retry got new identity: %+v, want %+v", replayed, original)
 		}
 	})
 
