@@ -15,6 +15,21 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    services:
+      # Required by the internal/store, internal/api and cmd/api benchmarks.
+      postgres:
+        image: postgres:18
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: im_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U postgres -d im_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
 
@@ -28,6 +43,4 @@ jobs:
         uses: CodSpeedHQ/action@v5
         with:
           mode: walltime
-          run: >-
-            go test -bench=.
-            ./pkg/... ./internal/gateway/... ./internal/router/...
+          run: go test -run '^$' -bench=. ./...
