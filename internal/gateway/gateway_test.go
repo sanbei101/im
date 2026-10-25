@@ -383,22 +383,28 @@ func BenchmarkGateway(b *testing.B) {
 		}
 	})
 	b.Run("broadcast-typing", func(b *testing.B) {
+		// A fresh gateway per callback invocation: the callback re-runs for
+		// every -count round while the outer Gateway keeps living, so clients
+		// registered on it would pile up round after round — stale members
+		// keep getting broadcast to, fill their send buffers, and every round
+		// after the first measures error logging instead of fanout.
+		gw := NewGateway(config.LoadTest())
 		room := "bench-typing"
 		sender := uuid.NewV7()
-		g.TouchRoomUser(room, sender)
+		gw.TouchRoomUser(room, sender)
 		peers := make([]*UserClient, 0, 50)
 		for range 50 {
 			peer := uuid.NewV7()
-			g.TouchRoomUser(room, peer)
+			gw.TouchRoomUser(room, peer)
 			client := newTestClient(peer, 1)
-			g.UserSessionManager.LoadOrCreate(peer, NewUserSession).Add(client)
+			gw.UserSessionManager.LoadOrCreate(peer, NewUserSession).Add(client)
 			peers = append(peers, client)
 		}
 
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			g.BroadcastTyping(sender, room)
+			gw.BroadcastTyping(sender, room)
 			for _, peer := range peers {
 				select {
 				case <-peer.Send:
@@ -408,7 +414,10 @@ func BenchmarkGateway(b *testing.B) {
 		}
 	})
 	b.Run("room-push-fanout", func(b *testing.B) {
-		stream := newAPIStream(g, "127.0.0.1:1")
+		// Same as broadcast-typing: fresh gateway per -count round so stale
+		// clients from earlier rounds cannot accumulate in the session table.
+		gw := NewGateway(config.LoadTest())
+		stream := newAPIStream(gw, "127.0.0.1:1")
 
 		const users = 50
 		peers := make([]*UserClient, users)
@@ -417,7 +426,7 @@ func BenchmarkGateway(b *testing.B) {
 			id := uuid.NewV7()
 			userIDs[i] = id.String()
 			peers[i] = newTestClient(id, 1)
-			g.UserSessionManager.LoadOrCreate(id, NewUserSession).Add(peers[i])
+			gw.UserSessionManager.LoadOrCreate(id, NewUserSession).Add(peers[i])
 		}
 
 		roomBatch := &pb.RoomPushBatch{

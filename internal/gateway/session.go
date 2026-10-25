@@ -157,7 +157,9 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 }
 
 // sendFrame delivers an already-encoded frame without blocking; it fails when
-// the client is torn down or its send buffer is full.
+// the client is torn down or its send buffer is full. Callers treat the failure
+// as a designed drop — the client reconciles through room_seq pull — and log
+// it at debug level, since one stalled client would otherwise flood the log.
 func (c *UserClient) sendFrame(frame []byte) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()

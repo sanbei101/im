@@ -164,7 +164,7 @@ func (g *Gateway) BroadcastTyping(senderID uuid.UUID, roomID string) {
 		if session, ok := g.UserSessionManager.Load(targetID); ok {
 			session.ForEachClient(func(client *UserClient) {
 				if err := client.sendFrame(frameBytes); err != nil {
-					log.Error().Err(err).Str("user_id", client.UserID.String()).Msg("send typing frame failed")
+					log.Debug().Err(err).Str("user_id", client.UserID.String()).Msg("send typing frame failed")
 				}
 			})
 		}
@@ -487,7 +487,7 @@ func (s *apiStream) failPending(message *pb.SendMessage) {
 	if err := uc.encodeFrame(
 		render.ErrorFrame{Type: "error", Error: "api stream disconnected before the message was delivered"},
 	); err != nil {
-		log.Error().Err(err).Str("user_id", uc.UserID.String()).Msg("send error frame for dropped message failed")
+		log.Debug().Err(err).Str("user_id", uc.UserID.String()).Msg("send error frame for dropped message failed")
 	}
 }
 
@@ -548,7 +548,7 @@ func (s *apiStream) handleResults(batch *pb.SendResultBatch) {
 			Code:        result.GetCode(),
 			Error:       result.GetError(),
 		}); err != nil {
-			log.Error().Err(err).Msg("send message result to websocket failed")
+			log.Debug().Err(err).Msg("send message result to websocket failed")
 		}
 	}
 }
@@ -588,7 +588,7 @@ func (s *apiStream) handleRoomPush(batch *pb.RoomPushBatch) {
 			}
 			session.ForEachClient(func(client *UserClient) {
 				if err := client.sendFrame(frameBytes); err != nil {
-					log.Error().Err(err).Str("user_id", idStr).Msg("send room push frame to websocket failed")
+					log.Debug().Err(err).Str("user_id", idStr).Msg("send room push frame to websocket failed")
 				}
 			})
 		}
@@ -635,7 +635,7 @@ func (s *apiStream) handleNotification(batch *pb.NotificationBatch) {
 		}
 		session.ForEachClient(func(client *UserClient) {
 			if err := client.sendFrame(frameBytes); err != nil {
-				log.Error().
+				log.Debug().
 					Err(err).
 					Str("user_id", client.UserID.String()).
 					Msg("send notification frame to websocket failed")
