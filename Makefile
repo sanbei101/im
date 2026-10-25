@@ -1,5 +1,6 @@
 BENCH ?= .
 COUNT ?= 1
+BENCHTIME ?= 1s
 P ?= 4
 PPROF_DIR := .tmp/pprof
 BIN_DIR := bin
@@ -36,7 +37,7 @@ test:
 	@go test -p 1 -race ./...
 
 bench:
-	@go test -p $(P) ./... -run '^$$' -bench '$(BENCH)' -benchmem -count=$(COUNT)
+	@go test -p $(P) ./... -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem -count=$(COUNT)
 
 pprof:
 	@mkdir -p $(PPROF_DIR)

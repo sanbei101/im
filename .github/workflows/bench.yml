@@ -70,7 +70,7 @@ jobs:
 
       - name: Benchmark
         shell: bash
-        run: set -o pipefail; make bench P=1 COUNT=10 2>&1 | tee bench.txt
+        run: set -o pipefail; make bench P=1 COUNT=3 BENCHTIME=500ms 2>&1 | tee bench.txt
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
