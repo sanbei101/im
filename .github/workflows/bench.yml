@@ -85,5 +85,9 @@ jobs:
           max-items-in-chart: 100
           summary-always: true
           alert-threshold: '130%'
-          fail-on-alert: true
+          # Hosted runners are a hardware lottery: identical code moves ±40%
+          # between hosts, and every sample is compared against the previous
+          # run, so a slow host would fail the build with no code change.
+          # Alerts stay as comments and chart trends; they do not gate CI.
+          fail-on-alert: false
           comment-on-alert: true
