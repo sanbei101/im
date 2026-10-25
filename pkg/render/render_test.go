@@ -11,9 +11,9 @@ func TestRender(t *testing.T) {
 	t.Run("frame writer is reusable across frames", func(t *testing.T) {
 		writer := NewFrameWriter()
 		frames := []PushFrame{
-			{Type: "message", MsgID: "m1", RoomSeq: 1, MsgType: "text", Payload: jsontext.Value(`{"text":"one"}`)},
-			{Type: "message", MsgID: "m2", RoomSeq: 2, MsgType: "text", Payload: jsontext.Value(`{"text":"two"}`)},
-			{Type: "message", MsgID: "m3", RoomSeq: 3, MsgType: "text", Payload: jsontext.Value(`{"text":"three"}`)},
+			{Type: "message", RoomSeq: 1, MsgType: "text", Payload: jsontext.Value(`{"text":"one"}`)},
+			{Type: "message", RoomSeq: 2, MsgType: "text", Payload: jsontext.Value(`{"text":"two"}`)},
+			{Type: "message", RoomSeq: 3, MsgType: "text", Payload: jsontext.Value(`{"text":"three"}`)},
 		}
 		for i, frame := range frames {
 			data, err := writer.EncodeFrame(frame)
@@ -27,7 +27,7 @@ func TestRender(t *testing.T) {
 			if err := json.Unmarshal(data, &back); err != nil {
 				t.Fatalf("frame %d is not valid JSON: %s: %v", i, data, err)
 			}
-			if back.MsgID != frame.MsgID || back.RoomSeq != frame.RoomSeq {
+			if back.RoomSeq != frame.RoomSeq {
 				t.Fatalf("frame %d corrupted by encoder reuse: want %+v got %+v", i, frame, back)
 			}
 		}
@@ -99,8 +99,6 @@ func TestRender(t *testing.T) {
 func BenchmarkRender(b *testing.B) {
 	writer := NewFrameWriter()
 	push := PushFrame{
-		Type: "message", MsgID: "01999999-9999-7999-9999-999999999999",
-		ClientMsgID: "01999999-9999-7999-9999-999999999998", SenderID: "01999999-9999-7999-9999-999999999997",
 		RoomID: "01999999-9999-7999-9999-999999999996", RoomSeq: 1024, ServerTime: 1728000000000000,
 		MsgType: "text", Payload: jsontext.Value(`{"text":"benchmark payload text"}`),
 	}

@@ -751,7 +751,7 @@ func (a *RoomAPI) DissolveRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 type PinReq struct {
-	MsgID string `json:"msg_id" validate:"required,uuid"`
+	RoomSeq uint64 `json:"room_seq" validate:"required"`
 }
 
 func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
@@ -767,11 +767,6 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	msgID, err := uuid.Parse(req.MsgID)
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid msg_id")
-		return
-	}
 
 	member, ok := a.loadMember(w, r, roomID, myID)
 	if !ok {
@@ -782,7 +777,7 @@ func (a *RoomAPI) PinMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.data.PinMessage(r.Context(), roomID, msgID, myID); err != nil {
+	if err := a.data.PinMessage(r.Context(), roomID, req.RoomSeq, myID); err != nil {
 		if errors.Is(err, engine.ErrNotFound) {
 			render.Error(w, http.StatusNotFound, "message not found")
 			return
@@ -802,9 +797,8 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msgID, err := uuid.Parse(chi.URLParam(r, "msg_id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid msg_id")
+	seq, ok := seqFromPath(w, r)
+	if !ok {
 		return
 	}
 
@@ -817,7 +811,7 @@ func (a *RoomAPI) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.data.UnpinMessage(r.Context(), roomID, msgID); err != nil {
+	if err := a.data.UnpinMessage(r.Context(), roomID, seq); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -262,29 +262,11 @@ func asciiLower(b byte) byte {
 	return b
 }
 
-func (e *Engine) MessageByID(ctx context.Context, roomID, msgID uuid.UUID) (Message, error) {
-	if err := contextErr(ctx); err != nil {
-		return Message{}, err
-	}
-	seq, err := e.seqByMsgID(roomID, msgID)
-	if err != nil {
-		return Message{}, err
-	}
-	message, err := e.messageBySeq(ctx, roomID, seq)
-	if err != nil {
-		return Message{}, err
-	}
-	reactions, err := e.Reactions(ctx, roomID, msgID)
-	if err != nil {
-		return Message{}, err
-	}
-	message.Reactions = reactions
-	return message, nil
-}
-
 func (e *Engine) RecallMessage(
 	ctx context.Context,
-	roomID, msgID, operatorID uuid.UUID,
+	roomID uuid.UUID,
+	seq uint64,
+	operatorID uuid.UUID,
 	isOwnerOrAdmin bool,
 ) (Message, error) {
 	if err := contextErr(ctx); err != nil {
@@ -299,7 +281,7 @@ func (e *Engine) RecallMessage(
 	request := &recallRequest{
 		ctx:            ctx,
 		roomID:         roomID,
-		msgID:          msgID,
+		seq:            seq,
 		operatorID:     operatorID,
 		isOwnerOrAdmin: isOwnerOrAdmin,
 		result:         make(chan recallResult, 1),
@@ -335,12 +317,7 @@ func (e *Engine) execRecall(request *recallRequest) {
 }
 
 func (e *Engine) recall(request *recallRequest) (Message, error) {
-	roomID, msgID, operatorID := request.roomID, request.msgID, request.operatorID
-
-	seq, err := e.seqByMsgID(roomID, msgID)
-	if err != nil {
-		return Message{}, err
-	}
+	roomID, seq, operatorID := request.roomID, request.seq, request.operatorID
 
 	var msgKeyBuf [messageKeyLen]byte
 	msgKey := appendMessageKey(msgKeyBuf[:0], roomID, seq)

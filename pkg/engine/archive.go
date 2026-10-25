@@ -102,13 +102,17 @@ func DefaultArchiveParams() ArchiveParams {
 	}
 }
 
-// ArchiveOnce exports the eligible message prefix of every owned room: it
-// writes a parquet file into the archive directory and atomically records the
-// manifest. Failed exports are reported and retried on the next cycle; a
-// crashed cycle leaves at worst a .tmp file that the next run overwrites.
+// ArchiveOnce is the engine's periodic maintenance cycle: it expires dedup
+// buckets past the idempotency window, then exports the eligible message
+// prefix of every owned room as parquet files with atomic manifests. Failed
+// exports are reported and retried on the next cycle; a crashed cycle leaves
+// at worst a .tmp file that the next run overwrites.
 func (e *Engine) ArchiveOnce(ctx context.Context, params ArchiveParams) error {
 	if err := contextErr(ctx); err != nil {
 		return err
+	}
+	if err := e.expireDedup(); err != nil {
+		return fmt.Errorf("expire dedup: %w", err)
 	}
 	if e.archiveDir == "" {
 		return errors.New("engine: no archive directory configured")
@@ -192,10 +196,9 @@ func (e *Engine) archiveRoom(params ArchiveParams, roomID uuid.UUID, lastSeq uin
 	if err := e.setBytes(batch, appendArchiveIndexKey(nil, roomID, start), encodeManifest(manifest)); err != nil {
 		return err
 	}
-	// Range tombstone over the archived message bodies plus per-key dedup
-	// records, atomically with the manifest: after this commit the range lives
-	// only in the archive directory. The 'i' index is kept so MessageByID can
-	// still resolve archived messages by id.
+	// Range tombstone over the archived message bodies, atomically with the
+	// manifest: after this commit the range lives only in the archive
+	// directory.
 	if err := batch.DeleteRange(
 		appendMessageKey(nil, roomID, start),
 		appendMessageKey(nil, roomID, end+1),
@@ -203,21 +206,26 @@ func (e *Engine) archiveRoom(params ArchiveParams, roomID uuid.UUID, lastSeq uin
 	); err != nil {
 		return err
 	}
-	var dedupBuf [dedupKeyLen]byte
-	for i := range messages {
-		if err := batch.Delete(
-			appendDedupKey(dedupBuf[:0], roomID, messages[i].SenderID, messages[i].ClientMsgID),
-			nil,
-		); err != nil {
-			return err
-		}
-	}
 	if err := commit(batch); err != nil {
 		return fmt.Errorf("commit archive manifest: %w", err)
 	}
 	e.archiveMarks.Set(roomID, manifest.EndSeq)
-	e.forgetDedup(roomID, messages)
 	return nil
+}
+
+// expireDedup range-deletes dedup buckets older than the two-day replay
+// window, so idempotency storage is bounded by traffic, not history.
+func (e *Engine) expireDedup() error {
+	today := dedupDay(time.Now())
+	batch := e.db.NewBatch()
+	defer batch.Close()
+	var loBuf, hiBuf [dedupDayPrefixLen]byte
+	lo := appendDedupDayPrefix(loBuf[:0], today-2)
+	hi := appendDedupDayPrefix(hiBuf[:0], today-1)
+	if err := batch.DeleteRange(lo, hi, nil); err != nil {
+		return err
+	}
+	return commit(batch)
 }
 
 // writeFile lands data at path atomically: a crash mid-write leaves the .tmp

@@ -121,14 +121,14 @@ func ReadBody[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 
 // ClientFrame 客户端上行帧
 type ClientFrame struct {
-	Type         string         `json:"type"`
-	RequestID    string         `json:"request_id"`
-	ClientMsgID  string         `json:"client_msg_id"`
-	RoomID       string         `json:"room_id"`
-	MsgType      string         `json:"msg_type"`
-	Payload      jsontext.Value `json:"payload"`
-	ReplyToMsgID string         `json:"reply_to_msg_id"`
-	Ext          jsontext.Value `json:"ext"`
+	Type        string         `json:"type"`
+	RequestID   string         `json:"request_id"`
+	ClientMsgID string         `json:"client_msg_id"`
+	RoomID      string         `json:"room_id"`
+	MsgType     string         `json:"msg_type"`
+	Payload     jsontext.Value `json:"payload"`
+	ReplyToSeq  uint64         `json:"reply_to_seq"`
+	Ext         jsontext.Value `json:"ext"`
 }
 
 // AckFrame 下行 ack 帧。
@@ -136,7 +136,6 @@ type AckFrame struct {
 	Type        string `json:"type"`
 	RequestID   string `json:"request_id"`
 	ClientMsgID string `json:"client_msg_id"`
-	MsgID       string `json:"msg_id"`
 	RoomID      string `json:"room_id"`
 	RoomSeq     uint64 `json:"room_seq"`
 	ServerTime  int64  `json:"server_time"`
@@ -146,17 +145,15 @@ type AckFrame struct {
 
 // PushFrame 下行消息推送帧
 type PushFrame struct {
-	Type         string         `json:"type"`
-	MsgID        string         `json:"msg_id"`
-	ClientMsgID  string         `json:"client_msg_id"`
-	SenderID     string         `json:"sender_id"`
-	RoomID       string         `json:"room_id"`
-	RoomSeq      uint64         `json:"room_seq"`
-	ServerTime   int64          `json:"server_time"`
-	MsgType      string         `json:"msg_type"`
-	Payload      jsontext.Value `json:"payload"`
-	ReplyToMsgID string         `json:"reply_to_msg_id,omitempty"`
-	Ext          jsontext.Value `json:"ext"`
+	Type       string         `json:"type"`
+	SenderID   string         `json:"sender_id"`
+	RoomID     string         `json:"room_id"`
+	RoomSeq    uint64         `json:"room_seq"`
+	ServerTime int64          `json:"server_time"`
+	MsgType    string         `json:"msg_type"`
+	Payload    jsontext.Value `json:"payload"`
+	ReplyToSeq uint64         `json:"reply_to_seq,omitempty"`
+	Ext        jsontext.Value `json:"ext"`
 }
 
 // ErrorFrame 下行错误帧。

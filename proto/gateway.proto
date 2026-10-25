@@ -31,14 +31,13 @@ message SendMessage {
   string room_id = 4;
   int32 msg_type = 5;
   bytes payload = 6;
-  string reply_to_msg_id = 7;
+  uint64 reply_to_seq = 7;
   bytes ext = 8;
 }
 message SendResultBatch { string batch_id = 1; repeated SendResult results = 2; }
 message SendResult {
   string request_id = 1;
   string client_msg_id = 2;
-  string msg_id = 3;
   string room_id = 4;
   uint64 room_seq = 5;
   int64 server_time = 6;
@@ -63,13 +62,11 @@ message RoomPushBatch { repeated RoomPush room_pushes = 1; }
 message RoomPush {
   string room_id = 1;
   uint64 room_seq = 2;
-  string msg_id = 3;
   string sender_id = 4;
   int32 msg_type = 5;
   bytes payload = 6;
   int64 server_time = 7;
   bytes ext = 8;
-  string client_msg_id = 9;
-  string reply_to_msg_id = 10;
+  uint64 reply_to_seq = 10;
   repeated string user_ids = 11;
 }

@@ -243,7 +243,6 @@ func (h *StreamHandler) writeBatch(
 			continue
 		}
 		message := writtenResult.Message
-		item.MsgId = message.MsgID.String()
 		item.RoomSeq = message.RoomSeq
 		item.ServerTime = message.ServerTime
 		written = append(written, &message)
@@ -274,13 +273,7 @@ func (h *StreamHandler) push(ctx context.Context, message *engine.Message, exclu
 	}
 
 	roomIDStr := message.RoomID.String()
-	msgIDStr := message.MsgID.String()
 	senderIDStr := message.SenderID.String()
-	clientMsgIDStr := message.ClientMsgID.String()
-	var replyToMsgIDStr string
-	if message.ReplyToMsgID != uuid.Nil() {
-		replyToMsgIDStr = message.ReplyToMsgID.String()
-	}
 
 	// Group online recipients per gateway connection; payload is sent once per gateway.
 	targets := make(map[*apiConnection][]string)
@@ -295,17 +288,15 @@ func (h *StreamHandler) push(ctx context.Context, message *engine.Message, exclu
 
 	for connection, userIDs := range targets {
 		roomPush := &pb.RoomPush{
-			RoomId:       roomIDStr,
-			RoomSeq:      message.RoomSeq,
-			MsgId:        msgIDStr,
-			SenderId:     senderIDStr,
-			MsgType:      int32(message.MsgType),
-			Payload:      message.Payload,
-			ServerTime:   message.ServerTime,
-			Ext:          message.Ext,
-			ClientMsgId:  clientMsgIDStr,
-			ReplyToMsgId: replyToMsgIDStr,
-			UserIds:      userIDs,
+			RoomId:     roomIDStr,
+			RoomSeq:    message.RoomSeq,
+			SenderId:   senderIDStr,
+			MsgType:    int32(message.MsgType),
+			Payload:    message.Payload,
+			ServerTime: message.ServerTime,
+			Ext:        message.Ext,
+			ReplyToSeq: message.ReplyToSeq,
+			UserIds:    userIDs,
 		}
 		if err := connection.enqueue(&pb.APIFrame{
 			Body: &pb.APIFrame_RoomPushBatch{
@@ -353,13 +344,7 @@ func (h *StreamHandler) message(input *pb.SendMessage) (engine.Message, error) {
 	if !message.MsgType.Valid() {
 		return engine.Message{}, fmt.Errorf("invalid msg_type %d", input.GetMsgType())
 	}
-	if input.GetReplyToMsgId() != "" {
-		reply, err := parseUUID("reply_to_msg_id", input.GetReplyToMsgId())
-		if err != nil {
-			return engine.Message{}, err
-		}
-		message.ReplyToMsgID = reply
-	}
+	message.ReplyToSeq = input.GetReplyToSeq()
 	return message, nil
 }
 
@@ -422,7 +407,7 @@ func (RoomMembersChanged) event() string { return roomMembersChangedEvent }
 // ReactionUpdated carries the current reaction groups of one message.
 type ReactionUpdated struct {
 	RoomID    uuid.UUID              `json:"room_id"`
-	MsgID     uuid.UUID              `json:"msg_id"`
+	RoomSeq   uint64                 `json:"room_seq"`
 	Reactions []engine.ReactionGroup `json:"reactions"`
 }
 

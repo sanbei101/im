@@ -166,14 +166,14 @@ func (x *SendBatch) GetMessages() []*SendMessage {
 }
 
 type SendMessage struct {
-	RequestId    string `protobuf:"bytes,1,opt,name=request_id" json:"request_id,omitempty"`
-	ClientMsgId  string `protobuf:"bytes,2,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
-	SenderId     string `protobuf:"bytes,3,opt,name=sender_id" json:"sender_id,omitempty"`
-	RoomId       string `protobuf:"bytes,4,opt,name=room_id" json:"room_id,omitempty"`
-	MsgType      int32  `protobuf:"varint,5,opt,name=msg_type" json:"msg_type,omitempty"`
-	Payload      []byte `protobuf:"bytes,6,opt,name=payload" json:"payload,omitempty"`
-	ReplyToMsgId string `protobuf:"bytes,7,opt,name=reply_to_msg_id" json:"reply_to_msg_id,omitempty"`
-	Ext          []byte `protobuf:"bytes,8,opt,name=ext" json:"ext,omitempty"`
+	RequestId   string `protobuf:"bytes,1,opt,name=request_id" json:"request_id,omitempty"`
+	ClientMsgId string `protobuf:"bytes,2,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
+	SenderId    string `protobuf:"bytes,3,opt,name=sender_id" json:"sender_id,omitempty"`
+	RoomId      string `protobuf:"bytes,4,opt,name=room_id" json:"room_id,omitempty"`
+	MsgType     int32  `protobuf:"varint,5,opt,name=msg_type" json:"msg_type,omitempty"`
+	Payload     []byte `protobuf:"bytes,6,opt,name=payload" json:"payload,omitempty"`
+	ReplyToSeq  uint64 `protobuf:"varint,7,opt,name=reply_to_seq" json:"reply_to_seq,omitempty"`
+	Ext         []byte `protobuf:"bytes,8,opt,name=ext" json:"ext,omitempty"`
 }
 
 func (x *SendMessage) Reset() { *x = SendMessage{} }
@@ -224,11 +224,11 @@ func (x *SendMessage) GetPayload() []byte {
 	return nil
 }
 
-func (x *SendMessage) GetReplyToMsgId() string {
+func (x *SendMessage) GetReplyToSeq() uint64 {
 	if x != nil {
-		return x.ReplyToMsgId
+		return x.ReplyToSeq
 	}
-	return ""
+	return 0
 }
 
 func (x *SendMessage) GetExt() []byte {
@@ -266,7 +266,6 @@ func (x *SendResultBatch) GetResults() []*SendResult {
 type SendResult struct {
 	RequestId   string `protobuf:"bytes,1,opt,name=request_id" json:"request_id,omitempty"`
 	ClientMsgId string `protobuf:"bytes,2,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
-	MsgId       string `protobuf:"bytes,3,opt,name=msg_id" json:"msg_id,omitempty"`
 	RoomId      string `protobuf:"bytes,4,opt,name=room_id" json:"room_id,omitempty"`
 	RoomSeq     uint64 `protobuf:"varint,5,opt,name=room_seq" json:"room_seq,omitempty"`
 	ServerTime  int64  `protobuf:"varint,6,opt,name=server_time" json:"server_time,omitempty"`
@@ -290,13 +289,6 @@ func (x *SendResult) GetRequestId() string {
 func (x *SendResult) GetClientMsgId() string {
 	if x != nil {
 		return x.ClientMsgId
-	}
-	return ""
-}
-
-func (x *SendResult) GetMsgId() string {
-	if x != nil {
-		return x.MsgId
 	}
 	return ""
 }
@@ -446,17 +438,15 @@ func (x *RoomPushBatch) GetRoomPushes() []*RoomPush {
 }
 
 type RoomPush struct {
-	RoomId       string   `protobuf:"bytes,1,opt,name=room_id" json:"room_id,omitempty"`
-	RoomSeq      uint64   `protobuf:"varint,2,opt,name=room_seq" json:"room_seq,omitempty"`
-	MsgId        string   `protobuf:"bytes,3,opt,name=msg_id" json:"msg_id,omitempty"`
-	SenderId     string   `protobuf:"bytes,4,opt,name=sender_id" json:"sender_id,omitempty"`
-	MsgType      int32    `protobuf:"varint,5,opt,name=msg_type" json:"msg_type,omitempty"`
-	Payload      []byte   `protobuf:"bytes,6,opt,name=payload" json:"payload,omitempty"`
-	ServerTime   int64    `protobuf:"varint,7,opt,name=server_time" json:"server_time,omitempty"`
-	Ext          []byte   `protobuf:"bytes,8,opt,name=ext" json:"ext,omitempty"`
-	ClientMsgId  string   `protobuf:"bytes,9,opt,name=client_msg_id" json:"client_msg_id,omitempty"`
-	ReplyToMsgId string   `protobuf:"bytes,10,opt,name=reply_to_msg_id" json:"reply_to_msg_id,omitempty"`
-	UserIds      []string `protobuf:"bytes,11,rep,name=user_ids" json:"user_ids,omitempty"`
+	RoomId     string   `protobuf:"bytes,1,opt,name=room_id" json:"room_id,omitempty"`
+	RoomSeq    uint64   `protobuf:"varint,2,opt,name=room_seq" json:"room_seq,omitempty"`
+	SenderId   string   `protobuf:"bytes,4,opt,name=sender_id" json:"sender_id,omitempty"`
+	MsgType    int32    `protobuf:"varint,5,opt,name=msg_type" json:"msg_type,omitempty"`
+	Payload    []byte   `protobuf:"bytes,6,opt,name=payload" json:"payload,omitempty"`
+	ServerTime int64    `protobuf:"varint,7,opt,name=server_time" json:"server_time,omitempty"`
+	Ext        []byte   `protobuf:"bytes,8,opt,name=ext" json:"ext,omitempty"`
+	ReplyToSeq uint64   `protobuf:"varint,10,opt,name=reply_to_seq" json:"reply_to_seq,omitempty"`
+	UserIds    []string `protobuf:"bytes,11,rep,name=user_ids" json:"user_ids,omitempty"`
 }
 
 func (x *RoomPush) Reset() { *x = RoomPush{} }
@@ -477,13 +467,6 @@ func (x *RoomPush) GetRoomSeq() uint64 {
 		return x.RoomSeq
 	}
 	return 0
-}
-
-func (x *RoomPush) GetMsgId() string {
-	if x != nil {
-		return x.MsgId
-	}
-	return ""
 }
 
 func (x *RoomPush) GetSenderId() string {
@@ -521,18 +504,11 @@ func (x *RoomPush) GetExt() []byte {
 	return nil
 }
 
-func (x *RoomPush) GetClientMsgId() string {
+func (x *RoomPush) GetReplyToSeq() uint64 {
 	if x != nil {
-		return x.ClientMsgId
+		return x.ReplyToSeq
 	}
-	return ""
-}
-
-func (x *RoomPush) GetReplyToMsgId() string {
-	if x != nil {
-		return x.ReplyToMsgId
-	}
-	return ""
+	return 0
 }
 
 func (x *RoomPush) GetUserIds() []string {

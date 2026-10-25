@@ -542,7 +542,6 @@ func (s *apiStream) handleResults(batch *pb.SendResultBatch) {
 			Type:        "ack",
 			RequestID:   result.GetRequestId(),
 			ClientMsgID: result.GetClientMsgId(),
-			MsgID:       result.GetMsgId(),
 			RoomID:      result.GetRoomId(),
 			RoomSeq:     result.GetRoomSeq(),
 			ServerTime:  result.GetServerTime(),
@@ -561,17 +560,15 @@ func (s *apiStream) handleRoomPush(batch *pb.RoomPushBatch) {
 		}
 		// 消息体在网关本地仅编码 1 次,随后零冗余分发给所有目标连接
 		frame := render.PushFrame{
-			Type:         "message",
-			MsgID:        push.GetMsgId(),
-			ClientMsgID:  push.GetClientMsgId(),
-			SenderID:     push.GetSenderId(),
-			RoomID:       push.GetRoomId(),
-			RoomSeq:      push.GetRoomSeq(),
-			ServerTime:   push.GetServerTime(),
-			MsgType:      engine.MsgType(push.GetMsgType()).String(),
-			Payload:      jsontext.Value(push.GetPayload()),
-			ReplyToMsgID: push.GetReplyToMsgId(),
-			Ext:          jsontext.Value(push.GetExt()),
+			Type:       "message",
+			SenderID:   push.GetSenderId(),
+			RoomID:     push.GetRoomId(),
+			RoomSeq:    push.GetRoomSeq(),
+			ServerTime: push.GetServerTime(),
+			MsgType:    engine.MsgType(push.GetMsgType()).String(),
+			Payload:    jsontext.Value(push.GetPayload()),
+			ReplyToSeq: push.GetReplyToSeq(),
+			Ext:        jsontext.Value(push.GetExt()),
 		}
 		frameBytes, err := s.frames.EncodeFrame(frame)
 		if err != nil {

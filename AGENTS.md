@@ -52,7 +52,8 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 - fastpb/Kitex 编解码只使用 `proto3`,不要使用 protobuf edition、`Any` 或未验证的 known types。
 - UUID 统一使用 Go 标准库 `uuid`,不要引入第三方 UUID 包。
 - 消息使用 `room_seq` 做历史分页和断线补拉,不使用时间戳作为唯一游标。
-- 消息幂等键为 `room_id + sender_id + client_msg_id`,相同键不同内容必须返回冲突。
+- 消息没有独立的 msg_id:`(room_id, room_seq)` 就是消息身份,撤回、表情、置顶、回复全部用 seq 寻址。
+- 消息幂等键为 `room_id + sender_id + client_msg_id`,相同键不同内容必须返回冲突;幂等记录按写入日分桶,只保留约两天。
 - 不需要考虑任何的兼容性行为,一切以代码最优雅简洁,性能为目标
 
 ## 存储架构 (PostgreSQL -> 内存 -> Pebble -> Parquet)
@@ -77,7 +78,7 @@ proto            Kitex/fastpb 协议源文件与生成代码(proto/pb)
 
 ### 3. 消息面 Pebble
 - 每个 API 节点只负责本地逻辑槽的消息数据,不依赖 PostgreSQL 存消息正文。
-- 大端字典序 Key:消息 `m:<room_id>:<room_seq>`、消息索引 `i:<room_id>:<msg_id>`、幂等 `d:<room_id>:<sender_id>:<client_msg_id>`、已读游标 `u:<room_id>:<user_id>`、置顶、表情、归档清单。
+- 大端字典序 Key:消息 `m:<room_id>:<room_seq>`、幂等 `d:<day>:<room_id>:<sender_id>:<client_msg_id>`(按天分桶、过期整桶删除)、已读游标 `u:<room_id>:<user_id>`、置顶 `P:<room_id>:<seq>`、表情 `R:<room_id>:<seq>:<user_id>:<emoji>`、归档清单。
 - 消息记录、room_seq、最新消息预览和幂等凭证在同一 Batch 提交;Pebble 同步提交成功后才返回 ACK。
 - PostgreSQL 只保存控制面;最新消息、预览、未读数和已读游标由客户端维护。已读回执游标写入房间归属节点的 Pebble,使用 `NoSync`,允许崩溃后由客户端重报。消息 ACK 和历史读取只依赖 Pebble,客户端通过 room_seq 补拉收敛。
 

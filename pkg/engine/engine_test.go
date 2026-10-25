@@ -53,17 +53,29 @@ func mustWriteMessage(t *testing.T, e *Engine, roomID, senderID uuid.UUID, paylo
 // messagesEqual compares Messages field by field; the struct itself is not
 // comparable because Payload and Ext are slices.
 func messagesEqual(a, b Message) bool {
-	return a.MsgID == b.MsgID && a.ClientMsgID == b.ClientMsgID && a.SenderID == b.SenderID &&
-		a.RoomID == b.RoomID && a.RoomSeq == b.RoomSeq && a.ServerTime == b.ServerTime &&
-		a.ReplyToMsgID == b.ReplyToMsgID && a.MsgType == b.MsgType &&
+	return a.SenderID == b.SenderID && a.RoomID == b.RoomID && a.RoomSeq == b.RoomSeq &&
+		a.ServerTime == b.ServerTime && a.ReplyToSeq == b.ReplyToSeq && a.MsgType == b.MsgType &&
 		string(a.Payload) == string(b.Payload) && string(a.Ext) == string(b.Ext)
+}
+
+// messageAt fetches one message by seq through the public read path, so
+// tests observe messages exactly the way callers do.
+func messageAt(ctx context.Context, e *Engine, room uuid.UUID, seq uint64) (Message, error) {
+	page, err := e.MessagesAfter(ctx, room, seq-1, 1)
+	if err != nil {
+		return Message{}, err
+	}
+	if len(page.Messages) == 0 {
+		return Message{}, ErrNotFound
+	}
+	return page.Messages[0], nil
 }
 
 func TestMessageCodec(t *testing.T) {
 	t.Run("round trip full record", func(t *testing.T) {
 		want := Message{
-			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
-			RoomSeq: 10, ServerTime: 456, ReplyToMsgID: uuid.NewV7(),
+			SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			RoomSeq: 10, ServerTime: 456, ReplyToSeq: 9,
 			MsgType: MsgTypeFile, Payload: jsontext.Value(`{"u":"x"}`), Ext: jsontext.Value(`{"e":1}`),
 		}
 		got, err := decodeMessage(encodeMessage(want))
@@ -76,7 +88,7 @@ func TestMessageCodec(t *testing.T) {
 	})
 	t.Run("round trip minimal record", func(t *testing.T) {
 		want := Message{
-			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
 			RoomSeq: 1, ServerTime: -1, MsgType: MsgTypeSystem, Payload: jsontext.Value(`{}`),
 		}
 		got, err := decodeMessage(encodeMessage(want))
@@ -89,7 +101,7 @@ func TestMessageCodec(t *testing.T) {
 	})
 	t.Run("truncated records rejected", func(t *testing.T) {
 		full := encodeMessage(Message{
-			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
 			RoomSeq: 1, ServerTime: 1, MsgType: MsgTypeText, Payload: jsontext.Value(`{}`),
 		})
 		for _, broken := range [][]byte{{}, full[:len(full)/2], append(full, 0)} {
@@ -99,7 +111,7 @@ func TestMessageCodec(t *testing.T) {
 		}
 	})
 	t.Run("dedup round trip", func(t *testing.T) {
-		want := dedup{MsgID: uuid.NewV7(), RoomSeq: 7, ServerTime: 42, PayloadSum: [32]byte{1, 2, 3}}
+		want := dedup{RoomSeq: 7, ServerTime: 42, PayloadSum: [32]byte{1, 2, 3}}
 		got, err := decodeDedup(appendDedup(nil, want))
 		if err != nil {
 			t.Fatal(err)
@@ -198,7 +210,7 @@ func TestEngineMessages(t *testing.T) {
 
 	t.Run("write assigns identity", func(t *testing.T) {
 		msg := mustWriteMessage(t, e, room, sender, "first")
-		if msg.RoomSeq != 1 || msg.MsgID == uuid.Nil() || msg.ServerTime == 0 {
+		if msg.RoomSeq != 1 || msg.ServerTime == 0 {
 			t.Fatalf("server did not stamp message: %+v", msg)
 		}
 		lastSeq, err := e.LastSeq(ctx, room)
@@ -228,7 +240,7 @@ func TestEngineMessages(t *testing.T) {
 			ClientMsgID: clientID, SenderID: sender, RoomID: room,
 			MsgType: MsgTypeText, Payload: jsontext.Value(`{"text":"same"}`),
 		})
-		if err != nil || retry.MsgID != first.MsgID || retry.RoomSeq != first.RoomSeq {
+		if err != nil || retry.RoomSeq != first.RoomSeq {
 			t.Fatalf("retry changed result: first=%+v retry=%+v err=%v", first, retry, err)
 		}
 		if _, err := e.WriteMessage(ctx, Message{
@@ -272,7 +284,7 @@ func TestEngineMessages(t *testing.T) {
 				t.Fatalf("batch result %d: %v", i, results[i].Err)
 			}
 		}
-		if results[0].Message.MsgID != results[1].Message.MsgID {
+		if results[0].Message.RoomSeq != results[1].Message.RoomSeq {
 			t.Fatalf("duplicate batch entries diverged: %+v vs %+v", results[0], results[1])
 		}
 		if results[2].Message.RoomSeq != results[0].Message.RoomSeq+1 {
@@ -365,12 +377,12 @@ func TestEngineMessages(t *testing.T) {
 		hit := mustWriteMessage(t, e, room, sender, "Needle Here")
 		mustWriteMessage(t, e, room, sender, "nothing special")
 		recalled := mustWriteMessage(t, e, room, sender, "NEEDLE to remove")
-		if _, err := e.RecallMessage(ctx, room, recalled.MsgID, sender, false); err != nil {
+		if _, err := e.RecallMessage(ctx, room, recalled.RoomSeq, sender, false); err != nil {
 			t.Fatal(err)
 		}
 
 		found, err := e.SearchRoomMessages(ctx, room, "  NEEDLE  ", 0, 10)
-		if err != nil || len(found) != 1 || found[0].MsgID != hit.MsgID {
+		if err != nil || len(found) != 1 || found[0].RoomSeq != hit.RoomSeq {
 			t.Fatalf("search: found=%+v err=%v", found, err)
 		}
 		if _, err := e.SearchRoomMessages(ctx, room, "", 0, 10); err != nil || len(found) != 1 {
@@ -378,13 +390,13 @@ func TestEngineMessages(t *testing.T) {
 		}
 	})
 
-	t.Run("message by id", func(t *testing.T) {
+	t.Run("message by seq", func(t *testing.T) {
 		msg := mustWriteMessage(t, e, room, sender, "byid")
-		got, err := e.MessageByID(ctx, room, msg.MsgID)
+		got, err := messageAt(ctx, e, room, msg.RoomSeq)
 		if err != nil || got.RoomSeq != msg.RoomSeq {
 			t.Fatalf("message by id: msg=%+v err=%v", got, err)
 		}
-		if _, err := e.MessageByID(ctx, room, uuid.NewV7()); !errors.Is(err, ErrNotFound) {
+		if _, err := messageAt(ctx, e, room, 1<<30); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("missing message error = %v, want %v", err, ErrNotFound)
 		}
 	})
@@ -394,7 +406,7 @@ func TestEngineMessages(t *testing.T) {
 		msg := mustWriteMessage(t, e, room, sender, "recall me")
 		outsider := uuid.NewV7()
 
-		if _, err := e.RecallMessage(ctx, room, msg.MsgID, outsider, false); !errors.Is(err, ErrForbidden) {
+		if _, err := e.RecallMessage(ctx, room, msg.RoomSeq, outsider, false); !errors.Is(err, ErrForbidden) {
 			t.Fatalf("outsider recall error = %v, want %v", err, ErrForbidden)
 		}
 		stale := mustWriteMessage(t, e, room, sender, "too old to recall")
@@ -404,7 +416,7 @@ func TestEngineMessages(t *testing.T) {
 		if _, err := e.RecallMessage(
 			ctx,
 			room,
-			stale.MsgID,
+			stale.RoomSeq,
 			sender,
 			false,
 		); !errors.Is(
@@ -413,18 +425,18 @@ func TestEngineMessages(t *testing.T) {
 		) {
 			t.Fatalf("stale recall error = %v, want %v", err, ErrRecallTimeout)
 		}
-		recalled, err := e.RecallMessage(ctx, room, stale.MsgID, outsider, true)
+		recalled, err := e.RecallMessage(ctx, room, stale.RoomSeq, outsider, true)
 		if err != nil || recalled.MsgType != MsgTypeRecall {
 			t.Fatalf("owner recall: msg=%+v err=%v", recalled, err)
 		}
-		again, err := e.RecallMessage(ctx, room, msg.MsgID, sender, false)
+		again, err := e.RecallMessage(ctx, room, msg.RoomSeq, sender, false)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err := e.RecallMessage(
 			ctx,
 			room,
-			msg.MsgID,
+			msg.RoomSeq,
 			sender,
 			false,
 		); err != nil ||
@@ -437,7 +449,7 @@ func TestEngineMessages(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i := range page.Messages {
-			if page.Messages[i].MsgID == msg.MsgID && page.Messages[i].MsgType != MsgTypeRecall {
+			if page.Messages[i].RoomSeq == msg.RoomSeq && page.Messages[i].MsgType != MsgTypeRecall {
 				t.Fatalf("recall not visible in tail cache: %+v", page.Messages[i])
 			}
 		}
@@ -669,7 +681,7 @@ func BenchmarkEngineRecall(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			if _, err := e.RecallMessage(context.Background(), room, message.MsgID, sender, false); err != nil {
+			if _, err := e.RecallMessage(context.Background(), room, message.RoomSeq, sender, false); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -726,7 +738,7 @@ func BenchmarkEngineReadWithReactions(b *testing.B) {
 				}
 				if i%tc.everyNth == 0 {
 					for _, user := range users {
-						if err := e.AddReaction(ctx, room, message.MsgID, user, "👍"); err != nil {
+						if err := e.AddReaction(ctx, room, message.RoomSeq, user, "👍"); err != nil {
 							b.Fatal(err)
 						}
 					}

@@ -134,10 +134,10 @@ func registerWork(
 		r.Get("/history", messageAPI.GetHistory)
 		r.Get("/search", messageAPI.Search)
 		r.Post("/recall", messageAPI.Recall)
-		r.Post("/{id}/reactions", messageAPI.AddReaction)
-		r.Delete("/{id}/reactions", messageAPI.RemoveReaction)
-		r.Get("/{id}/reactions", messageAPI.GetReactions)
-		r.Get("/{id}/read_users", messageAPI.GetReadUsers)
+		r.Post("/{seq}/reactions", messageAPI.AddReaction)
+		r.Delete("/{seq}/reactions", messageAPI.RemoveReaction)
+		r.Get("/{seq}/reactions", messageAPI.GetReactions)
+		r.Get("/{seq}/read_users", messageAPI.GetReadUsers)
 	})
 
 	r.Route("/rooms", func(r chi.Router) {
@@ -158,7 +158,7 @@ func registerWork(
 		r.Post("/{id}/read", conversationAPI.MarkRead)
 		r.Put("/{id}/clear_unread", conversationAPI.ClearUnread)
 		r.Post("/{id}/pins", roomAPI.PinMessage)
-		r.Delete("/{id}/pins/{msg_id}", roomAPI.UnpinMessage)
+		r.Delete("/{id}/pins/{seq}", roomAPI.UnpinMessage)
 		r.Get("/{id}/pins", roomAPI.GetPinnedMessages)
 	})
 

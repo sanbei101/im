@@ -26,7 +26,7 @@ type MessageAPI struct {
 // Every room-scoped route carries its room id in the path or as the room_id
 // query parameter; request bodies never carry routing fields.
 type RecallReq struct {
-	MsgID string `json:"msg_id" validate:"required,uuid"`
+	RoomSeq uint64 `json:"room_seq" validate:"required"`
 }
 
 type ReactionReq struct {
@@ -100,11 +100,6 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msgID, err := uuid.Parse(req.MsgID)
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid msg_id")
-		return
-	}
 
 	member, err := a.members.Member(r.Context(), roomID, userID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -116,7 +111,7 @@ func (a *MessageAPI) Recall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	recalled, err := a.store.RecallMessage(r.Context(), roomID, msgID, userID, isManager(member.Role))
+	recalled, err := a.store.RecallMessage(r.Context(), roomID, req.RoomSeq, userID, isManager(member.Role))
 	if err != nil {
 		switch {
 		case errors.Is(err, engine.ErrNotFound):
@@ -145,9 +140,8 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msgID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid message id")
+	seq, ok := seqFromPath(w, r)
+	if !ok {
 		return
 	}
 	req, err := render.ReadBody[ReactionReq](w, r)
@@ -166,11 +160,11 @@ func (a *MessageAPI) AddReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.AddReaction(r.Context(), roomID, msgID, userID, req.Emoji); err != nil {
+	if err := a.store.AddReaction(r.Context(), roomID, seq, userID, req.Emoji); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.notifyReaction(r.Context(), roomID, msgID)
+	a.notifyReaction(r.Context(), roomID, seq)
 	render.SuccessNoData(w, http.StatusOK, "添加表情表态成功")
 }
 
@@ -179,9 +173,8 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msgID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid message id")
+	seq, ok := seqFromPath(w, r)
+	if !ok {
 		return
 	}
 	userID, ok := requireUser(w, r)
@@ -197,26 +190,26 @@ func (a *MessageAPI) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.store.RemoveReaction(r.Context(), roomID, msgID, userID, emoji); err != nil {
+	if err := a.store.RemoveReaction(r.Context(), roomID, seq, userID, emoji); err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.notifyReaction(r.Context(), roomID, msgID)
+	a.notifyReaction(r.Context(), roomID, seq)
 	render.SuccessNoData(w, http.StatusOK, "取消表情表态成功")
 }
 
 // notifyReaction broadcasts the message's current reaction groups to the room.
-func (a *MessageAPI) notifyReaction(ctx context.Context, roomID, msgID uuid.UUID) {
+func (a *MessageAPI) notifyReaction(ctx context.Context, roomID uuid.UUID, seq uint64) {
 	if a.streamHandler == nil {
 		return
 	}
-	reactions, err := a.store.Reactions(ctx, roomID, msgID)
+	reactions, err := a.store.Reactions(ctx, roomID, seq)
 	if err != nil {
 		log.Error().Err(err).Str("room_id", roomID.String()).Msg("load reactions for notification failed")
 		return
 	}
 	a.streamHandler.NotifyRoom(ctx, roomID, uuid.Nil(), ReactionUpdated{
-		RoomID: roomID, MsgID: msgID, Reactions: reactions,
+		RoomID: roomID, RoomSeq: seq, Reactions: reactions,
 	})
 }
 
@@ -225,16 +218,15 @@ func (a *MessageAPI) GetReactions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msgID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid message id")
+	seq, ok := seqFromPath(w, r)
+	if !ok {
 		return
 	}
 	if !requireRoomMember(a.members, w, r, roomID) {
 		return
 	}
 
-	reactions, err := a.store.Reactions(r.Context(), roomID, msgID)
+	reactions, err := a.store.Reactions(r.Context(), roomID, seq)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -247,9 +239,8 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msgID, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		render.Error(w, http.StatusBadRequest, "invalid message id")
+	seq, ok := seqFromPath(w, r)
+	if !ok {
 		return
 	}
 	if !requireRoomMember(a.members, w, r, roomID) {
@@ -261,16 +252,11 @@ func (a *MessageAPI) GetReadUsers(w http.ResponseWriter, r *http.Request) {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	message, err := a.store.MessageByID(r.Context(), roomID, msgID)
-	if err != nil {
-		render.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	userIDs := make([]uuid.UUID, len(members))
 	for i := range members {
 		userIDs[i] = members[i].UserID
 	}
-	users, err := a.store.ReadUsers(r.Context(), roomID, message.RoomSeq, userIDs)
+	users, err := a.store.ReadUsers(r.Context(), roomID, seq, userIDs)
 	if err != nil {
 		render.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -325,6 +311,17 @@ func roomIDFromRequest(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool)
 		return uuid.Nil(), false
 	}
 	return roomID, true
+}
+
+// seqFromPath reads the message address shared by the seq-scoped endpoints:
+// the {seq} path parameter. Seqs are dense from 1, so 0 is never valid.
+func seqFromPath(w http.ResponseWriter, r *http.Request) (uint64, bool) {
+	seq, err := strconv.ParseUint(chi.URLParam(r, "seq"), 10, 64)
+	if err != nil || seq == 0 {
+		render.Error(w, http.StatusBadRequest, "invalid room_seq")
+		return 0, false
+	}
+	return seq, true
 }
 
 // parseSeq parses a pagination cursor (after_seq or before_seq); an empty

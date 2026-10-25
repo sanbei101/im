@@ -422,15 +422,13 @@ func BenchmarkGateway(b *testing.B) {
 
 		roomBatch := &pb.RoomPushBatch{
 			RoomPushes: []*pb.RoomPush{{
-				RoomId:      "bench-room",
-				RoomSeq:     1,
-				MsgId:       uuid.NewV7().String(),
-				SenderId:    uuid.NewV7().String(),
-				MsgType:     1,
-				Payload:     []byte(`{"text":"push benchmark"}`),
-				ServerTime:  1728000000000000,
-				ClientMsgId: uuid.NewV7().String(),
-				UserIds:     userIDs,
+				RoomId:     "bench-room",
+				RoomSeq:    1,
+				SenderId:   uuid.NewV7().String(),
+				MsgType:    1,
+				Payload:    []byte(`{"text":"push benchmark"}`),
+				ServerTime: 1728000000000000,
+				UserIds:    userIDs,
 			}},
 		}
 

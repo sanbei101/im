@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -205,7 +204,7 @@ func putResultChan(channel chan []MessageWriteResult) {
 type recallRequest struct {
 	ctx            context.Context
 	roomID         uuid.UUID
-	msgID          uuid.UUID
+	seq            uint64
 	operatorID     uuid.UUID
 	isOwnerOrAdmin bool
 	result         chan recallResult
@@ -258,6 +257,7 @@ func (e *Engine) writeMessageBatch(
 	var msgKeyBuf [messageKeyLen]byte
 	recBuf := e.scratch.record
 	roomBuf := e.scratch.room
+	day := dedupDay(time.Now())
 
 	for index := range messages {
 		if results[index].Err != nil {
@@ -290,19 +290,16 @@ func (e *Engine) writeMessageBatch(
 			replayDedup(&results[index], old, digests[index])
 			continue
 		}
-		dedupKeyBytes := appendDedupKey(dedupKeyBuf[:0], message.RoomID, message.SenderID, message.ClientMsgID)
-		if old, err := e.getRecord(dedupKeyBytes, decodeDedup); err == nil {
-			e.dedupCache.Set(lookup, old)
-			replayDedup(&results[index], old, digests[index])
-			continue
-		} else if !errors.Is(err, ErrNotFound) {
+		if old, found, err := e.findDedup(day, lookup); err != nil {
 			results[index].Err = err
+			continue
+		} else if found {
+			replayDedup(&results[index], old, digests[index])
 			continue
 		}
 
 		lastSeq++
 		results[index].Message.RoomSeq = lastSeq
-		results[index].Message.MsgID = uuid.NewV7()
 		results[index].Message.ServerTime = time.Now().UnixMicro()
 		lastSeqs[message.RoomID] = lastSeq
 		allocated = append(allocated, index)
@@ -313,20 +310,13 @@ func (e *Engine) writeMessageBatch(
 			results[index].Err = err
 			continue
 		}
-		var indexKeyBuf [msgIDIndexKeyLen]byte
-		indexKey := appendMsgIDIndexKey(indexKeyBuf[:0], message.RoomID, results[index].Message.MsgID)
-		var seqBytes [8]byte
-		binary.BigEndian.PutUint64(seqBytes[:], results[index].Message.RoomSeq)
-		if err := e.setBytes(batch, indexKey, seqBytes[:]); err != nil {
-			results[index].Err = errors.Join(fmt.Errorf("stage message index: %w", err), unstage(batch, msgKey))
-			continue
-		}
 		record := dedup{
-			MsgID: results[index].Message.MsgID, RoomSeq: results[index].Message.RoomSeq,
+			RoomSeq:    results[index].Message.RoomSeq,
 			ServerTime: results[index].Message.ServerTime, PayloadSum: digests[index],
 		}
+		dedupKeyBytes := appendDedupKey(dedupKeyBuf[:0], day, message.RoomID, message.SenderID, message.ClientMsgID)
 		if err := e.setBytes(batch, dedupKeyBytes, appendDedup(e.scratch.dedup[:], record)); err != nil {
-			results[index].Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(batch, msgKey, indexKey))
+			results[index].Err = errors.Join(fmt.Errorf("stage dedup: %w", err), unstage(batch, msgKey))
 			continue
 		}
 		dedupEntries = append(dedupEntries, dedupEntry{lookup: lookup, dedup: record})
@@ -390,6 +380,25 @@ func (e *Engine) loadLastSeq(room uuid.UUID, lastSeqs map[uuid.UUID]uint64) (uin
 	return seq, err
 }
 
+// findDedup probes the dedup buckets a retry can live in; a hit refreshes
+// the LRU cache.
+func (e *Engine) findDedup(today uint16, lookup dedupLookupKey) (dedup, bool, error) {
+	days, count := dedupProbeDays(lookup.client, today)
+	var keyBuf [dedupKeyLen]byte
+	for _, probe := range days[:count] {
+		key := appendDedupKey(keyBuf[:0], probe, lookup.room, lookup.sender, lookup.client)
+		record, err := e.getRecord(key, decodeDedup)
+		if err == nil {
+			e.dedupCache.Set(lookup, record)
+			return record, true, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return dedup{}, false, err
+		}
+	}
+	return dedup{}, false, nil
+}
+
 // messageDigest digests the idempotency-relevant content: a retry must match
 // on type, payload, ext, and reply target to replay. Runs on the single
 // writer goroutine, so the scratch buffer needs no locking.
@@ -399,8 +408,10 @@ func (e *Engine) messageDigest(message *Message) [32]byte {
 	input = append(input, message.Payload...)
 	input = append(input, 0)
 	input = append(input, message.Ext...)
-	if message.ReplyToMsgID != uuid.Nil() {
-		input = append(input, message.ReplyToMsgID[:]...)
+	if message.ReplyToSeq != 0 {
+		var seqBytes [8]byte
+		putU64(seqBytes[:], message.ReplyToSeq)
+		input = append(input, seqBytes[:]...)
 	}
 	e.scratch.digest = input
 	return sha256.Sum256(input)
@@ -413,7 +424,6 @@ func replayDedup(result *MessageWriteResult, old dedup, digest [32]byte) {
 		result.Err = ErrConflict
 		return
 	}
-	result.Message.MsgID = old.MsgID
 	result.Message.RoomSeq = old.RoomSeq
 	result.Message.ServerTime = old.ServerTime
 }
@@ -428,12 +438,4 @@ func unstage(batch *pebble.Batch, keys ...[]byte) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// forgetDedup drops the dedup cache entries of archived messages: their
-// backing records left Pebble with the bodies.
-func (e *Engine) forgetDedup(roomID uuid.UUID, messages []Message) {
-	for i := range messages {
-		e.dedupCache.Delete(dedupLookupKey{room: roomID, sender: messages[i].SenderID, client: messages[i].ClientMsgID})
-	}
 }

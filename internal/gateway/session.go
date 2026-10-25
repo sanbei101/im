@@ -143,7 +143,7 @@ func (c *UserClient) handleFrame(ctx context.Context, r io.Reader) error {
 	message := &pb.SendMessage{
 		RequestId: requestID, ClientMsgId: input.ClientMsgID, SenderId: c.UserID.String(),
 		RoomId: input.RoomID, MsgType: int32(msgType), Payload: input.Payload, Ext: input.Ext,
-		ReplyToMsgId: input.ReplyToMsgID,
+		ReplyToSeq: input.ReplyToSeq,
 	}
 	c.gateway.TouchRoomUser(roomID.String(), c.UserID)
 	c.gateway.StorePending(requestID, c)

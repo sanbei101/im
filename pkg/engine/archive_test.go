@@ -65,9 +65,9 @@ func TestEngineArchive(t *testing.T) {
 				t.Fatalf("mixed tier page broken at %d: seq=%d want %d", i, msg.RoomSeq, want)
 			}
 		}
-		cold, err := e.MessageByID(ctx, room, written[0].MsgID)
+		cold, err := messageAt(ctx, e, room, written[0].RoomSeq)
 		if err != nil || cold.RoomSeq != written[0].RoomSeq || cold.SenderID != sender {
-			t.Fatalf("archived message by id: msg=%+v err=%v", cold, err)
+			t.Fatalf("archived message by seq: msg=%+v err=%v", cold, err)
 		}
 
 		// MaxMessages bounds every cycle to 4: the second cycle archives
@@ -86,7 +86,7 @@ func TestEngineArchive(t *testing.T) {
 		}
 
 		// The body left Pebble: nobody can recall it, not even an owner.
-		if _, err := e.RecallMessage(ctx, room, written[3].MsgID, sender, true); !errors.Is(err, ErrRecallTimeout) {
+		if _, err := e.RecallMessage(ctx, room, written[3].RoomSeq, sender, true); !errors.Is(err, ErrRecallTimeout) {
 			t.Fatalf("recall of archived message error = %v, want %v", err, ErrRecallTimeout)
 		}
 	})
@@ -122,8 +122,8 @@ func TestEngineArchive(t *testing.T) {
 				t.Fatalf("cold payload lost at seq %d", msg.RoomSeq)
 			}
 		}
-		cold, err := reopened.MessageByID(ctx, room, written[0].MsgID)
-		if err != nil || cold.MsgID != written[0].MsgID {
+		cold, err := messageAt(ctx, reopened, room, written[0].RoomSeq)
+		if err != nil || cold.RoomSeq != written[0].RoomSeq {
 			t.Fatalf("cold by-id after restart: msg=%+v err=%v", cold, err)
 		}
 		// New writes continue the sequence where the old engine left off.
@@ -147,12 +147,13 @@ func TestEngineArchive(t *testing.T) {
 		}
 
 		// Reopened without ArchiveDir: the tier is not wired up, so archived
-		// bodies stay gone and warm history still works.
+		// bodies stay gone and warm history still works. The read path reports
+		// the misconfigured tier; recall reports the missing message.
 		bare := openTestEngine(t, dir+"/engine")
-		if _, err := bare.MessageByID(ctx, room, msg.MsgID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("archived message without dir error = %v, want %v", err, ErrNotFound)
+		if _, err := messageAt(ctx, bare, room, msg.RoomSeq); err == nil {
+			t.Fatal("archived message resolved without an archive dir")
 		}
-		if _, err := bare.RecallMessage(ctx, room, msg.MsgID, sender, false); !errors.Is(err, ErrNotFound) {
+		if _, err := bare.RecallMessage(ctx, room, msg.RoomSeq, sender, false); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("recall without dir error = %v, want %v", err, ErrNotFound)
 		}
 		if err := bare.ArchiveOnce(ctx, instantArchive(10)); err == nil {
@@ -190,7 +191,7 @@ func BenchmarkArchiveParquetCodec(b *testing.B) {
 	rows := make([]ParquetMessage, 2000)
 	for i := range rows {
 		rows[i] = newParquetMessage(&Message{
-			MsgID: uuid.NewV7(), ClientMsgID: uuid.NewV7(), SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
+			SenderID: uuid.NewV7(), RoomID: uuid.NewV7(),
 			RoomSeq: uint64(i + 1), ServerTime: int64(i), MsgType: MsgTypeText,
 			Payload: jsontext.Value(`{"text":"parquet archive benchmark payload"}`),
 		})
@@ -245,12 +246,12 @@ func BenchmarkEngineArchivedRead(b *testing.B) {
 			}
 		}
 	})
-	b.Run("by-id", func(b *testing.B) {
-		target := messages[500].MsgID
+	b.Run("by-seq", func(b *testing.B) {
+		target := messages[500].RoomSeq
 		b.ResetTimer()
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := e.MessageByID(ctx, room, target); err != nil {
+			if _, err := messageAt(ctx, e, room, target); err != nil {
 				b.Fatal(err)
 			}
 		}

@@ -12,13 +12,13 @@ import (
 	"github.com/cockroachdb/pebble"
 )
 
-// Reactions live in empty-value keys R:<room>:<msg>:<user>:<emoji>. Each
+// Reactions live in empty-value keys R:<room>:<seq>:<user>:<emoji>. Each
 // reaction is one tiny key insert: concurrent reactors never touch the same
 // key, a reaction never rewrites the (potentially kilobytes-large) message
 // record, and reactions stay mutable forever even after the message body has
 // been frozen into the immutable parquet archive. The key IS the record.
 
-func (e *Engine) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
+func (e *Engine) AddReaction(ctx context.Context, roomID uuid.UUID, seq uint64, userID uuid.UUID, emoji string) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
@@ -29,14 +29,20 @@ func (e *Engine) AddReaction(ctx context.Context, roomID, msgID, userID uuid.UUI
 	batch := e.db.NewBatch()
 	defer batch.Close()
 
-	key := appendReactionKey(nil, roomID, msgID, userID, emoji)
+	key := appendReactionKey(nil, roomID, seq, userID, emoji)
 	if err := e.setBytes(batch, key, []byte{}); err != nil {
 		return err
 	}
 	return commit(batch)
 }
 
-func (e *Engine) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.UUID, emoji string) error {
+func (e *Engine) RemoveReaction(
+	ctx context.Context,
+	roomID uuid.UUID,
+	seq uint64,
+	userID uuid.UUID,
+	emoji string,
+) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
@@ -44,7 +50,7 @@ func (e *Engine) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.
 	batch := e.db.NewBatch()
 	defer batch.Close()
 
-	key := appendReactionKey(nil, roomID, msgID, userID, emoji)
+	key := appendReactionKey(nil, roomID, seq, userID, emoji)
 	if err := batch.Delete(key, nil); err != nil {
 		return err
 	}
@@ -52,13 +58,13 @@ func (e *Engine) RemoveReaction(ctx context.Context, roomID, msgID, userID uuid.
 }
 
 // Reactions returns one message's reaction groups, largest group first.
-func (e *Engine) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]ReactionGroup, error) {
+func (e *Engine) Reactions(ctx context.Context, roomID uuid.UUID, seq uint64) ([]ReactionGroup, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
 
 	var prefixBuf [reactionPrefixLen]byte
-	prefix := appendReactionPrefix(prefixBuf[:0], roomID, msgID)
+	prefix := appendReactionPrefix(prefixBuf[:0], roomID, seq)
 	var upBuf [reactionPrefixLen + 1]byte
 	upperBound := prefixUpperBoundBuf(upBuf[:0], prefix)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBound})
@@ -71,7 +77,7 @@ func (e *Engine) Reactions(ctx context.Context, roomID, msgID uuid.UUID) ([]Reac
 }
 
 // populateReactions attaches each page message's reaction groups. One
-// iterator serves the whole page and the messages are visited in msg_id
+// iterator serves the whole page and the messages are visited in seq
 // order, so every seek moves forward: the cost tracks what the page shows,
 // not what the room accumulated over its lifetime. A room without a single
 // reaction key is answered by one probe.
@@ -101,12 +107,12 @@ func (e *Engine) populateReactions(ctx context.Context, roomID uuid.UUID, messag
 		order[i] = i
 	}
 	slices.SortFunc(order, func(a, b int) int {
-		return bytes.Compare(messages[a].MsgID[:], messages[b].MsgID[:])
+		return cmp.Compare(messages[a].RoomSeq, messages[b].RoomSeq)
 	})
 
 	var prefixBuf [reactionPrefixLen]byte
 	for _, i := range order {
-		prefix := appendReactionPrefix(prefixBuf[:0], roomID, messages[i].MsgID)
+		prefix := appendReactionPrefix(prefixBuf[:0], roomID, messages[i].RoomSeq)
 		if groups := reactionGroups(iter, prefix); len(groups) > 0 {
 			messages[i].Reactions = groups
 		}

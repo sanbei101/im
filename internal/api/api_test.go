@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -394,9 +395,8 @@ func TestStreamHandler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := duplicate.GetResults()[0]; got.GetMsgId() != first.GetMsgId() ||
-			got.GetRoomSeq() != first.GetRoomSeq() {
-			t.Fatalf("duplicate result = %+v, want msg_id=%s seq=%d", got, first.GetMsgId(), first.GetRoomSeq())
+		if got := duplicate.GetResults()[0]; got.GetRoomSeq() != first.GetRoomSeq() {
+			t.Fatalf("duplicate result = %+v, want seq=%d", got, first.GetRoomSeq())
 		}
 
 		conflictInput := *input
@@ -646,11 +646,11 @@ func TestRoomHTTP(t *testing.T) {
 			"/api/v1/messages/history?room_id="+roomID.String()+"&page_size=10", bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
 		page := decodeResponse[engine.MessagePage](t, recorder)
-		if len(page.Data.Messages) != 1 || page.Data.Messages[0].MsgID != message.MsgID {
+		if len(page.Data.Messages) != 1 || page.Data.Messages[0].RoomSeq != message.RoomSeq {
 			t.Fatalf("history = %+v", page.Data.Messages)
 		}
 
-		reactionPath := "/api/v1/messages/" + message.MsgID.String() + "/reactions"
+		reactionPath := "/api/v1/messages/" + strconv.FormatUint(message.RoomSeq, 10) + "/reactions"
 		recorder = doRequest(t, env.handler, http.MethodPost, reactionPath+"?room_id="+roomID.String(), bobToken,
 			jsonBody(t, ReactionReq{Emoji: "👍"}))
 		requireStatus(t, recorder, http.StatusOK)
@@ -683,8 +683,17 @@ func TestRoomHTTP(t *testing.T) {
 			t.Fatalf("read seq = %d, want %d; err=%v", readSeq, message.RoomSeq, err)
 		}
 
-		recorder = doRequest(t, env.handler, http.MethodGet,
-			"/api/v1/messages/"+message.MsgID.String()+"/read_users?room_id="+roomID.String(), bobToken, nil)
+		recorder = doRequest(
+			t,
+			env.handler,
+			http.MethodGet,
+			"/api/v1/messages/"+strconv.FormatUint(
+				message.RoomSeq,
+				10,
+			)+"/read_users?room_id="+roomID.String(),
+			bobToken,
+			nil,
+		)
 		requireStatus(t, recorder, http.StatusOK)
 		readUsers := decodeResponse[ReadUsersResp](t, recorder)
 		if readUsers.Data.Count != 1 || len(readUsers.Data.ReadUserIDs) != 1 ||
@@ -766,7 +775,7 @@ func TestRoomHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		messagePath := "/api/v1/messages/" + message.MsgID.String()
+		messagePath := "/api/v1/messages/" + strconv.FormatUint(message.RoomSeq, 10)
 
 		recorder := doRequest(t, env.handler, http.MethodGet,
 			messagePath+"/read_users?room_id="+room.RoomID.String(), bobToken, nil)
@@ -780,7 +789,7 @@ func TestRoomHTTP(t *testing.T) {
 			"/api/v1/messages/search?room_id="+room.RoomID.String()+"&keyword=hello", aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
 		found := decodeResponse[[]engine.Message](t, recorder)
-		if len(found.Data) != 1 || found.Data[0].MsgID != message.MsgID {
+		if len(found.Data) != 1 || found.Data[0].RoomSeq != message.RoomSeq {
 			t.Fatalf("search results = %+v", found.Data)
 		}
 
@@ -801,22 +810,22 @@ func TestRoomHTTP(t *testing.T) {
 
 		recorder = doRequest(t, env.handler, http.MethodPost,
 			"/api/v1/rooms/"+room.RoomID.String()+"/pins", aliceToken,
-			jsonBody(t, PinReq{MsgID: message.MsgID.String()}))
+			jsonBody(t, PinReq{RoomSeq: message.RoomSeq}))
 		requireStatus(t, recorder, http.StatusOK)
 		recorder = doRequest(t, env.handler, http.MethodGet,
 			"/api/v1/rooms/"+room.RoomID.String()+"/pins", bobToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
 		pins := decodeResponse[[]engine.Message](t, recorder)
-		if len(pins.Data) != 1 || pins.Data[0].MsgID != message.MsgID {
+		if len(pins.Data) != 1 || pins.Data[0].RoomSeq != message.RoomSeq {
 			t.Fatalf("pins = %+v", pins.Data)
 		}
 		recorder = doRequest(t, env.handler, http.MethodDelete,
-			"/api/v1/rooms/"+room.RoomID.String()+"/pins/"+message.MsgID.String(), aliceToken, nil)
+			"/api/v1/rooms/"+room.RoomID.String()+"/pins/"+strconv.FormatUint(message.RoomSeq, 10), aliceToken, nil)
 		requireStatus(t, recorder, http.StatusOK)
 
 		recorder = doRequest(t, env.handler, http.MethodPost,
 			"/api/v1/messages/recall?room_id="+room.RoomID.String(), aliceToken,
-			jsonBody(t, RecallReq{MsgID: message.MsgID.String()}))
+			jsonBody(t, RecallReq{RoomSeq: message.RoomSeq}))
 		requireStatus(t, recorder, http.StatusOK)
 		recalled := decodeResponse[engine.Message](t, recorder)
 		if recalled.Data.MsgType != engine.MsgTypeRecall {
@@ -1157,8 +1166,17 @@ func BenchmarkAPIAddReaction(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for b.Loop() {
-		recorder := doRequest(b, env.handler, http.MethodPost,
-			"/api/v1/messages/"+message.MsgID.String()+"/reactions?room_id="+room.RoomID.String(), bobToken, body)
+		recorder := doRequest(
+			b,
+			env.handler,
+			http.MethodPost,
+			"/api/v1/messages/"+strconv.FormatUint(
+				message.RoomSeq,
+				10,
+			)+"/reactions?room_id="+room.RoomID.String(),
+			bobToken,
+			body,
+		)
 		if recorder.Code != http.StatusOK {
 			b.Fatalf("add reaction: %d %s", recorder.Code, recorder.Body.String())
 		}

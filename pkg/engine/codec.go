@@ -79,21 +79,23 @@ func ParseMsgType(value string) (MsgType, error) {
 	return 0, fmt.Errorf("invalid msg_type %q", value)
 }
 
-// Message is one committed room message. Payload and Ext are raw JSON
-// carried opaquely; RoomSeq is the room's dense commit order and the only
-// pagination cursor.
+// Message is one committed room message, addressed by its room and dense
+// RoomSeq - the room's commit order, the only pagination cursor, and the only
+// message identity. Payload and Ext are raw JSON carried opaquely.
 type Message struct {
-	MsgID        uuid.UUID       `json:"msg_id"`
-	ClientMsgID  uuid.UUID       `json:"client_msg_id"`
-	SenderID     uuid.UUID       `json:"sender_id"`
-	RoomID       uuid.UUID       `json:"room_id"`
-	RoomSeq      uint64          `json:"room_seq"`
-	ServerTime   int64           `json:"server_time"`
-	ReplyToMsgID uuid.UUID       `json:"reply_to_msg_id,omitzero"`
-	MsgType      MsgType         `json:"msg_type"`
-	Payload      jsontext.Value  `json:"payload,omitzero"`
-	Ext          jsontext.Value  `json:"ext,omitzero"`
-	Reactions    []ReactionGroup `json:"reactions,omitempty"`
+	SenderID   uuid.UUID       `json:"sender_id"`
+	RoomID     uuid.UUID       `json:"room_id"`
+	RoomSeq    uint64          `json:"room_seq"`
+	ServerTime int64           `json:"server_time"`
+	ReplyToSeq uint64          `json:"reply_to_seq,omitzero"`
+	MsgType    MsgType         `json:"msg_type"`
+	Payload    jsontext.Value  `json:"payload,omitzero"`
+	Ext        jsontext.Value  `json:"ext,omitzero"`
+	Reactions  []ReactionGroup `json:"reactions,omitempty"`
+
+	// ClientMsgID is the sender's idempotency key on the write path only; it
+	// is never persisted, so read paths return it zero.
+	ClientMsgID uuid.UUID `json:"client_msg_id,omitzero"`
 }
 
 func (m Message) MarshalJSONTo(enc *jsontext.Encoder) error {
@@ -122,17 +124,17 @@ type MessagePage struct {
 }
 
 // dedup is the idempotency record of room_id+sender_id+client_msg_id: the
-// identity a retry replays and the digest a conflicting payload violates.
+// committed identity a retry replays and the digest a conflicting payload
+// violates.
 type dedup struct {
-	MsgID      uuid.UUID
 	RoomSeq    uint64
 	ServerTime int64
 	PayloadSum [32]byte
 }
 
-// dedupRecordLen is the fixed encoded size of a dedup record: UUID, seq,
-// time, and digest.
-const dedupRecordLen = 16 + 8 + 8 + 32
+// dedupRecordLen is the fixed encoded size of a dedup record: seq, time,
+// and digest.
+const dedupRecordLen = 8 + 8 + 32
 
 func encodeMessage(message Message) []byte {
 	return appendMessage(nil, message)
@@ -142,20 +144,14 @@ func encodeMessage(message Message) []byte {
 // Pebble copies the record on batch.Set.
 func appendMessage(data []byte, message Message) []byte {
 	var number [8]byte
-	data = putUUID(data, message.MsgID)
-	data = putUUID(data, message.ClientMsgID)
 	data = putUUID(data, message.SenderID)
 	data = putUUID(data, message.RoomID)
 	putU64(number[:], message.RoomSeq)
 	data = append(data, number[:]...)
 	putI64(number[:], message.ServerTime)
 	data = append(data, number[:]...)
-	if message.ReplyToMsgID != uuid.Nil() {
-		data = append(data, 1)
-		data = putUUID(data, message.ReplyToMsgID)
-	} else {
-		data = append(data, 0)
-	}
+	putU64(number[:], message.ReplyToSeq)
+	data = append(data, number[:]...)
 	data = append(data, byte(message.MsgType))
 	return appendBytes(appendBytes(data, message.Payload), message.Ext)
 }
@@ -163,17 +159,13 @@ func appendMessage(data []byte, message Message) []byte {
 func decodeMessage(data []byte) (Message, error) {
 	d := decoder{data: data}
 	message := Message{
-		MsgID:       d.uuid(),
-		ClientMsgID: d.uuid(),
-		SenderID:    d.uuid(),
-		RoomID:      d.uuid(),
-		RoomSeq:     d.u64(),
-		ServerTime:  d.i64(),
+		SenderID:   d.uuid(),
+		RoomID:     d.uuid(),
+		RoomSeq:    d.u64(),
+		ServerTime: d.i64(),
+		ReplyToSeq: d.u64(),
+		MsgType:    MsgType(d.byte()),
 	}
-	if d.byte() == 1 {
-		message.ReplyToMsgID = d.uuid()
-	}
-	message.MsgType = MsgType(d.byte())
 	message.Payload = d.bytes()
 	message.Ext = d.bytes()
 	if err := d.check("message"); err != nil {
@@ -196,7 +188,6 @@ func ownedMessage(m Message) Message {
 // pass a stack buffer and allocate nothing.
 func appendDedup(data []byte, value dedup) []byte {
 	var number [8]byte
-	data = putUUID(data, value.MsgID)
 	putU64(number[:], value.RoomSeq)
 	data = append(data, number[:]...)
 	putI64(number[:], value.ServerTime)
@@ -206,11 +197,7 @@ func appendDedup(data []byte, value dedup) []byte {
 
 func decodeDedup(data []byte) (dedup, error) {
 	d := decoder{data: data}
-	value := dedup{
-		MsgID:      d.uuid(),
-		RoomSeq:    d.u64(),
-		ServerTime: d.i64(),
-	}
+	value := dedup{RoomSeq: d.u64(), ServerTime: d.i64()}
 	copy(value.PayloadSum[:], d.fixed(len(value.PayloadSum)))
 	if err := d.check("dedup"); err != nil {
 		return dedup{}, err
