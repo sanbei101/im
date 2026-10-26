@@ -1,5 +1,7 @@
 # Go IM
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/sanbei101/im?utm_source=badge)
+
 一个使用 Go、Pebble 和固定逻辑槽分片的即时通讯服务。
 
 ## 架构
